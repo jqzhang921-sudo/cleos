@@ -66,6 +66,11 @@ object MemoryKinds {
      * [MemoryDigest.LETTER_DETAILS].
      */
     const val DETAILS = 30
+
+    /** What a topic's line may hold, and what one detail may: the same bounds whoever writes them. */
+    const val NAME_MAX = 30
+    const val SUMMARY_MAX = 120
+    const val DETAIL_MAX = 300
 }
 
 /**
@@ -273,9 +278,10 @@ class MemoryBook(private val dao: MemoryDao, private val clock: () -> Long) {
     }.filter { it.isNotEmpty() }.map { it.take(DETAIL_MAX) }
 
     private companion object {
-        const val NAME_MAX = 30
-        const val SUMMARY_MAX = 120
-        const val DETAIL_MAX = 300
+        // The bounds live on MemoryKinds: an import writes under the same ones.
+        const val NAME_MAX = MemoryKinds.NAME_MAX
+        const val SUMMARY_MAX = MemoryKinds.SUMMARY_MAX
+        const val DETAIL_MAX = MemoryKinds.DETAIL_MAX
     }
 }
 

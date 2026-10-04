@@ -97,10 +97,22 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
         val id = ta?.id
         if (uri != null && id != null) {
             importing = true
+            note = null
             scope.launch {
                 note = try {
-                    val (added, details) = c.imports.importForeignMemories(uri, id)
-                    if (added == 0 && details == 0) "都有了，没有要导入的。" else "导入了：新加 $added 件事，$details 条细节。"
+                    val r = c.imports.importForeignMemories(uri, id)
+                    buildString {
+                        if (r.added == 0 && r.details == 0 && r.skipped == 0) {
+                            append("都有了，没有要导入的。")
+                        } else {
+                            append("导入了：新加 ${r.added} 件事")
+                            if (r.details > 0) append("，${r.details} 条细节")
+                            append("。")
+                        }
+                        if (r.skipped > 0) {
+                            append("还有 ${r.skipped} 条没进来：一类最多 ${MemoryKinds.PER_KIND} 件，先在记忆里把同类的合并或删掉一些，再导一次。")
+                        }
+                    }
                 } catch (e: ImportException) {
                     e.message
                 } catch (e: Exception) {
@@ -184,7 +196,7 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "导入第三方记忆：认 JSON（[\"记忆\", …] 或 [{name,summary,details}] 或 {memories:[…]}）和纯文本 / Markdown（一段一条，或 - 列表；「标题: 内容」拆成名字和内容）。导进当前 TA，同名的合并。",
+                            "从别的地方搬记忆过来：选一个文件，JSON、纯文本、Markdown 都认（一段或一行一件，「名字: 内容」拆成两半）。导进的是当前这个 TA；同名的并进已有那件，缺的细节补上，这边已有的不动。",
                             color = palette.contentSecondary,
                             fontSize = 12.sp,
                             lineHeight = 18.sp,

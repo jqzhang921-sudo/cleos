@@ -40,6 +40,9 @@ data class ImportedConversation(
 
 data class ImportedDiary(val day: Long, val text: String, val at: Long)
 
+/** What a memory import brought in: topics added, details added, and topics left out because their kind was full. */
+data class MemoryImport(val added: Int, val details: Int, val skipped: Int = 0)
+
 /** A topic the model had noted about the person there, with all its details. */
 data class ImportedMemory(
     val kind: String,
@@ -301,8 +304,13 @@ object ForeignMemory {
     fun parse(text: String): List<ImportedMemory> {
         val body = text.trim()
         if (body.isEmpty()) throw ImportException("文件是空的")
+        // Only an array or an object is a JSON memory file. Anything else the reader makes of the
+        // text — a line of words with no punctuation parses as a bare literal — is plain text.
         val json = runCatching { Json.parseToJsonElement(body) }.getOrNull()
-        val items = if (json != null) fromJson(json) else fromText(body)
+        val items = when (json) {
+            is JsonArray, is JsonObject -> fromJson(json)
+            else -> fromText(body)
+        }
         if (items.isEmpty()) throw ImportException("没读出来记忆：文件里没有能当成记忆的条目")
         return items
     }
@@ -325,14 +333,12 @@ object ForeignMemory {
             if (name.isNullOrBlank() && summary.isNullOrBlank() && details.isEmpty()) {
                 null
             } else {
-                ImportedMemory(
+                topic(
                     kind = MemoryKinds.of(key(e, KIND_KEYS)?.lowercase())?.key ?: "profile",
-                    name = name?.trim().orEmpty().ifEmpty { (summary ?: "").trim().take(NAME_FROM_SUMMARY) },
-                    summary = summary?.trim().orEmpty().ifEmpty { name?.trim().orEmpty() },
+                    name = name.orEmpty(),
+                    summary = summary.orEmpty(),
                     details = details,
                     pinned = (e["pinned"] as? JsonPrimitive)?.booleanOrNull == true,
-                    createdAt = 0L,
-                    updatedAt = 0L,
                 )
             }
         }
@@ -352,9 +358,40 @@ object ForeignMemory {
     /** One plain line: "名字: 内容" splits into a name and a summary, anything else is its own. */
     private fun plain(s: String): ImportedMemory {
         val m = SPLIT.find(s.trim())
-        val name = m?.groupValues?.get(1)?.trim().orEmpty().ifEmpty { s.trim().take(NAME_FROM_SUMMARY) }
-        val summary = m?.groupValues?.get(2)?.trim().orEmpty().ifEmpty { s.trim() }
-        return ImportedMemory("profile", name, summary, emptyList(), false, 0L, 0L)
+        val name = m?.groupValues?.get(1)?.trim().orEmpty()
+        val summary = m?.groupValues?.get(2)?.trim().orEmpty()
+        return topic("profile", name, summary.ifEmpty { name.ifEmpty { s.trim() } })
+    }
+
+    /**
+     * One topic, cut to what the memory keeps: a name of [MemoryKinds.NAME_MAX], a summary of
+     * [MemoryKinds.SUMMARY_MAX], details of [MemoryKinds.DETAILS] at [MemoryKinds.DETAIL_MAX] each.
+     * The summary is the one line the TA reads with every message, so what a file's paragraph
+     * holds past it is kept as details rather than lost.
+     */
+    private fun topic(
+        kind: String,
+        name: String,
+        summary: String,
+        details: List<String> = emptyList(),
+        pinned: Boolean = false,
+    ): ImportedMemory {
+        val n = name.trim().take(MemoryKinds.NAME_MAX)
+        val whole = summary.trim()
+        val s = whole.take(MemoryKinds.SUMMARY_MAX)
+        val extra = if (whole.length > MemoryKinds.SUMMARY_MAX) whole.chunked(MemoryKinds.DETAIL_MAX) else emptyList()
+        return ImportedMemory(
+            kind = kind,
+            name = n.ifEmpty { s.take(NAME_FROM_SUMMARY) },
+            summary = s.ifEmpty { n },
+            details = (extra + details)
+                .filter { it.isNotBlank() }
+                .map { it.trim().take(MemoryKinds.DETAIL_MAX) }
+                .take(MemoryKinds.DETAILS),
+            pinned = pinned,
+            createdAt = 0L,
+            updatedAt = 0L,
+        )
     }
 
     /** Plain text / Markdown: blank lines and bullets split topics, the rest joins into one. */
@@ -476,30 +513,44 @@ class ForeignImport(
     }
 
     /** Brings memory in from any third-party file: nothing already here is touched. */
-    suspend fun importForeignMemories(uri: Uri, companionId: Long): Pair<Int, Int> = withContext(Dispatchers.IO) {
+    suspend fun importForeignMemories(uri: Uri, companionId: Long): MemoryImport = withContext(Dispatchers.IO) {
         val bytes = resolver.openInputStream(uri)?.use { readAtMost(it, MAX_BYTES) } ?: throw ImportException("打不开这个文件")
         val imported = ForeignMemory.parse(bytes.decodeToString())
         var added = 0
         var details = 0
+        var skipped = 0
         val now = System.currentTimeMillis()
         db.withTransaction {
-            val have = db.memories().allFor(companionId)
+            val have = db.memories().allFor(companionId).toMutableList()
+            // Every topic's line goes with every message, so a kind holds [MemoryKinds.PER_KIND] of
+            // them and no more, the same as when the TA remembers something itself: what is over
+            // is left out, and said so, rather than quietly making every message longer.
+            val room = MemoryKinds.all.associate { kind -> kind.key to (MemoryKinds.PER_KIND - have.count { it.kind == kind.key }).coerceAtLeast(0) }.toMutableMap()
             for (m in imported) {
                 val same = have.firstOrNull { it.name.trim() == m.name.trim() }
                 if (same == null) {
-                    db.memories().insert(m.entity(companionId, now))
+                    if ((room[m.kind] ?: 0) <= 0) {
+                        skipped++
+                        continue
+                    }
+                    room[m.kind] = (room[m.kind] ?: 1) - 1
+                    val entity = m.entity(companionId, now)
+                    // Kept in [have] as well, so a file naming the same topic twice makes one.
+                    have += entity.copy(id = db.memories().insert(entity))
                     added++
                     continue
                 }
                 val old = MemoryDetails.decode(same.details)
                 val merged = (old + m.details.filter { it !in old }).take(MemoryKinds.DETAILS)
                 if (merged.size > old.size) {
-                    db.memories().update(same.copy(details = MemoryDetails.encode(merged), updatedAt = maxOf(same.updatedAt, m.updatedAt)))
+                    // Filling in isn't news: the topic keeps the date it was last noted. A third-party
+                    // file says nothing about when it was noted, so there is no newer date to take.
+                    db.memories().update(same.copy(details = MemoryDetails.encode(merged)))
                     details += merged.size - old.size
                 }
             }
         }
-        added to details
+        MemoryImport(added, details, skipped)
     }
 
     private fun ImportedMemory.entity(companionId: Long, now: Long) = MemoryEntity(
