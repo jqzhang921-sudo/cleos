@@ -72,27 +72,8 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
     val memories by remember(ta?.id) { ta?.let { c.db.memories().observeFor(it.id) } ?: flowOf(emptyList()) }
         .collectAsStateWithLifecycle(emptyList())
     val name = ta?.name?.trim()?.ifEmpty { null } ?: "TA"
-    var message by remember { mutableStateOf<String?>(null) }
-    var filling by remember { mutableStateOf(false) }
     var importing by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        val id = ta?.id
-        if (uri != null && id != null) {
-            filling = true
-            scope.launch {
-                message = try {
-                    val (added, details) = c.imports.fillMemories(uri, id)
-                    if (added == 0 && details == 0) "都有了，没有要补的。" else "补上了：新加 $added 件事，$details 条细节。"
-                } catch (e: ImportException) {
-                    e.message
-                } catch (e: Exception) {
-                    "出错了：${e.message ?: e.javaClass.simpleName}"
-                }
-                filling = false
-            }
-        }
-    }
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         val id = ta?.id
         if (uri != null && id != null) {
@@ -162,31 +143,6 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                     )
                 }
                 items(list, key = { it.id }) { m -> MemoryCard(m) { onOpen(m.id) } }
-            }
-            item(key = "fill") {
-                GlassSurface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = GlassShape.Rounded(22.dp),
-                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(
-                            "从 phone_ai_assistant 搬过来的 TA，当初带过来的记忆细节不全。选那边导出的备份，缺的会补上，已有的不动。",
-                            color = palette.contentSecondary,
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                        )
-                        Box(
-                            Modifier
-                                .background(palette.content.copy(alpha = 0.07f), CircleShape)
-                                .clickable(interactionSource = null, indication = null) { if (!filling) picker.launch(arrayOf("*/*")) }
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                        ) {
-                            Text(if (filling) "正在补…" else "从备份补上记忆", color = palette.content, fontSize = 14.sp)
-                        }
-                        message?.let { Text(it, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }
-                    }
-                }
             }
             item(key = "foreign") {
                 GlassSurface(

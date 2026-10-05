@@ -259,7 +259,7 @@ internal fun LookPage(vm: SettingsViewModel, onOpenLab: () -> Unit) {
     }
 }
 
-/** Backups out and back in, and bringing a TA over from the other app. */
+/** Backups out and back in, and memory in from anywhere else. */
 @Composable
 internal fun DataPage(vm: SettingsViewModel) {
     val palette = LocalGlassPalette.current
@@ -271,8 +271,8 @@ internal fun DataPage(vm: SettingsViewModel) {
     val restorePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         pendingRestore = uri
     }
-    val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.readImport(uri)
+    val memoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importMemoryFile(uri)
     }
 
     Section("备份") {
@@ -295,57 +295,23 @@ internal fun DataPage(vm: SettingsViewModel) {
         }
     }
 
-    Section("从别的 App 搬过来") {
+    Section("导入记忆") {
         Text(
-            "现在认得 phone_ai_assistant 导出的备份（日记备份-….json）。会新建一个 TA，" +
-                "带上那边的对话和它写的日记，它记得的关于你的事成为这个 TA 的记忆。这里已有的都不动。",
+            "从别的地方搬记忆过来：选一个文件，JSON、纯文本、Markdown 都认（一段或一行一件，「名字: 内容」拆成两半）。" +
+                "导进的是现在这个 TA；同名的并进已有那件，缺的细节补上，这边已有的不动。",
             color = palette.contentSecondary,
             fontSize = 12.sp,
             lineHeight = 18.sp,
         )
         // Any type: a file passed along through a chat app often comes back without a JSON type.
-        Chip("从别的 App 导入", selected = false) {
-            if (!vm.backupBusy) importPicker.launch(arrayOf("*/*"))
+        Chip(if (vm.memoryBusy) "正在导入…" else "导入记忆文件", selected = false) {
+            if (!vm.memoryBusy) memoryPicker.launch(arrayOf("*/*"))
         }
+        vm.memoryMessage?.let { Text(it, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }
     }
 
     vm.backupMessage?.let { message ->
         Section(null) { Text(message, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }
-    }
-
-    vm.pendingImport?.let { plan ->
-        var name by remember(plan) { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = vm::cancelImport,
-            title = { Text("导入成一个新的 TA") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("${plan.conversations.size} 段对话（${plan.messageCount} 条消息）、${plan.diary.size} 篇它写的日记。")
-                    if (plan.memories.isNotEmpty()) {
-                        Text("它记得的关于你的 ${plan.memories.size} 件事（${plan.memories.sumOf { it.details.size }} 条细节）成为它在这里的记忆。")
-                    }
-                    Text(
-                        when {
-                            plan.personaCut -> "那边对话里设的性格太长，只带了前面 $PERSONA_LIMIT 字。"
-                            plan.hadPersona -> "那边对话里设的性格也一起带上。"
-                            else -> "那边没单独设过性格（那个 App 默认的性格写在它的代码里，备份里没有），想要可以之后在设置里写。"
-                        },
-                    )
-                    if (plan.picturesLeftBehind > 0) {
-                        Text("${plan.picturesLeftBehind} 张图片带不过来：那边的备份里只有图片的名字，没有图。")
-                    }
-                    OutlinedTextField(
-                        value = name,
-                        onValueChange = { name = it.take(40) },
-                        label = { Text("TA 的名字") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = { TextButton(onClick = { vm.confirmImport(name) }) { Text("导入") } },
-            dismissButton = { TextButton(onClick = vm::cancelImport) { Text("取消") } },
-        )
     }
 
     pendingRestore?.let { uri ->

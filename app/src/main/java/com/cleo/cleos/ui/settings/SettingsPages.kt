@@ -194,7 +194,7 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpen: (SettingsPage) -> 
             onOpen(SettingsPage.Look)
         }
         RowDivider()
-        Entry(Icons.Rounded.Inventory2, "数据与备份", "导出、恢复、从别的 App 搬过来") { onOpen(SettingsPage.Data) }
+        Entry(Icons.Rounded.Inventory2, "数据与备份", "导出、恢复、导入记忆") { onOpen(SettingsPage.Data) }
         RowDivider()
         if (crashed) {
             Entry(Icons.Rounded.Info, "关于", "Cleos $version · 上次闪退了，记录在这里", palette.error) { onOpen(SettingsPage.About) }

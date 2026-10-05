@@ -125,7 +125,7 @@ class AppContainer(context: Context) {
     )
     val stickers = Stickers(context, db, images)
     val backup = BackupService(context, db, settings, images)
-    val imports = ForeignImport(context, db, companions)
+    val imports = ForeignImport(context, db)
     val notifier = Notifier(context, images)
 
     /** Phone calls with a TA. */

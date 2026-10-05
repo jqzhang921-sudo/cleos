@@ -28,8 +28,8 @@ import com.cleo.cleos.data.AppSettings
 import com.cleo.cleos.data.McpServer
 import com.cleo.cleos.data.Companions
 import com.cleo.cleos.data.GlassMode
+import com.cleo.cleos.ai.MemoryKinds
 import com.cleo.cleos.data.ImportException
-import com.cleo.cleos.data.ImportPlan
 import com.cleo.cleos.data.Pats
 import com.cleo.cleos.data.db.CompanionEntity
 import com.cleo.cleos.data.db.LaterEntity
@@ -595,59 +595,44 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         c.backup.undoRestore()
     }
 
-    /** A file from another app, read and waiting for the person's yes. */
-    var pendingImport by mutableStateOf<ImportPlan?>(null)
+    /** A memory file being read in, and the word on how it went. */
+    var memoryBusy by mutableStateOf(false)
+        private set
+    var memoryMessage by mutableStateOf<String?>(null)
         private set
 
-    fun readImport(uri: Uri) {
-        if (backupBusy) return
-        backupBusy = true
-        backupMessage = null
+    /**
+     * Brings a memory file of any shape into the TA this screen is editing. Nothing already
+     * remembered is touched: a topic with a name that is already here only gets the details
+     * it was missing.
+     */
+    fun importMemoryFile(uri: Uri) {
+        if (memoryBusy) return
+        val id = companionId
+        if (id <= 0L) return
+        memoryBusy = true
+        memoryMessage = null
         viewModelScope.launch {
             try {
-                pendingImport = c.imports.read(uri)
-            } catch (e: ImportException) {
-                backupMessage = e.message
-            } catch (e: Exception) {
-                backupMessage = "出错了：${e.message ?: e.javaClass.simpleName}"
-            } finally {
-                backupBusy = false
-            }
-        }
-    }
-
-    fun cancelImport() {
-        pendingImport = null
-    }
-
-    /** Brings the file in as a new TA called [name]; this screen then edits that TA. */
-    fun confirmImport(name: String) {
-        val plan = pendingImport ?: return
-        pendingImport = null
-        backupBusy = true
-        backupMessage = null
-        c.appScope.launch {
-            val message = try {
-                // What was typed here belongs to the TA the screen was editing until now.
-                persist()
-                val ta = c.imports.import(plan, name)
-                val keyed = c.secrets.hasKey(ta.apiBaseUrl).first()
-                withContext(Dispatchers.Main) { load(ta) }
-                val shown = ta.name.ifEmpty { "TA" }
-                buildString {
-                    append("导入好了：新的 TA「$shown」，${plan.conversations.size} 段对话（${plan.messageCount} 条消息）、")
-                    append("${plan.diary.size} 篇日记")
-                    if (plan.memories.isNotEmpty()) append("，它记得关于你的 ${plan.memories.size} 件事")
-                    append("。设置里现在改的就是$shown")
-                    if (!keyed) append("；它用的接口还没有 Key，在「模型」里填")
-                    append("。")
+                val r = c.imports.importForeignMemories(uri, id)
+                memoryMessage = buildString {
+                    if (r.added == 0 && r.details == 0 && r.skipped == 0) {
+                        append("都有了，没有要导入的。")
+                    } else {
+                        append("导入了：新加 ${r.added} 件事")
+                        if (r.details > 0) append("，${r.details} 条细节")
+                        append("。")
+                    }
+                    if (r.skipped > 0) {
+                        append("还有 ${r.skipped} 条没进来：一类最多 ${MemoryKinds.PER_KIND} 件，先在记忆里把同类的合并或删掉一些，再导一次。")
+                    }
                 }
+            } catch (e: ImportException) {
+                memoryMessage = e.message
             } catch (e: Exception) {
-                "导入没成：${e.message ?: e.javaClass.simpleName}。什么都没有写进去。"
-            }
-            withContext(Dispatchers.Main) {
-                backupMessage = message
-                backupBusy = false
+                memoryMessage = "出错了：${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                memoryBusy = false
             }
         }
     }
