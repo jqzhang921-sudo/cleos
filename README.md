@@ -6,7 +6,7 @@
 
 - **允许**：查看与学习源码、为个人学习和测试在本地修改、编译和运行，以及 Fork 后向原项目提交 PR。
 - **未经维护者明确书面许可，不得**向他人分发原版或修改版 APK、AAB 等安装包，创建提供这些产物的 Release，或将本项目作为自己的版本对外传播。免费分发、注明作者或标注“非官方”也不替代许可。
-- 如需分发，请通过本仓库 Issue 向维护者 **jqzhang921-sudo（Cleo）**申请并取得明确书面许可。
+- 如需分发，请通过本仓库 Issue 向维护者 **jqzhang921-sudo** 申请并取得明确书面许可。
 - 本条款从首次加入 `LICENSE` 的提交起适用，不追溯撤销已有合法授权；第三方内容和既有贡献的权利以其各自授权为准。提交新 PR 时，请确认有权提交并同意 `LICENSE` 中的贡献条款。
 
 一个安卓原生（Kotlin + Jetpack Compose）的陪伴聊天 App，界面是自己写的液态玻璃。
@@ -195,4 +195,4 @@ keyPassword=...
   许可全文在 `app/src/main/assets/licenses/binaural-voice.txt`，App 里同样能看到。
 - 表情包的做法参考了 [cute-chat-stickers](https://github.com/Anko3o/cute-chat-stickers) 的思路（没用它的代码和数据）。
 
-© 2026 Cleo. All rights reserved
+© 2026 jqzhang921-sudo. All rights reserved
