@@ -22,6 +22,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -79,6 +80,7 @@ import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
+import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -242,6 +244,35 @@ private sealed interface ChatRow {
     data class Woke(val at: Long) : ChatRow {
         override val key: Any get() = "w$at"
     }
+
+    /** Tool calls that follow one another, folded into one line that opens: [lines] oldest first. */
+    data class ToolGroup(val lines: List<MessageEntity>) : ChatRow {
+        override val key: Any get() = "g${lines.first().id}"
+    }
+}
+
+/** A tool call's line in the chat (one without a line is silent). */
+private fun MessageEntity.isToolLine() = role == "tool" && !note.isNullOrBlank()
+
+/**
+ * Two or more tool lines in a row (nothing between them in the chat but what is silent) become one
+ * ToolGroup; one alone stays as it is. [rows] is newest first, as buildRows makes them.
+ */
+private fun foldTools(rows: List<ChatRow>): List<ChatRow> {
+    val out = ArrayList<ChatRow>(rows.size)
+    var i = 0
+    while (i < rows.size) {
+        var j = i
+        while (j < rows.size && (rows[j] as? ChatRow.Message)?.message?.isToolLine() == true) j++
+        if (j - i >= 2) {
+            out += ChatRow.ToolGroup(rows.subList(i, j).map { (it as ChatRow.Message).message }.reversed())
+            i = j
+        } else {
+            out += rows[i]
+            i++
+        }
+    }
+    return out
 }
 
 /**
@@ -304,7 +335,7 @@ private fun buildRows(messages: List<MessageEntity>, recapUntil: Pair<Long, Long
             newerSide = null
         }
     }
-    return rows
+    return foldTools(rows)
 }
 
 @Composable
@@ -859,6 +890,7 @@ fun ChatTab(
                         is ChatRow.Stamp -> TimeStamp(row.at)
                         ChatRow.RecapMark -> RecapMark(state.aiName) { readingRecap = true }
                         is ChatRow.Woke -> ToolNote("${state.aiName.ifBlank { "TA" }}自己想起来的", Icons.Rounded.Lightbulb)
+                        is ChatRow.ToolGroup -> ToolGroupNote(row.key, row.lines) { readingTool = it }
                         is ChatRow.Message -> {
                             val m = row.message
                             val note = m.note
@@ -868,6 +900,7 @@ fun ChatTab(
                                     ToolNote(
                                         note.orEmpty(),
                                         if (m.role == "note") Icons.Rounded.Info else Icons.Rounded.AutoAwesome,
+                                        failed = m.role == "tool" && ToolRuns.failed(note.orEmpty()),
                                         onClick = if (m.role == "tool") ({ readingTool = m.id }) else null,
                                     )
                                 m.role == "request" -> RequestCard(m, state.aiName, enabled = !state.replying) { grant ->
@@ -1664,7 +1697,7 @@ private fun AskCard(ask: McpAsk, aiName: String, onAnswer: (ChatRepository.Answe
  * own, like the error lines: it sits on the wallpaper.
  */
 @Composable
-private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, mine: Boolean = false, onClick: (() -> Unit)? = null) {
+private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, mine: Boolean = false, failed: Boolean = false, onClick: (() -> Unit)? = null) {
     val palette = LocalGlassPalette.current
     val slot = if (LocalFaces.current != null) AvatarSlot else 0.dp
     Box(
@@ -1684,9 +1717,9 @@ private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, 
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    icon,
+                    if (failed) Icons.Rounded.Warning else icon,
                     contentDescription = null,
-                    tint = if (running) palette.contentSecondary else palette.accentContent,
+                    tint = if (failed) palette.error else if (running) palette.contentSecondary else palette.accentContent,
                     modifier = Modifier.size(14.dp),
                 )
                 Spacer(Modifier.width(6.dp))
@@ -1696,6 +1729,77 @@ private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, 
         }
     }
 }
+
+/**
+ * Tool calls in a row, as a small pill that opens: the icons of the calls, overlapping, and a
+ * red warning when one didn't go through. No words until it is opened; then the lines are what
+ * they were, one each, and a tap on one opens its call.
+ */
+@Composable
+private fun ToolGroupNote(key: Any, lines: List<MessageEntity>, onOpenCall: (Long) -> Unit) {
+    val palette = LocalGlassPalette.current
+    val slot = if (LocalFaces.current != null) AvatarSlot else 0.dp
+    var open by rememberSaveable(key) { mutableStateOf(false) }
+    val failed = lines.any { ToolRuns.failed(it.note.orEmpty()) }
+    // Solid under the tint, so the icons that overlap hide each other instead of showing through.
+    val base = if (palette.dark) Color(0xFF26262A) else Color.White
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = slot),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        GlassSurface(
+            modifier = Modifier
+                .widthIn(max = bubbleMaxWidth())
+                .clickable(interactionSource = null, indication = null) { open = !open },
+            style = palette.notice,
+            shape = GlassShape.Rounded(14.dp),
+            contentPadding = PaddingValues(start = 8.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy((-7).dp)) {
+                    repeat(minOf(lines.size, TOOL_STACK_MAX)) {
+                        Box(
+                            Modifier
+                                .size(20.dp)
+                                .background(base, CircleShape)
+                                .background(palette.accentContent.copy(alpha = 0.2f), CircleShape)
+                                .border(1.5.dp, base, CircleShape),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = palette.accentContent, modifier = Modifier.size(11.dp))
+                        }
+                    }
+                }
+                if (lines.size > TOOL_STACK_MAX) {
+                    Spacer(Modifier.width(4.dp))
+                    Text("+${lines.size - TOOL_STACK_MAX}", color = palette.contentSecondary, fontSize = 12.sp)
+                }
+                if (failed) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Rounded.Warning, contentDescription = "有没成的", tint = palette.error, modifier = Modifier.size(16.dp))
+                }
+                Spacer(Modifier.width(2.dp))
+                Icon(
+                    if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                    contentDescription = "用了 ${lines.size} 个工具，" + if (open) "收起" else "展开",
+                    tint = palette.contentSecondary,
+                    modifier = Modifier.size(16.dp),
+                )
+            }
+        }
+        if (open) {
+            lines.forEach { line ->
+                val note = line.note.orEmpty()
+                ToolNote(note, Icons.Rounded.AutoAwesome, failed = ToolRuns.failed(note), onClick = { onOpenCall(line.id) })
+            }
+        }
+    }
+}
+
+/** How many icons a folded run of tool calls shows; the rest are a number. */
+private const val TOOL_STACK_MAX = 3
 
 /** A tool call opened from its line in the chat: what was asked of the tool, and what it answered, to read and copy. */
 @Composable

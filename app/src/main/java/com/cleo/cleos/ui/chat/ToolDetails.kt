@@ -31,3 +31,17 @@ internal object ToolDetails {
     fun prettyJson(raw: String): String =
         runCatching { pretty.encodeToString(JsonElement.serializer(), pretty.parseToJsonElement(raw)) }.getOrDefault(raw)
 }
+
+/** The lines tool calls leave in the chat. */
+internal object ToolRuns {
+    /**
+     * A call that didn't go through says so in its line, one of two ways: the tool turned it
+     * down ("记待办没成：参数写错了") or it threw on the way through ("翻日记出错了"). The line is
+     * already its own report, so reading its ending is enough — and the ending, not a word
+     * anywhere in it: what the person is called and what they put in a todo are their own
+     * words, and one of them saying "没成" doesn't make a call that worked a failure.
+     * A tool the person wouldn't let the TA use ("没让TA用XX") is neither: that was their
+     * call, not something to draw a warning about.
+     */
+    fun failed(note: String): Boolean = note.contains("没成：") || note.endsWith("出错了")
+}
