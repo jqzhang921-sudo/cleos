@@ -19,8 +19,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  * model then stops mid-sentence: the person found replies cut off after switching away. A
  * foreground service is the one thing they leave running. It shows as "正在回你…" in the status
  * bar for as long as that takes and goes as soon as nothing is being written; what was written
- * comes as a notification (AppContainer). Started only on leaving the app with a reply under way,
- * never while the app is in front, so it doesn't flash up with every message.
+ * comes as a notification (AppContainer).
+ *
+ * It goes up the moment a reply starts, while the app is still in front ([AppContainer] watches
+ * [ChatRepository.working]), and not on leaving it, which is where it used to be started from and
+ * is exactly the moment these phones freeze the process: a Huawei tablet then killed the app with
+ * ForegroundServiceDidNotStartInTimeException, since the start was never delivered within the five
+ * seconds Android allows it — and that is how it went, over and over. Starting from the front
+ * costs a quiet line in the shade while a reply is being written (IMPORTANCE_LOW, silent), which
+ * is the price of the start landing at a moment the phone will let it through.
  */
 class ReplyKeeper : Service() {
     private var watching: Job? = null
@@ -60,19 +67,16 @@ class ReplyKeeper : Service() {
         private const val LIMIT_MS = 10 * 60_000L
 
         /**
-         * On leaving the app (Activity.onStop). Allowed from there: an app just leaving the screen may
-         * still start one. Anything else is caught and the reply simply takes its chances.
+         * A reply is under way ([ChatRepository.working]). Called from the app's own wiring, while
+         * the app is in front, never from an Activity leaving: that is the one moment this must not
+         * be asked of the system. Where it isn't allowed at all (Android 12 on, out of the front),
+         * it is caught and the reply simply takes its chances.
          */
         fun start(context: Context) {
             try {
                 ContextCompat.startForegroundService(context, Intent(context, ReplyKeeper::class.java))
             } catch (_: Exception) {
             }
-        }
-
-        /** Back on screen: the app runs anyway. */
-        fun stop(context: Context) {
-            context.stopService(Intent(context, ReplyKeeper::class.java))
         }
     }
 }

@@ -40,10 +40,11 @@ class Notifier(private val context: Context, private val images: ImageStore) {
                 description = "TA 写给你的信寄到了"
             },
         )
-        // Low: it only has to be there, silently, for the few seconds a reply takes.
+        // Low: it is only there while a reply is being written, and the app needs it up from before
+        // the person leaves (ReplyKeeper).
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_WORKING, "正在回复", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "你走开时 TA 还在写回复，写完之前 App 留在后台，写完就消失"
+                description = "TA 写回复的时候一直在，写完就消失；它在的时候，切走或者锁屏，这段回复也写得完"
                 setShowBadge(false)
             },
         )

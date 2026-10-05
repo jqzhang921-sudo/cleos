@@ -202,5 +202,13 @@ class AppContainer(context: Context) {
         }
         // Notes still waiting and letters on their way get their background work back, if it was lost.
         later.reconcile()
+        // A reply under way is what keeps the app running in the background (ReplyKeeper), and this
+        // is where that is decided: it goes up the moment one starts — the person is in front then,
+        // and the system lets a service start — rather than when they leave, which is the moment
+        // these phones freeze the process and the start never lands. It takes itself down again
+        // when nothing is being written (ReplyKeeper).
+        appScope.launch {
+            chat.working.collect { if (it.isNotEmpty()) ReplyKeeper.start(context) }
+        }
     }
 }

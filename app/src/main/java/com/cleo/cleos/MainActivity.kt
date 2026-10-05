@@ -55,13 +55,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         container.visible = true
-        ReplyKeeper.stop(this)
     }
 
     override fun onStop() {
         container.visible = false
-        // Leaving while a TA is still writing: kept running until it is done (ReplyKeeper).
-        if (container.chat.working.value.isNotEmpty()) ReplyKeeper.start(this)
+        // The reply under way keeps the app up by itself: ReplyKeeper goes up when it starts, not
+        // here. Leaving is the one moment these phones freeze the process, and a service asked for
+        // then is never started in time (AppContainer).
         super.onStop()
     }
 
