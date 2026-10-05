@@ -123,6 +123,7 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit
     var switching by remember { mutableStateOf(false) }
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty() }
     val crashed = remember { CrashLog.read(context) != null }
+    val noted = remember { CrashLog.readNote(context) != null }
 
     ListCard {
         Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -207,6 +208,8 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit
         RowDivider()
         if (crashed) {
             Entry(Icons.Rounded.Info, "关于", "Cleos $version · 上次闪退了，记录在这里", palette.error) { onOpen(SettingsPage.About) }
+        } else if (noted) {
+            Entry(Icons.Rounded.Info, "关于", "Cleos $version · 后台有件事没做成，记录在这里", palette.error) { onOpen(SettingsPage.About) }
         } else {
             Entry(Icons.Rounded.Info, "关于", "Cleos $version · 新版本、许可与出处") { onOpen(SettingsPage.About) }
         }

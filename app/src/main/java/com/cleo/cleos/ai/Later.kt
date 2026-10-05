@@ -1,6 +1,7 @@
 package com.cleo.cleos.ai
 
 import android.content.Context
+import androidx.room.withTransaction
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -274,7 +275,7 @@ class Later(
             is ChatRepository.WakeResult.Sent -> {
                 db.later().delete(id)
                 log(ta, WakeEntity.SENT, result.messages.joinToString(" / ") { StickerText.plain(it.content) })
-                if (!showing(conversationId)) notifier.messages(ta, conversationId, unanswered(conversationId).ifEmpty { result.messages })
+                said(ta, conversationId, result.messages)
                 null
             }
             is ChatRepository.WakeResult.Skipped -> {
@@ -363,7 +364,7 @@ class Later(
         return when (val result = chat.wake(conversationId, text)) {
             is ChatRepository.WakeResult.Sent -> {
                 log(ta, WakeEntity.SENT, result.messages.joinToString(" / ") { StickerText.plain(it.content) })
-                if (!showing(conversationId)) notifier.messages(ta, conversationId, unanswered(conversationId).ifEmpty { result.messages })
+                said(ta, conversationId, result.messages)
                 over(greeting, day)
             }
             is ChatRepository.WakeResult.Skipped -> {
@@ -447,9 +448,31 @@ class Later(
         db.companions().get(companionId)?.let { ta -> gone.forEach { _ -> log(ta, WakeEntity.EXPIRED, "手机没在到时候叫醒") } }
     }
 
+    /** Whether the TA this was about is still there; the person can delete one in the middle of a wake. */
+    private suspend fun stillHere(ta: CompanionEntity): Boolean = db.companions().get(ta.id) != null
+
+    /**
+     * Writing down what a wake did, for the line in settings. Nothing at all when [ta] went while
+     * this was under way: the row points at a TA that is no longer there, and SQLite refuses to
+     * write it (FOREIGN KEY constraint failed) — which, thrown out of a background coroutine, used
+     * to take the whole app down. Asking and writing in one transaction, so that a TA being deleted
+     * alongside lands wholly before or wholly after it and can't slip in between.
+     */
     private suspend fun log(ta: CompanionEntity, outcome: String, detail: String) {
-        db.wakes().insert(WakeEntity(companionId = ta.id, at = clock(), outcome = outcome, detail = detail.take(DETAIL_MAX)))
-        db.wakes().prune(ta.id, KEPT)
+        db.withTransaction {
+            if (!stillHere(ta)) return@withTransaction
+            db.wakes().insert(WakeEntity(companionId = ta.id, at = clock(), outcome = outcome, detail = detail.take(DETAIL_MAX)))
+            db.wakes().prune(ta.id, KEPT)
+        }
+    }
+
+    /**
+     * What a wake said, as a notification: unless it is on screen, or the TA was deleted while the
+     * model was writing it. A notification for a TA that is gone leads nowhere and says nothing.
+     */
+    private suspend fun said(ta: CompanionEntity, conversationId: Long, messages: List<MessageEntity>) {
+        if (!stillHere(ta) || showing(conversationId)) return
+        notifier.messages(ta, conversationId, unanswered(conversationId).ifEmpty { messages })
     }
 
     /**

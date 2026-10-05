@@ -37,6 +37,7 @@ import com.cleo.cleos.data.SecretStore
 import com.cleo.cleos.data.SettingsRepository
 import com.cleo.cleos.data.Stickers
 import com.cleo.cleos.data.db.AppDatabase
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -67,8 +68,18 @@ sealed interface Opening {
 
 /** Hand-made dependency wiring; the app is small enough not to need a DI framework. */
 class AppContainer(context: Context) {
-    /** Outlives any screen: saves and replies started here finish even if the user leaves. */
-    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    /**
+     * Outlives any screen: saves and replies started here finish even if the user leaves.
+     *
+     * Nothing out here may take the app down with it. Without a handler of its own, an exception
+     * from any of these jobs goes to the thread's own and closes the app — which is how the rarest
+     * thing in this file became the loudest: a wake that outlived its TA failed on the row it was
+     * writing and killed the process. A background job that fails now is written down instead
+     * (CrashLog.note, shown in 关于), and only that job is let go of.
+     */
+    val appScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default + CoroutineExceptionHandler { _, error -> CrashLog.note(context, error) },
+    )
 
     val db: AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "cleos.db").build()
     val settings = SettingsRepository(context)

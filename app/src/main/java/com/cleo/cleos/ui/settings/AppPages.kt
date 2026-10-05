@@ -483,6 +483,34 @@ internal fun AboutPage() {
         }
     }
 
+    // Something that failed out of sight and was let go of, with the app going on (CrashLog.note).
+    var note by remember { mutableStateOf(CrashLog.readNote(context)) }
+    var noteHint by remember { mutableStateOf<String?>(null) }
+    note?.let { text ->
+        Section("后台出错") {
+            Text(
+                "Cleos 后台有件事没做成（${text.lineSequence().first().substringAfter("，").substringBefore(" 后台出错")}）：" +
+                    "App 没有退出，就是那件事被丢下了。复制下来发给做 App 的人，就能知道是哪里出的错；" +
+                    "里面是出错的位置，不是聊天内容，发之前也可以先看一眼。",
+                color = palette.content,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Chip("复制出错记录", selected = false) {
+                    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Cleos 出错记录", text))
+                    noteHint = "复制好了。"
+                }
+                Chip("清掉", selected = false) {
+                    CrashLog.clearNote(context)
+                    note = null
+                    noteHint = null
+                }
+            }
+            noteHint?.let { Text(it, color = palette.contentSecondary, fontSize = 12.sp) }
+        }
+    }
+
     Section("隐私") {
         Text(
             "聊天、日记和待办都只存在这台手机上。API Key 用系统密钥库加密。",
