@@ -17,12 +17,13 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -59,6 +60,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.rounded.AddComment
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowUpward
@@ -80,7 +82,6 @@ import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -109,6 +110,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -236,7 +239,7 @@ private sealed interface ChatRow {
     }
 
     /** [showFace]: the newest of a run of messages from one side, which alone gets the avatar. */
-    data class Message(val message: MessageEntity, val isLast: Boolean, val showFace: Boolean = true) : ChatRow {
+    data class Message(val message: MessageEntity, val isLast: Boolean, val showFace: Boolean = true, val tool: ToolKind? = null) : ChatRow {
         override val key: Any get() = message.id
     }
 
@@ -246,7 +249,7 @@ private sealed interface ChatRow {
     }
 
     /** Tool calls that follow one another, folded into one line that opens: [lines] oldest first. */
-    data class ToolGroup(val lines: List<MessageEntity>) : ChatRow {
+    data class ToolGroup(val lines: List<MessageEntity>, val kinds: List<ToolKind>) : ChatRow {
         override val key: Any get() = "g${lines.first().id}"
     }
 }
@@ -265,7 +268,8 @@ private fun foldTools(rows: List<ChatRow>): List<ChatRow> {
         var j = i
         while (j < rows.size && (rows[j] as? ChatRow.Message)?.message?.isToolLine() == true) j++
         if (j - i >= 2) {
-            out += ChatRow.ToolGroup(rows.subList(i, j).map { (it as ChatRow.Message).message }.reversed())
+            val run = rows.subList(i, j).map { it as ChatRow.Message }.reversed()
+            out += ChatRow.ToolGroup(run.map { it.message }, run.map { it.tool ?: ToolKind.Other })
             i = j
         } else {
             out += rows[i]
@@ -318,7 +322,8 @@ private fun buildRows(messages: List<MessageEntity>, recapUntil: Pair<Long, Long
         }
         if (m.silent()) continue
         val side = m.side()
-        rows += ChatRow.Message(m, isLast = i == last, showFace = eachFace || side == null || side != newerSide)
+        val tool = if (m.isToolLine()) ToolKinds.of(ToolDetails.nameOf(messages, m)) else null
+        rows += ChatRow.Message(m, isLast = i == last, showFace = eachFace || side == null || side != newerSide, tool = tool)
         newerSide = side
         val prev = messages.getOrNull(i - 1)
         val gap = prev == null || m.createdAt - prev.createdAt > TIME_GAP_MS
@@ -890,7 +895,7 @@ fun ChatTab(
                         is ChatRow.Stamp -> TimeStamp(row.at)
                         ChatRow.RecapMark -> RecapMark(state.aiName) { readingRecap = true }
                         is ChatRow.Woke -> ToolNote("${state.aiName.ifBlank { "TA" }}自己想起来的", Icons.Rounded.Lightbulb)
-                        is ChatRow.ToolGroup -> ToolGroupNote(row.key, row.lines) { readingTool = it }
+                        is ChatRow.ToolGroup -> ToolGroupNote(row.key, row.lines, row.kinds) { readingTool = it }
                         is ChatRow.Message -> {
                             val m = row.message
                             val note = m.note
@@ -899,7 +904,7 @@ fun ChatTab(
                                 m.role == "tool" || m.role == "note" ->
                                     ToolNote(
                                         note.orEmpty(),
-                                        if (m.role == "note") Icons.Rounded.Info else Icons.Rounded.AutoAwesome,
+                                        if (m.role == "note") Icons.Rounded.Info else (row.tool ?: ToolKind.Other).icon(),
                                         failed = m.role == "tool" && ToolRuns.failed(note.orEmpty()),
                                         onClick = if (m.role == "tool") ({ readingTool = m.id }) else null,
                                     )
@@ -1717,7 +1722,7 @@ private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, 
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    if (failed) Icons.Rounded.Warning else icon,
+                    if (failed) Icons.Outlined.Warning else icon,
                     contentDescription = null,
                     tint = if (failed) palette.error else if (running) palette.contentSecondary else palette.accentContent,
                     modifier = Modifier.size(14.dp),
@@ -1731,56 +1736,50 @@ private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, 
 }
 
 /**
- * Tool calls in a row, as a small pill that opens: the icons of the calls, overlapping, and a
- * red warning when one didn't go through. No words until it is opened; then the lines are what
- * they were, one each, and a tap on one opens its call.
+ * Tool calls in a row, as one small line that opens: an icon for each kind of call, joined by a
+ * hairline, and a red warning where one didn't go through. No words until it is opened; then the
+ * calls hang on a thin vertical line, one row each, and a tap on one opens its call.
  */
 @Composable
-private fun ToolGroupNote(key: Any, lines: List<MessageEntity>, onOpenCall: (Long) -> Unit) {
+private fun ToolGroupNote(key: Any, lines: List<MessageEntity>, kinds: List<ToolKind>, onOpenCall: (Long) -> Unit) {
     val palette = LocalGlassPalette.current
     val slot = if (LocalFaces.current != null) AvatarSlot else 0.dp
     var open by rememberSaveable(key) { mutableStateOf(false) }
-    val failed = lines.any { ToolRuns.failed(it.note.orEmpty()) }
-    // Solid under the tint, so the icons that overlap hide each other instead of showing through.
-    val base = if (palette.dark) Color(0xFF26262A) else Color.White
+    val failed = remember(lines) { lines.map { ToolRuns.failed(it.note.orEmpty()) } }
+    val stack = remember(kinds, failed) { ToolKinds.stack(kinds, failed, TOOL_STACK_MAX) }
+    val hairline = palette.contentSecondary.copy(alpha = 0.35f)
     Column(
         Modifier
             .fillMaxWidth()
             .padding(start = slot),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         GlassSurface(
             modifier = Modifier
                 .widthIn(max = bubbleMaxWidth())
                 .clickable(interactionSource = null, indication = null) { open = !open },
             style = palette.notice,
-            shape = GlassShape.Rounded(14.dp),
-            contentPadding = PaddingValues(start = 8.dp, end = 10.dp, top = 5.dp, bottom = 5.dp),
+            shape = GlassShape.Rounded(12.dp),
+            contentPadding = PaddingValues(start = 9.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(horizontalArrangement = Arrangement.spacedBy((-7).dp)) {
-                    repeat(minOf(lines.size, TOOL_STACK_MAX)) {
-                        Box(
-                            Modifier
-                                .size(20.dp)
-                                .background(base, CircleShape)
-                                .background(palette.accentContent.copy(alpha = 0.2f), CircleShape)
-                                .border(1.5.dp, base, CircleShape),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(Icons.Rounded.AutoAwesome, contentDescription = null, tint = palette.accentContent, modifier = Modifier.size(11.dp))
-                        }
-                    }
+                stack.shown.forEachIndexed { i, (kind, bad) ->
+                    if (i > 0) Box(Modifier.padding(horizontal = 3.dp).width(8.dp).height(1.dp).background(hairline))
+                    Icon(
+                        if (bad) Icons.Outlined.Warning else kind.icon(),
+                        contentDescription = null,
+                        tint = if (bad) palette.error else palette.contentSecondary,
+                        modifier = Modifier.size(16.dp),
+                    )
                 }
-                if (lines.size > TOOL_STACK_MAX) {
-                    Spacer(Modifier.width(4.dp))
-                    Text("+${lines.size - TOOL_STACK_MAX}", color = palette.contentSecondary, fontSize = 12.sp)
-                }
-                if (failed) {
+                if (stack.more > 0) {
                     Spacer(Modifier.width(6.dp))
-                    Icon(Icons.Rounded.Warning, contentDescription = "有没成的", tint = palette.error, modifier = Modifier.size(16.dp))
+                    Text("+${stack.more}", color = palette.contentSecondary, fontSize = 12.sp)
                 }
-                Spacer(Modifier.width(2.dp))
+                if (stack.hiddenFailed) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Outlined.Warning, contentDescription = "有没成的", tint = palette.error, modifier = Modifier.size(14.dp))
+                }
+                Spacer(Modifier.width(4.dp))
                 Icon(
                     if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                     contentDescription = "用了 ${lines.size} 个工具，" + if (open) "收起" else "展开",
@@ -1789,16 +1788,73 @@ private fun ToolGroupNote(key: Any, lines: List<MessageEntity>, onOpenCall: (Lon
                 )
             }
         }
-        if (open) {
-            lines.forEach { line ->
-                val note = line.note.orEmpty()
-                ToolNote(note, Icons.Rounded.AutoAwesome, failed = ToolRuns.failed(note), onClick = { onOpenCall(line.id) })
+        AnimatedVisibility(visible = open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            GlassSurface(
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .widthIn(max = bubbleMaxWidth()),
+                style = palette.notice,
+                shape = GlassShape.Rounded(12.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+            ) {
+                Column {
+                    lines.forEachIndexed { i, line ->
+                        ToolTimelineRow(
+                            note = line.note.orEmpty(),
+                            kind = kinds[i],
+                            failed = failed[i],
+                            first = i == 0,
+                            last = i == lines.lastIndex,
+                            hairline = hairline,
+                        ) { onOpenCall(line.id) }
+                    }
+                }
             }
         }
     }
 }
 
-/** How many icons a folded run of tool calls shows; the rest are a number. */
+/** One call on the thin vertical line: its icon on the line, its words beside it. The line is drawn up and down from the icon, not through it. */
+@Composable
+private fun ToolTimelineRow(note: String, kind: ToolKind, failed: Boolean, first: Boolean, last: Boolean, hairline: Color, onClick: () -> Unit) {
+    val palette = LocalGlassPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .drawBehind {
+                val x = 9.dp.toPx()
+                val mid = size.height / 2
+                val clear = 10.dp.toPx()
+                if (!first) drawLine(hairline, Offset(x, 0f), Offset(x, mid - clear), 1.dp.toPx())
+                if (!last) drawLine(hairline, Offset(x, mid + clear), Offset(x, size.height), 1.dp.toPx())
+            }
+            .padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                if (failed) Icons.Outlined.Warning else kind.icon(),
+                contentDescription = null,
+                tint = if (failed) palette.error else palette.contentSecondary,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Text(
+            note,
+            color = if (failed) palette.error else palette.contentSecondary,
+            fontSize = 13.sp,
+            lineHeight = 18.sp,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text("  ›", color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+    }
+}
+
+/** How many kinds of call a folded run shows an icon for; the calls of the rest are a number. */
 private const val TOOL_STACK_MAX = 3
 
 /** A tool call opened from its line in the chat: what was asked of the tool, and what it answered, to read and copy. */

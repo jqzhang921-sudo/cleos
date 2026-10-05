@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.chat
 
+import com.cleo.cleos.ai.ToolCall
 import com.cleo.cleos.ai.ToolCallCodec
 import com.cleo.cleos.data.db.MessageEntity
 import kotlinx.serialization.json.Json
@@ -18,13 +19,20 @@ internal object ToolDetails {
      * that can't be found (its turn was deleted) still shows the result.
      */
     fun find(messages: List<MessageEntity>, row: MessageEntity): ToolDetail {
+        val call = callOf(messages, row)
+        return ToolDetail(call?.name ?: "工具", call?.let { prettyJson(it.arguments) }.orEmpty(), row.content)
+    }
+
+    /** The name the model called the tool by, for a "tool" row (null when its turn is gone). */
+    fun nameOf(messages: List<MessageEntity>, row: MessageEntity): String? = callOf(messages, row)?.name
+
+    private fun callOf(messages: List<MessageEntity>, row: MessageEntity): ToolCall? {
         val at = messages.indexOfFirst { it.id == row.id }
         val id = row.toolCallId
-        val call = if (id == null || at < 0) null else (at - 1 downTo 0).firstNotNullOfOrNull { i ->
+        return if (id == null || at < 0) null else (at - 1 downTo 0).firstNotNullOfOrNull { i ->
             val m = messages[i]
             if (m.role != "assistant" || m.toolCalls.isNullOrBlank()) null else ToolCallCodec.decode(m.toolCalls).firstOrNull { it.id == id }
         }
-        return ToolDetail(call?.name ?: "工具", call?.let { prettyJson(it.arguments) }.orEmpty(), row.content)
     }
 
     /** Arguments are raw JSON text and may not parse: then as they came. */

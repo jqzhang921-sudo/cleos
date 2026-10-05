@@ -46,4 +46,15 @@ class ToolDetailsTest {
         assertTrue(ToolDetails.prettyJson("""{"a":1}""").contains("\n"))
         assertEquals("{坏掉的", ToolDetails.prettyJson("{坏掉的"))
     }
+
+    @Test
+    fun aToolRowKnowsTheNameTheModelCalledItBy() {
+        val messages = listOf(
+            assistant(1, ToolCall("a", "set_alarm", "{}")),
+            tool(2, "a", "好了"),
+            tool(3, "zzz", "没有这次调用"),
+        )
+        assertEquals("set_alarm", ToolDetails.nameOf(messages, messages[1]))
+        assertEquals(null, ToolDetails.nameOf(messages, messages[2]))
+    }
 }
