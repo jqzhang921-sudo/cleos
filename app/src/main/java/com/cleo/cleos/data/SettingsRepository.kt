@@ -55,6 +55,7 @@ data class AppSettings(
         ToolGroup.Weather,
         ToolGroup.Letters,
         ToolGroup.Memory,
+        ToolGroup.Lore,
         ToolGroup.Alarm,
         ToolGroup.Stickers,
         ToolGroup.Pat,

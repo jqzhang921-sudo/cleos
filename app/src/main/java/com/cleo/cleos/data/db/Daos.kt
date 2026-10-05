@@ -87,6 +87,9 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
+    @Query("SELECT * FROM messages WHERE conversationId = :id ORDER BY createdAt, id")
+    suspend fun forFavorite(id: Long): List<MessageEntity>
+
     @Query("SELECT * FROM messages WHERE conversationId = :conversationId ORDER BY createdAt, id")
     fun observe(conversationId: Long): Flow<List<MessageEntity>>
 
@@ -367,6 +370,40 @@ interface MemoryDao {
     suspend fun insertAll(items: List<MemoryEntity>)
 
     @Query("DELETE FROM memories")
+    suspend fun clear()
+}
+
+@Dao
+interface LoreDao {
+    /** In the order the page shows them: by book, then by where they sat in it. */
+    @Query("SELECT * FROM lore WHERE companionId = :companionId ORDER BY book, position, id")
+    fun observeFor(companionId: Long): Flow<List<LoreEntity>>
+
+    @Query("SELECT * FROM lore WHERE companionId = :companionId ORDER BY book, position, id")
+    suspend fun allFor(companionId: Long): List<LoreEntity>
+
+    @Query("SELECT * FROM lore WHERE id = :id")
+    suspend fun get(id: Long): LoreEntity?
+
+    @Insert
+    suspend fun insert(entry: LoreEntity): Long
+
+    @Update
+    suspend fun update(entry: LoreEntity)
+
+    @Query("DELETE FROM lore WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    @Query("DELETE FROM lore WHERE companionId = :companionId")
+    suspend fun deleteFor(companionId: Long)
+
+    @Query("SELECT * FROM lore")
+    suspend fun all(): List<LoreEntity>
+
+    @Insert
+    suspend fun insertAll(items: List<LoreEntity>)
+
+    @Query("DELETE FROM lore")
     suspend fun clear()
 }
 

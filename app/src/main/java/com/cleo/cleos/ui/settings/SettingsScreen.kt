@@ -81,6 +81,7 @@ fun SettingsScreen(
     onOpenLab: () -> Unit,
     onOpenMcp: (String) -> Unit,
     onOpenPersona: (Long) -> Unit,
+    onOpenLore: (Long) -> Unit,
 ) {
     val vm = appViewModel { SettingsViewModel(it) }
     var page by rememberSaveable { mutableStateOf(start) }
@@ -120,7 +121,7 @@ fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp),
             ) {
                 when (shown) {
-                    null -> SettingsDirectory(vm) { page = it }
+                    null -> SettingsDirectory(vm, onOpenLore) { page = it }
                     SettingsPage.Profile -> ProfilePage(vm, onOpenPersona = { onOpenPersona(vm.companionId) }, onLeave = onBack)
                     SettingsPage.Model -> ModelPage(vm)
                     SettingsPage.Behavior -> BehaviorPage(vm)

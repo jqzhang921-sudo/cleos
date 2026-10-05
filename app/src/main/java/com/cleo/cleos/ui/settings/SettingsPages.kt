@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.AutoStories
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Extension
@@ -103,18 +104,19 @@ enum class SettingsPage(val title: String) {
 /** The switches on the abilities page, for the count on the list. */
 internal val ABILITIES = listOf(
     ToolGroup.Messages, ToolGroup.Speak, ToolGroup.Stickers, ToolGroup.Pat,
-    ToolGroup.Todos, ToolGroup.Memory, ToolGroup.AiDiary, ToolGroup.Diary, ToolGroup.Secrets, ToolGroup.Letters,
+    ToolGroup.Todos, ToolGroup.Memory, ToolGroup.Lore, ToolGroup.AiDiary, ToolGroup.Diary, ToolGroup.Secrets, ToolGroup.Letters,
     ToolGroup.Weather, ToolGroup.Location, ToolGroup.Alarm, ToolGroup.Calendar, ToolGroup.Music, ToolGroup.Avatar,
 )
 
 /** The list of groups, each line saying how things stand, so most of the time nothing needs opening. */
 @Composable
-internal fun SettingsDirectory(vm: SettingsViewModel, onOpen: (SettingsPage) -> Unit) {
+internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit, onOpen: (SettingsPage) -> Unit) {
     val palette = LocalGlassPalette.current
     val context = LocalContext.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val servers by vm.mcpServers.collectAsStateWithLifecycle()
     val companions by vm.companions.collectAsStateWithLifecycle()
+    val lore by vm.lore.collectAsStateWithLifecycle()
     val hasKey by vm.chat.hasKey.collectAsStateWithLifecycle()
     val ta = companions.firstOrNull { it.id == vm.companionId }
     val name = vm.aiName.trim().ifEmpty { "TA" }
@@ -139,6 +141,13 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpen: (SettingsPage) -> 
         Entry(Icons.Rounded.Person, "资料与性格", "名字、头像 · " + if (vm.persona.isBlank()) "还没写性格" else "性格 ${vm.persona.length} 字") {
             onOpen(SettingsPage.Profile)
         }
+        RowDivider()
+        val books = lore.map { it.book.trim() }.filter { it.isNotEmpty() }.distinct().size
+        Entry(Icons.Rounded.AutoStories, "设定", when {
+            lore.isEmpty() -> "还没有 · 世界观、人物、地点，TA 想用时自己查"
+            books == 0 -> "${lore.size} 条 · TA 想用时自己查"
+            else -> "$books 本书 ${lore.size} 条 · TA 想用时自己查"
+        }) { onOpenLore(vm.companionId) }
         RowDivider()
         val service = ApiPresets.all.firstOrNull { it.baseUrl == vm.chat.baseUrl.trim().trimEnd('/') }?.name ?: host(vm.chat.baseUrl)
         val heard = vm.spoken.model.trim().takeIf { vm.spokenOn && vm.spoken.baseUrl.isNotBlank() }

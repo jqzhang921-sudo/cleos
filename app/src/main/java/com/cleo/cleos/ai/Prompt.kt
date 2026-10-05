@@ -15,6 +15,7 @@ import com.cleo.cleos.data.db.MessageEntity
 import com.cleo.cleos.data.db.StickerEntity
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import com.cleo.cleos.data.db.LoreEntity
 import com.cleo.cleos.data.db.MemoryEntity
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -108,6 +109,7 @@ object Prompt {
         recap: String? = null,
         outside: List<McpTool> = emptyList(),
         stickers: List<StickerEntity> = emptyList(),
+        lore: List<LoreEntity> = emptyList(),
     ): String = buildList {
         if (ta.name.isNotBlank()) add("你叫${ta.name.trim()}。")
         if (settings.userName.isNotBlank()) add("和你说话的人叫${settings.userName.trim()}。")
@@ -116,6 +118,7 @@ object Prompt {
         add(FORMAT_RULE)
         if (stickers.isNotEmpty()) add(STICKER_RULE + "\n" + StickerText.menu(stickers))
         if (ToolGroup.Memory in tools) MemoryDigest.forChat(memories, zone)?.let(::add)
+        if (ToolGroup.Lore in tools) LoreDigest.forChat(lore)?.let(::add)
         Recap.forChat(recap)?.let(::add)
     }.joinToString("\n\n")
 
@@ -211,6 +214,7 @@ object Prompt {
         sendStickers: Boolean = false,
         call: Long? = null,
         calls: Map<Long, CallRecord> = emptyMap(),
+        lore: List<LoreEntity> = emptyList(),
     ): List<ApiMessage> {
         val withTools = tools.isNotEmpty() || outside.isNotEmpty()
         val attached = if (images) attachedPictures(history) else emptySet()
@@ -265,7 +269,7 @@ object Prompt {
             merged[lastUser] = merged[lastUser].let { it.copy(content = "（${timeLine(now)}）\n$heard$noted${it.content}$phone") }
         }
         val offered = if (sendStickers) stickers.all else emptyList()
-        return listOf(ApiMessage("system", system(settings, ta, tools, memories, now.zone, recap, outside, offered))) + merged
+        return listOf(ApiMessage("system", system(settings, ta, tools, memories, now.zone, recap, outside, offered, lore))) + merged
     }
 
     /**

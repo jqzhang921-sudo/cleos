@@ -1,4 +1,4 @@
-package com.cleo.cleos.ui.memory
+package com.cleo.cleos.ui.settings
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -26,8 +26,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.PushPin
-import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,10 +42,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.cleo.cleos.ai.MemoryKinds
 import com.cleo.cleos.data.ImportException
-import com.cleo.cleos.data.MemoryDetails
-import com.cleo.cleos.data.db.MemoryEntity
+import com.cleo.cleos.data.LoreKeys
+import com.cleo.cleos.data.db.LoreEntity
 import com.cleo.cleos.glass.GlassIconButton
 import com.cleo.cleos.glass.GlassShape
 import com.cleo.cleos.glass.GlassSurface
@@ -59,19 +58,21 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /**
- * What the current TA keeps in mind, kind by kind, as the TA reads it: the one line of each,
- * and how many details are behind it. The person can open any to change it, pin it (then
- * the TA can't change or delete it), or add one of their own.
+ * A TA's 设定: the entries of a world book, or of a few of them, brought over from another app
+ * or written here. They are not in front of the model with every message — the TA looks one up
+ * with the lore tool when the talk turns to it (ai/Lore.kt), which is what keeps a long book
+ * from filling every prompt.
  */
 @Composable
-fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
+fun LoreScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
     val c = appContainer()
     val palette = LocalGlassPalette.current
     val scope = rememberCoroutineScope()
     val ta by remember { c.companions.current }.collectAsStateWithLifecycle(null)
-    val memories by remember(ta?.id) { ta?.let { c.db.memories().observeFor(it.id) } ?: flowOf(emptyList()) }
+    val entries by remember(ta?.id) { ta?.let { c.db.lore().observeFor(it.id) } ?: flowOf(emptyList()) }
         .collectAsStateWithLifecycle(emptyList())
     val name = ta?.name?.trim()?.ifEmpty { null } ?: "TA"
+    var query by remember { mutableStateOf("") }
     var importing by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf<String?>(null) }
     val importPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -81,6 +82,8 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
             note = null
             scope.launch {
                 note = try {
+                    // The same door as 设置 › 数据与备份: a card here makes a TA and switches to them,
+                    // and this screen then follows that TA.
                     c.imports.import(uri, id).said()
                 } catch (e: ImportException) {
                     e.message
@@ -93,15 +96,25 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
     }
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val grouped = MemoryKinds.all.mapNotNull { kind ->
-        memories.filter { it.kind == kind.key }.sortedBy { it.createdAt }.takeIf { it.isNotEmpty() }?.let { kind to it }
+    val book = query.trim()
+    val shown = if (book.isEmpty()) {
+        entries
+    } else {
+        entries.filter { e ->
+            e.title.contains(book, ignoreCase = true) ||
+                e.book.contains(book, ignoreCase = true) ||
+                e.content.contains(book, ignoreCase = true) ||
+                LoreKeys.decode(e.keys).any { it.contains(book, ignoreCase = true) }
+        }
     }
+    // Already in the order the book keeps (book, position, id), so the groups come out in that order.
+    val grouped = shown.groupBy { it.book.trim() }
 
     GlassPage(
         overlay = { page ->
             GlassTopBar(
-                title = "${name}记着的",
-                subtitle = if (memories.isEmpty()) null else "${memories.size} 件 · 点开能改",
+                title = "${name}的设定",
+                subtitle = if (entries.isEmpty()) null else "${entries.size} 条 · 点开能改",
                 backdrop = page,
                 leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
                 trailing = { GlassIconButton(Icons.Rounded.Add, "自己加一条", { onOpen(0) }, page) },
@@ -115,22 +128,42 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = statusTop + TopBarHeight + 10.dp, bottom = navBottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (memories.isEmpty()) {
+            if (entries.isEmpty()) {
                 item(key = "empty") {
-                    Notice("还没有记下什么。聊着聊着，$name 会自己记；你也可以点右上角自己加一条。")
+                    Notice(
+                        "还没有设定。世界观、人物、地点这类，一段就是一条：点右上角自己加，或者" +
+                            "在「设置 › 数据与备份」里从别的 app 搬一个世界书过来。",
+                    )
+                }
+            } else {
+                item(key = "find") {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        label = { Text("找一条") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
-            for ((kind, list) in grouped) {
-                item(key = "h-${kind.key}") {
+            if (entries.isNotEmpty() && shown.isEmpty()) {
+                item(key = "none") { Notice("设定里没有和「${query.trim()}」有关的条目。") }
+            }
+            for ((title, list) in grouped) {
+                item(key = "h-$title") {
                     Text(
-                        if (kind.key == "self") "${name}自己的事" else kind.label,
+                        (if (title.isEmpty()) "没归到书里" else "《$title》") + " · ${list.size} 条",
                         color = palette.contentSecondary,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(start = 6.dp, top = 6.dp),
                     )
                 }
-                items(list, key = { it.id }) { m -> MemoryCard(m) { onOpen(m.id) } }
+                items(list, key = { it.id }) { e ->
+                    LoreRow(e, onOpen = { onOpen(e.id) }, onToggle = { on ->
+                        scope.launch { c.db.lore().update(e.copy(enabled = on, updatedAt = System.currentTimeMillis())) }
+                    })
+                }
             }
             item(key = "foreign") {
                 GlassSurface(
@@ -140,9 +173,9 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "从别的地方搬东西过来：选一个文件，角色卡、世界书、记忆库、历史聊天都认。角色卡会新开一个 TA（东西都归他），" +
-                                "世界书进那个 TA 的「设定」；只搬记忆的话，JSON、纯文本、Markdown 都行（一段或一行一件，「名字: 内容」拆成两半），" +
-                                "导进当前这个 TA，同名的并进已有那件，缺的细节补上。",
+                            "从别的 app 搬过来：选一个文件，角色卡、世界书、记忆库、聊天记录都认。" +
+                                "文件里有角色卡，就照它新开一个 TA，里面的东西都归他；只是设定的话，搬进现在这个 TA。" +
+                                "已经有的条目不会重复进来。",
                             color = palette.contentSecondary,
                             fontSize = 12.sp,
                             lineHeight = 18.sp,
@@ -153,7 +186,7 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                                 .clickable(interactionSource = null, indication = null) { if (!importing) importPicker.launch(arrayOf("*/*")) }
                                 .padding(horizontal = 14.dp, vertical = 8.dp),
                         ) {
-                            Text(if (importing) "正在导入…" else "选个文件", color = palette.content, fontSize = 14.sp)
+                            Text(if (importing) "正在导入…" else "导入文件", color = palette.content, fontSize = 14.sp)
                         }
                         note?.let { Text(it, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }
                     }
@@ -163,40 +196,38 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
     }
 }
 
+/** One entry: what it is called, the words that lead to it, and whether the TA may find it at all. */
 @Composable
-private fun MemoryCard(m: MemoryEntity, onClick: () -> Unit) {
+private fun LoreRow(e: LoreEntity, onOpen: () -> Unit, onToggle: (Boolean) -> Unit) {
     val palette = LocalGlassPalette.current
-    val details = MemoryDetails.decode(m.details).size
+    val keys = LoreKeys.decode(e.keys)
     GlassSurface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClickLabel = "打开", onClick = onClick),
+            .clickable(onClickLabel = "打开", onClick = onOpen),
         shape = GlassShape.Rounded(22.dp),
-        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
+        contentPadding = PaddingValues(start = 18.dp, end = 8.dp, top = 14.dp, bottom = 14.dp),
     ) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // The name and its pin take the room left; the count stays at the right edge.
-                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        m.name,
-                        color = palette.content,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    if (m.pinned) {
-                        Spacer(Modifier.width(6.dp))
-                        Icon(Icons.Rounded.PushPin, contentDescription = "钉住了", tint = palette.accentContent, modifier = Modifier.size(16.dp))
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(if (details == 0) "没有细节" else "$details 条细节", color = palette.contentSecondary, fontSize = 12.sp)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    e.title.ifBlank { "没起名字" },
+                    color = palette.content,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    if (keys.isEmpty()) "没有关键词，只有说到「${e.title.ifBlank { "它" }}」时才可能查到" else keys.joinToString("、"),
+                    color = palette.contentSecondary,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            Spacer(Modifier.height(4.dp))
-            Text(m.summary, color = palette.content, fontSize = 14.sp, lineHeight = 20.sp)
+            Spacer(Modifier.width(8.dp))
+            Switch(checked = e.enabled, onCheckedChange = onToggle, colors = glassSwitchColors())
         }
     }
 }

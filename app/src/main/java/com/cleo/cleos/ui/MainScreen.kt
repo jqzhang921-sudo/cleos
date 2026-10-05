@@ -90,6 +90,7 @@ fun MainScreen(
     onOpenImage: (String) -> Unit,
     onOpenLetters: () -> Unit,
     onOpenMemory: () -> Unit,
+    onOpenFavorites: () -> Unit,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     // A notification about a conversation was tapped: the chat, which already shows it.
@@ -197,7 +198,7 @@ fun MainScreen(
                             0 -> ChatTab(bottomInset, onOpenSettings, onOpenSettingsPage, onOpenConversations, onOpenImage)
                             1 -> DiaryTab(bottomInset, onOpenDiaryEntry)
                             2 -> TodoTab(bottomInset)
-                            else -> HomeTab(bottomInset, onOpenSettings, onOpenLetters, onOpenMemory)
+                            else -> HomeTab(bottomInset, onOpenSettings, onOpenLetters, onOpenMemory, onOpenFavorites)
                         }
                     }
                 }

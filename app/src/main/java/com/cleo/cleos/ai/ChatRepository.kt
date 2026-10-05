@@ -611,11 +611,13 @@ class ChatRepository(
         val history = Recap.sent(recaps.live(conversation), s.historySize)
         var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta) intersect CALL_TOOLS
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
+        val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
         // The person's stickers in what came before, told in words: none are sent on the phone.
         val stickers = StickerBook(db.stickers().all())
         val calls = callsOutside(history)
         fun build() = Prompt.messages(
             s, ta, history, ZonedDateTime.now(), groups, false, memories, conversation.recap, stickers = stickers, call = callId, calls = calls,
+            lore = lore,
         ).let { if (instruction != null) Prompt.withWake(it, instruction) else it }
         var messages = build()
         val said = StringBuilder()
@@ -822,10 +824,11 @@ class ChatRepository(
         var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta) - ToolGroup.Music
         var thinking = ta.deepThinking && endpointKey !in refusesThinking
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
+        val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
         val (stickers, sendStickers) = stickersFor(s)
         val calls = callsOutside(history)
         fun build() = Prompt.withWake(
-            Prompt.messages(s, ta, history, now, groups, false, memories, conversation.recap, stickers = stickers, sendStickers = sendStickers, calls = calls),
+            Prompt.messages(s, ta, history, now, groups, false, memories, conversation.recap, stickers = stickers, sendStickers = sendStickers, calls = calls, lore = lore),
             instruction,
         )
         var messages = build()
@@ -936,6 +939,9 @@ class ChatRepository(
             var thinking = ta.deepThinking && endpointKey !in refusesThinking
             // What the TA remembers, read once for this reply.
             val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
+            // What the world book of this TA says, read in the same breath; it is only a list of
+            // names until the TA looks one up.
+            val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
             // What it noted that has come due while the two are talking: this reply takes it in,
             // and once it has gone through, it is dealt with (Later wakes nobody for it).
             val due = if (ta.proactive) db.later().dueFor(ta.id, System.currentTimeMillis()) else emptyList()
@@ -946,6 +952,7 @@ class ChatRepository(
             val calls = callsOutside(history)
             fun build() = Prompt.messages(
                 s, ta, history, now, groups, withImages, memories, recap, outside, due.map { it.what }, heard, stickers, sendStickers, calls = calls,
+                lore = lore,
             )
             var messages = prepare(build())
             var rounds = 0

@@ -152,6 +152,38 @@ data class MemoryEntity(
 }
 
 /**
+ * One entry of a TA's 设定: what a world book brought over from another app says about a
+ * person, a place or a word. Kept apart from memory on purpose: this is the world the TA
+ * lives in, not something they came to know, so it has no per-kind bound and it is not in
+ * front of the model every message — the TA looks a word up in it when the word comes up.
+ */
+@Serializable
+@Entity(tableName = "lore", indices = [Index("companionId")])
+data class LoreEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companionId: Long,
+    /** The book it came in, for grouping on the page; empty for one written by hand. */
+    val book: String = "",
+    /** What the entry is called: the file's remark, or its first word. */
+    val title: String,
+    /** A JSON array of strings (LoreKeys): the words that bring this entry up. */
+    val keys: String = "[]",
+    val content: String,
+    /** Off: kept and readable on the page, but never given to the TA. */
+    val enabled: Boolean = true,
+    /** Where it sat among its book's entries (the file's insertion order). */
+    val position: Int = 0,
+    /** Who wrote it: [MemoryEntity.SOURCE_IMPORT] or [SOURCE_ME]. */
+    val source: String = MemoryEntity.SOURCE_IMPORT,
+    val createdAt: Long,
+    val updatedAt: Long,
+) {
+    companion object {
+        const val SOURCE_ME = "me"
+    }
+}
+
+/**
  * A letter between the person and one TA. Theirs alone: other TAs don't see it.
  *
  * The person's start as drafts and are sent once, then stay as sent. A TA's is written

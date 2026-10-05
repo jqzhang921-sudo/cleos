@@ -100,6 +100,7 @@ class AppContainer(context: Context) {
         avatar = AiSelfAvatar(db, images, companions),
         letters = { id -> db.letters().allFor(id) },
         memories = db.memories(),
+        lore = db.lore(),
         location = PhoneLocation(context, http),
         later = { later },
         alarms = PhoneClock(context) { visible },
@@ -124,8 +125,9 @@ class AppContainer(context: Context) {
         listening = { Listening(music, lyrics).line() },
     )
     val stickers = Stickers(context, db, images)
+    val favorites = com.cleo.cleos.data.Favorites(db, settings, images)
     val backup = BackupService(context, db, settings, images)
-    val imports = ForeignImport(context, db)
+    val imports = ForeignImport(context, db, companions)
     val notifier = Notifier(context, images)
 
     /** Phone calls with a TA. */
@@ -181,6 +183,7 @@ class AppContainer(context: Context) {
         // The first TA is made from the old settings before anything asks who is being talked to.
         appScope.launch {
             companions.ensure()
+            favorites.prune()
             // What a TA brought from another app used to sit in their persona; it moves into their memory, once.
             PersonaMemory.migrate(db, System.currentTimeMillis())
             // A call the app was stopped in the middle of ended there.

@@ -1,5 +1,7 @@
 package com.cleo.cleos.ui.chat
 
+import com.cleo.cleos.data.FavoriteContent
+import androidx.compose.material3.Checkbox
 import android.Manifest
 import android.os.SystemClock
 import android.content.ClipData
@@ -407,6 +409,26 @@ fun ChatTab(
     var recordedMs by remember { mutableLongStateOf(0L) }
     var loudness by remember { mutableFloatStateOf(0f) }
     var voiceHint by remember { mutableStateOf<String?>(null) }
+    var selecting by remember(state.conversationId) { mutableStateOf(false) }
+    var selected by remember(state.conversationId) { mutableStateOf(setOf<Long>()) }
+    var savingFavorite by remember { mutableStateOf(false) }
+    BackHandler(enabled = selecting && pageShown) { selecting = false; selected = emptySet() }
+    fun toggleFavorite(id: Long) { selected = if (id in selected) selected - id else selected + id }
+    fun saveFavorite(ids: Set<Long>) {
+        val conversation = state.conversationId ?: return
+        if (savingFavorite || ids.isEmpty()) return
+        savingFavorite = true
+        c.appScope.launch {
+            try {
+                c.favorites.save(conversation, ids)
+                voiceHint = "已收藏"
+                selecting = false
+                selected = emptySet()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e
+            } catch (e: Exception) { voiceHint = e.message ?: "没能收藏，请再试一次"
+            } finally { savingFavorite = false }
+        }
+    }
     var askVoiceSetup by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf<String?>(null) }
     // Counts what the person sends: sending takes the chat down to the newest, wherever it was.
@@ -738,15 +760,18 @@ fun ChatTab(
         overlay = { page ->
             // The title is the TA; tapping it switches to another one or adds one.
             GlassTopBar(
-                title = state.aiName.ifBlank { "聊天" },
-                subtitle = state.model.takeIf { it.isNotBlank() }?.let { "$it ▾" },
+                title = if (selecting) "已选 ${selected.size} 条" else state.aiName.ifBlank { "聊天" },
+                subtitle = state.model.takeIf { !selecting }?.takeIf { it.isNotBlank() }?.let { "$it ▾" },
                 backdrop = page,
-                leading = { GlassIconButton(Icons.Rounded.Forum, "对话记录", onOpenConversations, page) },
-                trailing = {
-                    GlassIconButton(Icons.Rounded.Call, "打电话", { startCall() }, page)
-                    GlassIconButton(Icons.Rounded.AddComment, "新对话", vm::newConversation, page)
+                leading = {
+                    if (selecting) TextButton(onClick = { selecting = false; selected = emptySet() }) { Text("取消") }
+                    else GlassIconButton(Icons.Rounded.Forum, "对话记录", onOpenConversations, page)
                 },
-                onTitleClick = { switching = true },
+                trailing = {
+                    if (!selecting) GlassIconButton(Icons.Rounded.Call, "打电话", { startCall() }, page)
+                    if (!selecting) GlassIconButton(Icons.Rounded.AddComment, "新对话", vm::newConversation, page)
+                },
+                onTitleClick = { if (!selecting) switching = true },
                 titleMenu = {
                     DropdownMenu(expanded = switching, onDismissRequest = { switching = false }) {
                         companions.forEach { ta ->
@@ -792,7 +817,18 @@ fun ChatTab(
                     )
                 }
             }
-            ChatInputBar(
+            if (selecting) {
+                GlassSurface(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(start = 16.dp, end = 16.dp, bottom = inputBottom)
+                        .fillMaxWidth().onSizeChanged { inputHeight = it.height },
+                    shape = GlassShape.Rounded(24.dp), contentPadding = PaddingValues(8.dp),
+                ) {
+                    TextButton(onClick = { saveFavorite(selected) }, enabled = selected.isNotEmpty() && !savingFavorite,
+                        modifier = Modifier.fillMaxWidth()) {
+                        Text(if (savingFavorite) "正在保存…" else "收藏这 ${selected.size} 条")
+                    }
+                }
+            } else ChatInputBar(
                 backdrop = page,
                 type = chatType,
                 text = input,
@@ -920,6 +956,10 @@ fun ChatTab(
                                 }
                                 else -> {
                                     val quote = remember(m.quote) { MessageQuotes.decode(m.quote) }
+                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                        if (selecting) Checkbox(checked = m.id in selected, onCheckedChange = { toggleFavorite(m.id) }, enabled = !savingFavorite,
+                                            modifier = Modifier.semantics { contentDescription = "选择消息：" + (if (m.audio != null) "语音，" else "") + m.content.take(80) })
+                                        Box(Modifier.weight(1f)) {
                                     MessageBubble(
                                         message = m,
                                         showFace = row.showFace,
@@ -941,7 +981,19 @@ fun ChatTab(
                                         highlighted = m.id == flashed,
                                         onReact = { vm.react(m.id, it) },
                                         onRead = { readAloud(m.id, it) },
+                                        onFavorite = { saveFavorite(setOf(m.id)) },
+                                        onSelect = {
+                                            stopPlaying()
+                                            drawerOpen = false
+                                            keyboard?.hide()
+                                            focusManager.clearFocus()
+                                            selected = setOf(m.id)
+                                            selecting = true
+                                        },
                                     )
+                                    if (selecting) Box(Modifier.matchParentSize().clickable(enabled = !savingFavorite) { toggleFavorite(m.id) })
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1035,6 +1087,11 @@ fun ChatTab(
                     vm.delete(id)
                 },
                 onDismiss = { readingCall = null },
+                onFavorite = {
+                    val ids = state.messages.filter { it.call == id && FavoriteContent.eligible(it) }.map { it.id }.toSet()
+                    saveFavorite(ids)
+                    readingCall = null
+                },
             )
         }
     }
@@ -1164,6 +1221,8 @@ private fun MessageBubble(
     highlighted: Boolean = false,
     onReact: (String) -> Unit = {},
     onRead: (String) -> Unit = {},
+    onFavorite: () -> Unit = {},
+    onSelect: () -> Unit = {},
 ) {
     val palette = LocalGlassPalette.current
     val mine = message.role == "user"
@@ -1287,6 +1346,10 @@ private fun MessageBubble(
                             menu = false
                             onRetry()
                         })
+                    }
+                    if (FavoriteContent.eligible(message)) {
+                        DropdownMenuItem(text = { Text("收藏") }, onClick = { menu = false; onFavorite() })
+                        DropdownMenuItem(text = { Text("多选") }, onClick = { menu = false; onSelect() })
                     }
                     DropdownMenuItem(text = { Text("删除") }, onClick = {
                         menu = false
@@ -1948,6 +2011,7 @@ private fun CallTranscript(
     userName: String,
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
+    onFavorite: () -> Unit,
 ) {
     val palette = LocalGlassPalette.current
     var deleting by remember { mutableStateOf(false) }
@@ -2006,7 +2070,10 @@ private fun CallTranscript(
             if (deleting) {
                 TextButton(onClick = { deleting = false }) { Text("算了") }
             } else {
-                TextButton(onClick = { deleting = true }) { Text("删除") }
+                Row {
+                    if (lines.any(FavoriteContent::eligible)) TextButton(onClick = onFavorite) { Text("收藏文字") }
+                    TextButton(onClick = { deleting = true }) { Text("删除") }
+                }
             }
         },
     )

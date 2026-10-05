@@ -102,7 +102,7 @@ class Companions(
     /**
      * Removes a TA with everything that was only theirs: conversations (and the pictures
      * sent in them), the diary entries they wrote, the letters between them, what they
-     * remembered, their avatar.
+     * remembered, their 设定, their avatar.
      * The last TA stays.
      */
     suspend fun delete(id: Long) {
@@ -110,15 +110,19 @@ class Companions(
         val gone = list.firstOrNull { it.id == id } ?: return
         if (list.size <= 1) return
         val conversations = db.conversations().idsFor(id)
+        val favorites = db.favorites().forCompanion(id)
+        val keptFiles = favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) }
         val pictures = conversations.flatMap { db.messages().imagesIn(it) }.flatMap { MessageImages.decode(it) }.map { it.file }
         db.withTransaction {
             conversations.forEach { db.conversations().delete(it) }
             db.diary().deleteWrittenBy(id)
             db.letters().deleteFor(id)
             db.memories().deleteFor(id)
+            db.lore().deleteFor(id)
+            db.favorites().deleteFor(id)
             db.companions().delete(id)
         }
-        images.delete(pictures + listOfNotNull(gone.avatar))
+        images.delete(pictures + keptFiles + listOfNotNull(gone.avatar))
         val talkingTo = settings.currentCompanion.first() ?: list.first().id
         if (talkingTo == id) select(list.first { it.id != id }.id)
     }

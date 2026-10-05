@@ -9,8 +9,10 @@ import com.cleo.cleos.data.db.ConversationEntity
 import com.cleo.cleos.data.db.DiaryEntryEntity
 import com.cleo.cleos.ai.ReplyWhen
 import com.cleo.cleos.ai.Speech
+import com.cleo.cleos.data.db.FavoriteEntity
 import com.cleo.cleos.data.db.LetterEntity
 import com.cleo.cleos.data.db.MemoryEntity
+import com.cleo.cleos.data.db.LoreEntity
 import com.cleo.cleos.data.db.MessageEntity
 import com.cleo.cleos.data.db.StickerEntity
 import com.cleo.cleos.data.db.TodoEntity
@@ -97,6 +99,9 @@ data class BackupFile(
     val memories: List<MemoryEntity> = emptyList(),
     /** Absent in backups from before there were stickers; their pictures are under `images/` with the rest. */
     val stickers: List<StickerEntity> = emptyList(),
+    val favorites: List<FavoriteEntity> = emptyList(),
+    /** Absent in backups from before a TA had 设定 (a world book brought over from elsewhere). */
+    val lore: List<LoreEntity> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "cleos-backup"
@@ -114,11 +119,15 @@ data class BackupSummary(
     val images: Int,
     val voices: Int = 0,
     val stickers: Int = 0,
+    val favorites: Int = 0,
+    val lore: Int = 0,
 ) {
     override fun toString() =
         "$tas 个 TA、$conversations 段对话（$messages 条消息）、$diary 篇日记、$letters 封信、$todos 条待办、$images 张图" +
             (if (voices > 0) "、$voices 段语音" else "") +
-            if (stickers > 0) "、$stickers 个表情包" else ""
+            (if (stickers > 0) "、$stickers 个表情包" else "") +
+            (if (favorites > 0) "、$favorites 条收藏" else "") +
+            (if (lore > 0) "、$lore 条设定" else "")
 }
 
 /** Recordings are named voice_…, among the pictures (VoiceRecorder). */
@@ -227,9 +236,12 @@ class BackupService(
             letters = db.letters().all(),
             memories = db.memories().all(),
             stickers = db.stickers().all(),
+            favorites = db.favorites().all(),
+            lore = db.lore().all(),
         )
         val stickerFiles = data.stickers.map { it.file }.toSet()
-        val pictures = (data.diary.flatMap { e -> DiaryBlocks.images(DiaryBlocks.decode(e.blocks)).map { it.file } } +
+        val favoriteFiles = data.favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) }
+        val pictures = (favoriteFiles + data.diary.flatMap { e -> DiaryBlocks.images(DiaryBlocks.decode(e.blocks)).map { it.file } } +
             data.messages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
             // Recordings live with the pictures and travel the same way.
             data.messages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +
@@ -259,7 +271,7 @@ class BackupService(
         }
         return BackupSummary(
             companions.size, data.conversations.size, data.messages.size, data.diary.size, data.letters.size, data.todos.size,
-            written, voices, stickers,
+            written, voices, stickers, data.favorites.size, data.lore.size,
         )
     }
 
@@ -329,6 +341,7 @@ class BackupService(
             db.withTransaction {
                 // What TAs noted to come back to, and what came of it: not in backups, and about
                 // conversations that are about to go.
+                db.favorites().clear()
                 db.later().clear()
                 db.wakes().clear()
                 db.messages().clear()
@@ -337,6 +350,7 @@ class BackupService(
                 db.todos().clear()
                 db.letters().clear()
                 db.memories().clear()
+                db.lore().clear()
                 db.stickers().clear()
                 db.companions().clear()
                 db.companions().insertAll(companions)
@@ -346,7 +360,9 @@ class BackupService(
                 db.todos().insertAll(d.todos)
                 db.letters().insertAll(d.letters)
                 db.memories().insertAll(d.memories)
+                db.lore().insertAll(d.lore)
                 db.stickers().insertAll(stickers)
+                db.favorites().insertAll(d.favorites)
             }
             // A backup from before each voice service had its own place says "api" for all of them.
             val (speechEngine, speechVoices) = Speech.migrate(bs.speechEngine, bs.speechBaseUrl, bs.speechVoice, bs.speechVoices)
@@ -387,7 +403,9 @@ class BackupService(
             settings.setCurrentConversation(null)
             return BackupSummary(
                 companions.size, d.conversations.size, d.messages.size, d.diary.size, d.letters.size, d.todos.size,
-                pictures.size - stickers.size, stickers = stickers.size,
+                pictures.count { !it.name.startsWith(VOICE_PREFIX) && it.name !in stickers.map { s -> s.file }.toSet() },
+                voices = pictures.count { it.name.startsWith(VOICE_PREFIX) },
+                stickers = stickers.size, favorites = d.favorites.size, lore = d.lore.size,
             )
         } finally {
             staging.deleteRecursively()

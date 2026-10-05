@@ -121,7 +121,7 @@ internal fun ProfilePage(vm: SettingsViewModel, onOpenPersona: () -> Unit, onLea
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("删除$name？") },
-            text = { Text("和${name}的所有对话、${name}写的日记会一起删掉，删了找不回来。你自己的日记和待办不受影响。") },
+            text = { Text("和${name}的所有对话、信、记忆、收藏，以及${name}写的日记会一起删掉，删了找不回来。你自己的日记和待办不受影响。") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false

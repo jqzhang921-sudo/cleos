@@ -28,11 +28,11 @@ import com.cleo.cleos.data.AppSettings
 import com.cleo.cleos.data.McpServer
 import com.cleo.cleos.data.Companions
 import com.cleo.cleos.data.GlassMode
-import com.cleo.cleos.ai.MemoryKinds
 import com.cleo.cleos.data.ImportException
 import com.cleo.cleos.data.Pats
 import com.cleo.cleos.data.db.CompanionEntity
 import com.cleo.cleos.data.db.LaterEntity
+import com.cleo.cleos.data.db.LoreEntity
 import com.cleo.cleos.data.db.WakeEntity
 import com.cleo.cleos.ui.wallpaper.WallpaperAnalyzer
 import kotlinx.coroutines.Dispatchers
@@ -141,6 +141,12 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     @OptIn(ExperimentalCoroutinesApi::class)
     val waiting: StateFlow<List<LaterEntity>> = snapshotFlow { companionId }
         .flatMapLatest { c.db.later().observeFor(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** This TA's 设定, for what the list of groups says; the 设定 page reads them itself. */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val lore: StateFlow<List<LoreEntity>> = snapshotFlow { companionId }
+        .flatMapLatest { c.db.lore().observeFor(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** The address the voice service's key is filed under (Speech.keyAddress), as the fields stand. */
@@ -602,9 +608,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         private set
 
     /**
-     * Brings a memory file of any shape into the TA this screen is editing. Nothing already
-     * remembered is touched: a topic with a name that is already here only gets the details
-     * it was missing.
+     * Brings a file from another app in: a 角色卡 (which makes a TA of its own, and everything
+     * else in the file goes to them), a world book, a memory store, a chat log — any of the
+     * four, or several at once. Nothing already here is touched: a memory of the same name
+     * only gets the details it was missing, and a 设定 entry that is already there is left be.
      */
     fun importMemoryFile(uri: Uri) {
         if (memoryBusy) return
@@ -614,18 +621,14 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         memoryMessage = null
         viewModelScope.launch {
             try {
-                val r = c.imports.importForeignMemories(uri, id)
-                memoryMessage = buildString {
-                    if (r.added == 0 && r.details == 0 && r.skipped == 0) {
-                        append("都有了，没有要导入的。")
-                    } else {
-                        append("导入了：新加 ${r.added} 件事")
-                        if (r.details > 0) append("，${r.details} 条细节")
-                        append("。")
-                    }
-                    if (r.skipped > 0) {
-                        append("还有 ${r.skipped} 条没进来：一类最多 ${MemoryKinds.PER_KIND} 件，先在记忆里把同类的合并或删掉一些，再导一次。")
-                    }
+                val r = c.imports.import(uri, id)
+                memoryMessage = r.said()
+                // A 角色卡 makes a TA and switches to them: the fields here follow, so what is
+                // typed next is about the one just imported.
+                r.newTaId?.let { made ->
+                    persist()
+                    c.companions.select(made)
+                    load(c.companions.current())
                 }
             } catch (e: ImportException) {
                 memoryMessage = e.message

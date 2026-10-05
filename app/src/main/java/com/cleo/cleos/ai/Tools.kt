@@ -8,6 +8,7 @@ import com.cleo.cleos.data.Pats
 import com.cleo.cleos.data.db.DiaryDao
 import com.cleo.cleos.data.db.DiaryEntryEntity
 import com.cleo.cleos.data.db.LetterEntity
+import com.cleo.cleos.data.db.LoreDao
 import com.cleo.cleos.data.db.MemoryDao
 import com.cleo.cleos.data.db.TodoDao
 import com.cleo.cleos.data.db.TodoEntity
@@ -43,7 +44,7 @@ import java.util.Locale
  * writes a sticker's name into what it says, so it is told about apart from the tools, and a model
  * that takes no tools sends them too.
  */
-enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat }
+enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Lore, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat }
 
 /**
  * A function offered to the model, when any of its [groups] is on. [parameters] is a
@@ -256,6 +257,41 @@ object ToolSpecs {
         },
     )
 
+    /**
+     * The 设定 a TA was given, one world book at a time. Chats are about what the person is
+     * saying now; this is what everyone in that world already knows, and it is looked up
+     * rather than carried: a book of hundreds of entries would otherwise be in every message.
+     */
+    val lore = ToolSpec(
+        name = "lore",
+        groups = setOf(ToolGroup.Lore),
+        action = "查设定",
+        description = "查你的设定（世界书）：你和对方所在的世界里，人、地方、称呼、规矩都写在里面。" +
+            "聊到里面会有的词（人名、地名、称呼、别的设定里的说法）时，先查了再开口，别自己编。\n" +
+            "action 两种：\n" +
+            "· search：给一个词，看设定里和它有关的条目原文。\n" +
+            "· open：给编号，看一整条。",
+        parameters = buildJsonObject {
+            put("type", "object")
+            putJsonObject("properties") {
+                putJsonObject("action") {
+                    put("type", "string")
+                    putJsonArray("enum") { listOf("search", "open").forEach { add(it) } }
+                    put("description", "search 查，open 看一整条")
+                }
+                putJsonObject("query") {
+                    put("type", "string")
+                    put("description", "search 要：要查的那个词。短一点——人名、地名、称呼；别拿一整句话去查。")
+                }
+                putJsonObject("id") {
+                    put("type", "integer")
+                    put("description", "open 要：条目编号，来自 search 结果里的 #号，比如 7")
+                }
+            }
+            putJsonArray("required") { add("action") }
+        },
+    )
+
     val readLetters = ToolSpec(
         name = "read_letters",
         groups = setOf(ToolGroup.Letters),
@@ -431,6 +467,7 @@ object ToolSpecs {
         requestSecret,
         readLetters,
         memory,
+        lore,
         setMyAvatar,
         getWeather,
         getLocation,
@@ -508,6 +545,8 @@ class ToolBox(
     /** The letters between one TA and the person, any order. */
     private val letters: suspend (companionId: Long) -> List<LetterEntity> = { emptyList() },
     memories: MemoryDao? = null,
+    /** A TA's 设定: a world book brought over from elsewhere, looked up rather than always carried. */
+    lore: LoreDao? = null,
     /** Where the phone is, for get_location. */
     private val location: LocationSource? = null,
     /** Where note_for_later keeps its notes; asked for at the call, since it is made after this. */
@@ -524,6 +563,7 @@ class ToolBox(
     private val zone: () -> ZoneId = ZoneId::systemDefault,
 ) {
     private val book = memories?.let { MemoryBook(it, clock) }
+    private val loreBook = lore?.let { LoreBook(it) }
 
     fun specs(groups: Set<ToolGroup>): List<ToolSpec> = ToolSpecs.offered(groups)
 
@@ -561,6 +601,7 @@ class ToolBox(
                 ToolSpecs.sendMessage.name, ToolSpecs.sendVoice.name -> ToolOutcome(ToolSpecs.SENT, "")
                 ToolSpecs.readLetters.name -> readLetters(args, today, companionId)
                 ToolSpecs.memory.name -> (book ?: throw ToolFailure("现在记不了。", "这里记不了")).act(args, companionId)
+                ToolSpecs.lore.name -> (loreBook ?: throw ToolFailure("现在查不了设定。", "这里查不了")).act(args, companionId)
                 ToolSpecs.getLocation.name -> getLocation()
                 ToolSpecs.noteForLater.name -> noteForLater(args, conversationId, companionId)
                 ToolSpecs.setAlarm.name -> setAlarm(args)

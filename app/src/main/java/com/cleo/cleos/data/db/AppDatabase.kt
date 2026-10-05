@@ -23,8 +23,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         LaterEntity::class,
         WakeEntity::class,
         StickerEntity::class,
+        FavoriteEntity::class,
+        LoreEntity::class,
     ],
-    version = 16,
+    version = 18,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -61,6 +63,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         // 15 -> 16: a second model for each TA's words that are heard, on the phone and answering
         // voice messages (off to begin with, its address and model empty).
         AutoMigration(from = 15, to = 16),
+        AutoMigration(from = 16, to = 17),
+        // 17 -> 18: a TA's 设定, brought over from another app's world book (a table).
+        AutoMigration(from = 17, to = 18),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -74,6 +79,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun later(): LaterDao
     abstract fun wakes(): WakeDao
     abstract fun stickers(): StickerDao
+    abstract fun favorites(): FavoriteDao
+    abstract fun lore(): LoreDao
 
     /**
      * Before version 5 there was one TA, so every entry a TA wrote was TA 1's. (Conversations

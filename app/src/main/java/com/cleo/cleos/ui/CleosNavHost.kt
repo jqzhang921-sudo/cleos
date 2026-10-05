@@ -27,6 +27,8 @@ import com.cleo.cleos.ui.letters.LetterScreen
 import com.cleo.cleos.ui.letters.LettersScreen
 import com.cleo.cleos.ui.memory.MemoryEditScreen
 import com.cleo.cleos.ui.memory.MemoryScreen
+import com.cleo.cleos.ui.settings.LoreEditScreen
+import com.cleo.cleos.ui.settings.LoreScreen
 import com.cleo.cleos.ui.settings.McpEditScreen
 import com.cleo.cleos.ui.settings.PersonaScreen
 import com.cleo.cleos.ui.settings.SettingsPage
@@ -67,6 +69,12 @@ data class LetterRoute(val id: Long)
 @Serializable
 object MemoryRoute
 
+@Serializable
+object FavoritesRoute
+
+@Serializable
+data class FavoriteRoute(val id: Long)
+
 /** id 0 means a new memory, written by the person, for the current TA. */
 @Serializable
 data class MemoryEditRoute(val id: Long)
@@ -78,6 +86,14 @@ data class McpEditRoute(val id: String)
 /** A TA's persona, written on a page of its own. */
 @Serializable
 data class PersonaRoute(val companionId: Long)
+
+/** A TA's 设定 (world book entries), reached from the settings' list of groups. */
+@Serializable
+object LoreRoute
+
+/** One 设定 entry; id 0 means a new one, for the current TA. */
+@Serializable
+data class LoreEditRoute(val id: Long)
 
 /** A call with a TA: up for as long as one is on, over whatever else was open. */
 @Serializable
@@ -137,10 +153,18 @@ fun CleosNavHost() {
                 onOpenImage = { nav.go(ImageRoute(it)) },
                 onOpenLetters = { nav.go(LettersRoute) },
                 onOpenMemory = { nav.go(MemoryRoute) },
+                onOpenFavorites = { nav.go(FavoritesRoute) },
             )
         }
         composable<LettersRoute> { LettersScreen(onBack = nav::back, onOpen = { nav.go(LetterRoute(it)) }) }
         composable<LetterRoute> { entry -> LetterScreen(entry.toRoute<LetterRoute>().id, onBack = nav::back) }
+        composable<FavoritesRoute> {
+            com.cleo.cleos.ui.favorites.FavoritesScreen(onBack = nav::back, onOpen = { nav.go(FavoriteRoute(it)) })
+        }
+        composable<FavoriteRoute> { entry ->
+            com.cleo.cleos.ui.favorites.FavoriteScreen(entry.toRoute<FavoriteRoute>().id, onBack = nav::back,
+                onFound = { nav.popBackStack(MainRoute, inclusive = false) }, onImage = { nav.go(ImageRoute(it)) })
+        }
         composable<MemoryRoute> { MemoryScreen(onBack = nav::back, onOpen = { nav.go(MemoryEditRoute(it)) }) }
         composable<MemoryEditRoute> { entry -> MemoryEditScreen(entry.toRoute<MemoryEditRoute>().id, onBack = nav::back) }
         composable<SettingsRoute> { entry ->
@@ -150,9 +174,12 @@ fun CleosNavHost() {
                 onOpenLab = { nav.go(LabRoute) },
                 onOpenMcp = { nav.go(McpEditRoute(it)) },
                 onOpenPersona = { nav.go(PersonaRoute(it)) },
+                onOpenLore = { nav.go(LoreRoute) },
             )
         }
         composable<PersonaRoute> { entry -> PersonaScreen(entry.toRoute<PersonaRoute>().companionId, onBack = nav::back) }
+        composable<LoreRoute> { LoreScreen(onBack = nav::back, onOpen = { nav.go(LoreEditRoute(it)) }) }
+        composable<LoreEditRoute> { entry -> LoreEditScreen(entry.toRoute<LoreEditRoute>().id, onBack = nav::back) }
         composable<LabRoute> { GlassLabScreen(onBack = nav::back) }
         composable<McpEditRoute> { entry -> McpEditScreen(entry.toRoute<McpEditRoute>().id, onBack = nav::back) }
         composable<ConversationsRoute> { ConversationsScreen(onBack = nav::back, onSearch = { nav.go(SearchRoute) }) }

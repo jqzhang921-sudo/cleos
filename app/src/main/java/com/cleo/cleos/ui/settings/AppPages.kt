@@ -277,7 +277,7 @@ internal fun DataPage(vm: SettingsViewModel) {
 
     Section("备份") {
         Text(
-            "把每个 TA、聊天、日记、信、记忆、待办、表情包和图片打包成一个文件。换手机、重装之前先导出一份。API Key 不会导出。",
+            "把每个 TA、聊天、日记、信、记忆、收藏、待办、表情包、图片和语音打包成一个文件。换手机、重装之前先导出一份。API Key 不会导出。",
             color = palette.contentSecondary,
             fontSize = 12.sp,
             lineHeight = 18.sp,
@@ -295,16 +295,18 @@ internal fun DataPage(vm: SettingsViewModel) {
         }
     }
 
-    Section("导入记忆") {
+    Section("从别的 app 搬过来") {
         Text(
-            "从别的地方搬记忆过来：选一个文件，JSON、纯文本、Markdown 都认（一段或一行一件，「名字: 内容」拆成两半）。" +
-                "导进的是现在这个 TA；同名的并进已有那件，缺的细节补上，这边已有的不动。",
+            "选一个文件，四样都认：角色卡（照它新开一个 TA，文件里别的东西都归他）、世界书（进「设定」，聊天时 TA 自己去查）、" +
+                "记忆库、历史聊天（接成一个对话）。也可以只搬记忆：" +
+                "JSON、纯文本、Markdown 都行，一段或一行一件，「名字: 内容」拆成两半。" +
+                "记忆同名的并进已有那件，缺的细节补上；设定里已经有的条目不会重复进来。",
             color = palette.contentSecondary,
             fontSize = 12.sp,
             lineHeight = 18.sp,
         )
         // Any type: a file passed along through a chat app often comes back without a JSON type.
-        Chip(if (vm.memoryBusy) "正在导入…" else "导入记忆文件", selected = false) {
+        Chip(if (vm.memoryBusy) "正在导入…" else "选个文件", selected = false) {
             if (!vm.memoryBusy) memoryPicker.launch(arrayOf("*/*"))
         }
         vm.memoryMessage?.let { Text(it, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }
@@ -319,7 +321,7 @@ internal fun DataPage(vm: SettingsViewModel) {
             onDismissRequest = { pendingRestore = null },
             title = { Text("用这份备份替换现在的内容？") },
             text = {
-                Text("现在的 TA、聊天、日记和待办会被备份里的全部替换掉。恢复之前会自动把现在的留一份，恢复完可以撤销。")
+                Text("现在的 TA、聊天、日记、信、记忆、收藏和待办会被备份里的内容替换掉。恢复之前会自动把现在的留一份，恢复完可以撤销。")
             },
             confirmButton = {
                 TextButton(onClick = {

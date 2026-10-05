@@ -145,6 +145,14 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
         ) { vm.setTool(ToolGroup.Memory, it) }
         RowDivider(inset = 0.dp)
         ExplainedSwitch(
+            "查设定",
+            "有世界观、人物这类设定时，TA 想用时自己去查",
+            "你搬进来或自己写的设定（世界观、人物、地点这类），TA 不会一直背着，而是在聊到相关的话时自己去查那一条，" +
+                "照原文说。在「资料与性格」下面的「设定」里能看、能改。",
+            on(ToolGroup.Lore),
+        ) { vm.setTool(ToolGroup.Lore, it) }
+        RowDivider(inset = 0.dp)
+        ExplainedSwitch(
             "写日记",
             "在同一个本子里写自己的日记",
             "TA 有自己的日记，写在同一个本子里，标着是 TA 写的；你能看，改不了。",
