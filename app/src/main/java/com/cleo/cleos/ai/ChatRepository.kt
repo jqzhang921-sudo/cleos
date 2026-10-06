@@ -101,6 +101,7 @@ class ChatRepository(
     private val replied: suspend (ta: CompanionEntity, conversationId: Long, said: List<MessageEntity>) -> Unit = { _, _, _ -> },
     /** The song playing, as a reply is told it (Listening), while 一起听歌 is on; null when nothing plays. */
     private val listening: suspend () -> String? = { null },
+    private val interrupted: (Long) -> Unit = {},
 ) {
     /** The replies being written, by conversation. */
     private val _streaming = MutableStateFlow<Map<Long, StreamingReply>>(emptyMap())
@@ -216,6 +217,7 @@ class ChatRepository(
 
     /** Whether the person is writing something in [conversationId]: a reply waits for them, a while. */
     fun typing(conversationId: Long, now: Boolean, processingMedia: Boolean = false) {
+        if (now) { cancelFollowUp(conversationId); interrupted(conversationId) }
         if (now && processingMedia) mediaIn += conversationId else mediaIn -= conversationId
         if (now) typingIn += conversationId
         else if (typingIn.remove(conversationId)) quietSince[conversationId] = System.currentTimeMillis()
@@ -230,6 +232,8 @@ class ChatRepository(
      * for what came meanwhile.
      */
     private fun answerSoon(conversationId: Long) {
+        cancelFollowUp(conversationId)
+        interrupted(conversationId)
         synchronized(lock) {
             sends.merge(conversationId, 1L) { a, b -> a + b }
             lastSent[conversationId] = System.currentTimeMillis()
@@ -792,7 +796,13 @@ class ChatRepository(
      * the person sends meanwhile is answered right after. Nothing shows while the TA decides:
      * typing dots that came to nothing would be a message that never came.
      */
-    suspend fun wake(conversationId: Long, instruction: String): WakeResult {
+    private val followUpJobs = ConcurrentHashMap<Long, Job>()
+
+    fun cancelFollowUp(conversationId: Long) {
+        synchronized(lock) { followUpJobs.remove(conversationId)?.cancel() }
+    }
+
+    suspend fun wake(conversationId: Long, instruction: String, followUp: Boolean = false, allowed: suspend () -> Boolean = { true }): WakeResult {
         val outcome = CompletableDeferred<WakeResult>()
         synchronized(lock) {
             if (busy(conversationId)) return WakeResult.Busy
@@ -800,7 +810,7 @@ class ChatRepository(
             launchFor(conversationId) {
                 outcome.complete(
                     try {
-                        wakeTurn(conversationId, instruction)
+                        if (allowed()) wakeTurn(conversationId, instruction) else WakeResult.Skipped("这次补充已取消")
                     } catch (e: CancellationException) {
                         outcome.complete(WakeResult.Failed(STOPPED))
                         throw e
@@ -808,6 +818,7 @@ class ChatRepository(
                         WakeResult.Failed(e.message ?: e.javaClass.simpleName)
                     },
                 )
+                followUpJobs.remove(conversationId, coroutineContext.job)
                 synchronized(lock) {
                     // Nothing sent meanwhile: done, off the map under the lock (see answerUntilQuiet).
                     if (sends[conversationId] == seen) {
@@ -816,6 +827,10 @@ class ChatRepository(
                     }
                 }
                 answerUntilQuiet(conversationId)
+            }
+            if (followUp) jobs[conversationId]?.let { job ->
+                followUpJobs[conversationId] = job
+                job.invokeOnCompletion { followUpJobs.remove(conversationId, job) }
             }
             // Stopped before it began (its TA deleted meanwhile): an answer all the same.
             jobs[conversationId]?.invokeOnCompletion { outcome.complete(WakeResult.Failed(STOPPED)) }

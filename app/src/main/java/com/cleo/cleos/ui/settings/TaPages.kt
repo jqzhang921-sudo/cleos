@@ -272,6 +272,19 @@ internal fun BehaviorPage(vm: SettingsViewModel) {
             vm.proactive,
         ) { vm.setReachOut(it) }
     }
+    Section("聊完再说一点") {
+        ExplainedSwitch("聊完再说一点", "回复后，允许 TA 自己决定是否再补充一点",
+            "每轮正常回复后只给一次机会，TA 也可以保持安静。你开始输入、录音、选附件或发送新消息时取消；补充不会接着触发补充。", vm.followUpEnabled) { vm.setFollowUp(it) }
+        if (vm.followUpEnabled) {
+            Text("回复结束后，等多久再考虑补充", color = LocalGlassPalette.current.contentSecondary, fontSize = 14.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.cleo.cleos.ai.FollowUpRules.OPTIONS.forEach { seconds ->
+                    Chip(if (seconds == 30) "30 秒" else "${seconds / 60} 分钟", selected = vm.followUpDelaySeconds == seconds) { vm.setFollowUpDelay(seconds) }
+                }
+            }
+            Text("默认关闭，每位 TA 分别设置。开启后会多一次模型请求，即使 TA 选择不说话也会消耗 token。后台执行可能稍晚，过时的机会会直接跳过。", color = LocalGlassPalette.current.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+        }
+    }
     if (vm.proactive) {
         Section("主动找你的时候") { ReachOutStatus(vm) }
     }

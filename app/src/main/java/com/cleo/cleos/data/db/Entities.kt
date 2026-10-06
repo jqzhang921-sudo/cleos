@@ -32,6 +32,8 @@ data class CompanionEntity(
     @ColumnInfo(defaultValue = "0")
     val deepThinking: Boolean = false,
     @ColumnInfo(defaultValue = "3") val replyWaitSeconds: Int = 3,
+    @ColumnInfo(defaultValue = "0") val followUpEnabled: Boolean = false,
+    @ColumnInfo(defaultValue = "60") val followUpDelaySeconds: Int = 60,
     /** May note things down to come back to, and say them on its own when they come due (ai/Later.kt). */
     @ColumnInfo(defaultValue = "1")
     val proactive: Boolean = true,
@@ -232,6 +234,9 @@ data class ConversationEntity(
     /** The last message folded into [recap], by the order messages are read in: its time, then its id. */
     val recapUntilAt: Long? = null,
     val recapUntilId: Long? = null,
+    /** One pending follow-up; cleared atomically before the model is asked. */
+    val followUpMessageId: Long? = null,
+    val followUpAt: Long? = null,
 )
 
 @Serializable

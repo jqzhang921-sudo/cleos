@@ -79,6 +79,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     var persona by mutableStateOf("")
         private set
     var replyWaitSeconds by mutableStateOf(3)
+    var followUpEnabled by mutableStateOf(false)
+    var followUpDelaySeconds by mutableStateOf(60)
         private set
     var deepThinking by mutableStateOf(false)
         private set
@@ -224,6 +226,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         aiName = ta.name
         persona = ta.persona
         replyWaitSeconds = com.cleo.cleos.ai.ReplyWaitRules.seconds(ta.replyWaitSeconds)
+        followUpEnabled = ta.followUpEnabled
+        followUpDelaySeconds = com.cleo.cleos.ai.FollowUpRules.seconds(ta.followUpDelaySeconds)
         deepThinking = ta.deepThinking
         proactive = ta.proactive
     }
@@ -498,6 +502,22 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         replyWaitSeconds = value
         val id = companionId
         viewModelScope.launch { c.companions.update(id) { it.copy(replyWaitSeconds = value) } }
+    }
+
+    fun setFollowUp(on: Boolean) {
+        followUpEnabled = on
+        val id = companionId
+        viewModelScope.launch {
+            c.companions.update(id) { it.copy(followUpEnabled = on) }
+            if (!on) c.followUps.cancelFor(id)
+        }
+    }
+
+    fun setFollowUpDelay(seconds: Int) {
+        val value = com.cleo.cleos.ai.FollowUpRules.seconds(seconds)
+        followUpDelaySeconds = value
+        val id = companionId
+        viewModelScope.launch { c.companions.update(id) { it.copy(followUpDelaySeconds = value) } }
     }
 
     fun setThinking(on: Boolean) {

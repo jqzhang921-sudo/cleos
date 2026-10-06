@@ -135,7 +135,11 @@ class AppContainer(context: Context) {
     val chat: ChatRepository = ChatRepository(
         db, settings, secrets, chatClient, tools, images, companions, recaps, mcp, transcriber, speaker, appScope,
         // A reply finished where the person isn't looking (they left, or went to another page): as a notification.
-        replied = { ta, conversationId, said -> if (!(visible && chatOnScreen == conversationId)) notifier.messages(ta, conversationId, said) },
+        replied = { ta, conversationId, said ->
+            if (!(visible && chatOnScreen == conversationId)) notifier.messages(ta, conversationId, said)
+            followUps.plan(ta, conversationId, said)
+        },
+        interrupted = { followUps.cancel(it) },
         listening = { Listening(music, lyrics).line() },
     )
     val stickers = Stickers(context, db, images)
@@ -174,6 +178,7 @@ class AppContainer(context: Context) {
                 context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
         },
     )
+    val followUps = com.cleo.cleos.ai.FollowUps(context, db, chat, notifier, appScope) { id -> visible && chatOnScreen == id }
     val letters = Letters(db, settings, secrets, chatClient, appScope, written = { later.letterWritten(it) })
 
     /** Where a tapped notification leads, until a screen has gone there. */
@@ -205,6 +210,7 @@ class AppContainer(context: Context) {
         }
         // Notes still waiting and letters on their way get their background work back, if it was lost.
         later.reconcile()
+        followUps.restore()
         // A reply under way is what keeps the app running in the background (ReplyKeeper), and this
         // is where that is decided: it goes up the moment one starts — the person is in front then,
         // and the system lets a service start — rather than when they leave, which is the moment

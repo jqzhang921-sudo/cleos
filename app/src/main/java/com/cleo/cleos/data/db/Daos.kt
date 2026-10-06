@@ -61,6 +61,15 @@ interface ConversationDao {
     @Query("UPDATE conversations SET title = :title WHERE id = :id")
     suspend fun rename(id: Long, title: String)
 
+    @Query("UPDATE conversations SET followUpMessageId = :anchor, followUpAt = :at WHERE id = :id")
+    suspend fun planFollowUp(id: Long, anchor: Long, at: Long)
+
+    @Query("UPDATE conversations SET followUpMessageId = NULL, followUpAt = NULL WHERE id = :id")
+    suspend fun cancelFollowUp(id: Long)
+
+    @Query("UPDATE conversations SET followUpMessageId = NULL, followUpAt = NULL WHERE id = :id AND followUpMessageId = :anchor AND followUpAt <= :now")
+    suspend fun claimFollowUp(id: Long, anchor: Long, now: Long): Int
+
     /**
      * A fold's result, kept only if the recap is still the one the fold started from: an edit
      * made meanwhile wins. Returns the rows changed.
