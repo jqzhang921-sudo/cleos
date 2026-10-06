@@ -214,7 +214,7 @@ internal fun VoiceInputPage(vm: SettingsViewModel) {
 
 /** The wallpaper, the glass over it, and the colour of the person's own bubbles. */
 @Composable
-internal fun LookPage(vm: SettingsViewModel, onOpenLab: () -> Unit) {
+internal fun LookPage(vm: SettingsViewModel, onOpenLab: () -> Unit, onOpenBubbleLab: () -> Unit) {
     val palette = LocalGlassPalette.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val wallpaperPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
@@ -254,10 +254,16 @@ internal fun LookPage(vm: SettingsViewModel, onOpenLab: () -> Unit) {
         }
     }
 
-    // It names itself ("我的气泡"), so its card has no title.
-    BubbleThemeSection(settings, vm)
-    Section(null) {
-        MyBubbleColor(settings.myBubble, vm::setMyBubble)
+    Section("气泡") {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onOpenBubbleLab), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("气泡实验室", color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                val choices = com.cleo.cleos.ui.chat.BubbleThemes.choices.toMap()
+                Text("我：${choices[settings.myBubbleTheme] ?: "默认玻璃"} · TA：${choices[settings.taBubbleThemes[vm.companionId.toString()]] ?: "默认玻璃"}",
+                    color = palette.contentSecondary, fontSize = 12.sp)
+            }
+            Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = palette.contentSecondary)
+        }
     }
 }
 

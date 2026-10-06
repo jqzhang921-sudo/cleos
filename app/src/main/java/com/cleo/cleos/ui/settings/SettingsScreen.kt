@@ -79,6 +79,7 @@ fun SettingsScreen(
     start: SettingsPage?,
     onBack: () -> Unit,
     onOpenLab: () -> Unit,
+    onOpenBubbleLab: () -> Unit,
     onOpenMcp: (String) -> Unit,
     onOpenPersona: (Long) -> Unit,
     onOpenLore: (Long) -> Unit,
@@ -130,7 +131,7 @@ fun SettingsScreen(
                     SettingsPage.Mcp -> McpPage(vm, onOpenMcp)
                     SettingsPage.Chat -> ChatPage(vm)
                     SettingsPage.VoiceInput -> VoiceInputPage(vm)
-                    SettingsPage.Look -> LookPage(vm, onOpenLab)
+                    SettingsPage.Look -> LookPage(vm, onOpenLab, onOpenBubbleLab)
                     SettingsPage.Data -> DataPage(vm)
                     SettingsPage.About -> AboutPage()
                 }

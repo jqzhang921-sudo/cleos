@@ -46,6 +46,9 @@ data class SettingsRoute(val page: String? = null)
 object LabRoute
 
 @Serializable
+object BubbleLabRoute
+
+@Serializable
 object ConversationsRoute
 
 /** Finding what was said with the current TA. */
@@ -176,6 +179,7 @@ fun CleosNavHost() {
                 start = SettingsPage.of(entry.toRoute<SettingsRoute>().page),
                 onBack = nav::back,
                 onOpenLab = { nav.go(LabRoute) },
+                onOpenBubbleLab = { nav.go(BubbleLabRoute) },
                 onOpenMcp = { nav.go(McpEditRoute(it)) },
                 onOpenPersona = { nav.go(PersonaRoute(it)) },
                 onOpenLore = { nav.go(LoreRoute) },
@@ -185,6 +189,7 @@ fun CleosNavHost() {
         composable<LoreRoute> { LoreScreen(onBack = nav::back, onOpen = { nav.go(LoreEditRoute(it)) }) }
         composable<LoreEditRoute> { entry -> LoreEditScreen(entry.toRoute<LoreEditRoute>().id, onBack = nav::back) }
         composable<LabRoute> { GlassLabScreen(onBack = nav::back) }
+        composable<BubbleLabRoute> { com.cleo.cleos.ui.settings.BubbleLabScreen(onBack = nav::back) }
         composable<McpEditRoute> { entry -> McpEditScreen(entry.toRoute<McpEditRoute>().id, onBack = nav::back) }
         composable<ConversationsRoute> { ConversationsScreen(onBack = nav::back, onSearch = { nav.go(SearchRoute) }) }
         // A result opens in the chat: back past the conversation list too.

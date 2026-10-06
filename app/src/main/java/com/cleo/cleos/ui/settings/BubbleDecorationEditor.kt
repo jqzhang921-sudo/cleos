@@ -37,9 +37,10 @@ internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDe
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun Corners(label: String, chosen: String, onPick: (String) -> Unit) {
     Text(label, color = LocalGlassPalette.current.contentSecondary, fontSize = 12.sp)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf("auto" to "跟随主题", "tl" to "左上", "tr" to "右上", "bl" to "左下", "br" to "右下").forEach { (id, name) ->
             Chip(name, selected = id == chosen) { onPick(id) }
         }
