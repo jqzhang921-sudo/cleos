@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import com.cleo.cleos.data.BubbleDecoration
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,10 +66,18 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                     Chip("长消息", sample == "long") { sample = "long" }
                     Chip("语音", sample == "voice") { sample = "voice" }
                 }
+                Text("拖动小脸或自选星点微调位置，松手保存。", color = palette.contentSecondary, fontSize = 12.sp)
                 // Size is bounded on small/landscape screens; only the specimen scrolls if needed.
                 Box(Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 170.dp).verticalScroll(rememberScrollState()),
                     contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-                    ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen, x.roundToInt(), y.roundToInt(), decor, background) { ink ->
+                    ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen, x.roundToInt(), y.roundToInt(), decor, background,
+                        onDecorationDrag = { face, dx, dy ->
+                            val corner = if (face) decor.faceCorner else decor.starCorner
+                            val actual = if (corner == "auto") (if (chosen == "blue") (if (face) "tr" else "bl") else (if (face) "tl" else "br")) else corner
+                            val outward = if (actual.startsWith("t")) -dy else dy
+                            decor = (if (face) decor.copy(faceOffsetX = decor.faceOffsetX + dx.roundToInt(), faceDistance = decor.faceDistance + outward.roundToInt())
+                                else decor.copy(starOffsetX = decor.starOffsetX + dx.roundToInt(), starDistance = decor.starDistance + outward.roundToInt())).normalized()
+                        }, onDecorationDragEnd = { vm.setBubbleDecoration(decor) }) { ink ->
                         if (sample == "voice") Text("▶  8 秒", color = ink, fontSize = 15.sp)
                         else Text(if (sample == "long") "刚刚想起一件小事，想慢慢讲给你听。你在的话，我会很开心。" else "你在呀。",
                             color = ink, style = type.body)

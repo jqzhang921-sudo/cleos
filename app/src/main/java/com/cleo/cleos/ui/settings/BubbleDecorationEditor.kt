@@ -40,7 +40,10 @@ internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDe
         Text("小脸大小：${value.faceSize}", color = palette.contentSecondary, fontSize = 12.sp)
         Slider(value = value.faceSize.toFloat(), valueRange = 16f..32f, steps = 15,
             onValueChange = { onChange(value.copy(faceSize = it.roundToInt())) }, onValueChangeFinished = { onSave(value) })
-        Text("小脸距离：${value.faceDistance} · 负值贴近，正值向外", color = palette.contentSecondary, fontSize = 12.sp)
+        Text("左右偏移：${value.faceOffsetX}", color = palette.contentSecondary, fontSize = 12.sp)
+        Slider(value.faceOffsetX.toFloat(), { onChange(value.copy(faceOffsetX = it.roundToInt())) }, valueRange = -64f..64f, onValueChangeFinished = { onSave(value) })
+        Chip("恢复小脸位置", false) { save(value.copy(faceOffsetX = 0, faceDistance = 0, faceCorner = "auto")) }
+        Text("上下偏移：${value.faceDistance} · 负值贴近，正值向外", color = palette.contentSecondary, fontSize = 12.sp)
         Slider(value.faceDistance.toFloat(), { onChange(value.copy(faceDistance = it.roundToInt())) }, valueRange = -8f..16f, steps = 23, onValueChangeFinished = { onSave(value) })
         Corners("小脸位置", value.faceCorner) { save(value.copy(faceCorner = it)) }
     }
@@ -57,7 +60,10 @@ internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDe
         Slider(value = value.starSize.toFloat(), valueRange = 4f..(if (value.starImage != null || value.starEmoji.isNotEmpty()) 32f else 12f), steps = if (value.starImage != null || value.starEmoji.isNotEmpty()) 27 else 7,
             onValueChange = { onChange(value.copy(starSize = it.roundToInt())) }, onValueChangeFinished = { onSave(value) })
         if (value.starImage != null || value.starEmoji.isNotEmpty()) {
-            Text("装饰距离：${value.starDistance} · 负值贴近，正值向外", color = palette.contentSecondary, fontSize = 12.sp)
+            Text("左右偏移：${value.starOffsetX}", color = palette.contentSecondary, fontSize = 12.sp)
+            Slider(value.starOffsetX.toFloat(), { onChange(value.copy(starOffsetX = it.roundToInt())) }, valueRange = -64f..64f, onValueChangeFinished = { onSave(value) })
+            Chip("恢复星点位置", false) { save(value.copy(starOffsetX = 0, starDistance = 0, starCorner = "auto")) }
+            Text("上下偏移：${value.starDistance} · 负值贴近，正值向外", color = palette.contentSecondary, fontSize = 12.sp)
             Slider(value.starDistance.toFloat(), { onChange(value.copy(starDistance = it.roundToInt())) }, valueRange = -8f..16f, steps = 23, onValueChangeFinished = { onSave(value) })
         }
         Corners("星点位置", value.starCorner) { save(value.copy(starCorner = it)) }
