@@ -285,7 +285,8 @@ internal fun BehaviorPage(vm: SettingsViewModel) {
             Text("默认关闭，每位 TA 分别设置。开启后会多一次模型请求，即使 TA 选择不说话也会消耗 token。后台执行可能稍晚，过时的机会会直接跳过。", color = LocalGlassPalette.current.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
         }
     }
-    if (vm.proactive) {
+    FreeTopicSection(vm)
+    if (vm.proactive || vm.freeTopicEnabled || vm.followUpEnabled) {
         Section("主动找你的时候") { ReachOutStatus(vm) }
     }
 }

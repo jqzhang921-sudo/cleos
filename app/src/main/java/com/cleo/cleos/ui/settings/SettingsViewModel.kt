@@ -81,6 +81,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     var replyWaitSeconds by mutableStateOf(3)
     var followUpEnabled by mutableStateOf(false)
     var followUpDelaySeconds by mutableStateOf(60)
+    var freeTopicEnabled by mutableStateOf(false)
+    var freeTopicLevel by mutableStateOf(1)
+    var freeTopicQuietOn by mutableStateOf(true)
+    var freeTopicQuietStart by mutableStateOf(1380)
+    var freeTopicQuietEnd by mutableStateOf(480)
         private set
     var deepThinking by mutableStateOf(false)
         private set
@@ -228,6 +233,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         replyWaitSeconds = com.cleo.cleos.ai.ReplyWaitRules.seconds(ta.replyWaitSeconds)
         followUpEnabled = ta.followUpEnabled
         followUpDelaySeconds = com.cleo.cleos.ai.FollowUpRules.seconds(ta.followUpDelaySeconds)
+        freeTopicEnabled = ta.freeTopicEnabled
+        freeTopicLevel = com.cleo.cleos.ai.FreeTopicRules.level(ta.freeTopicLevel).id
+        freeTopicQuietOn = ta.freeTopicQuietOn
+        freeTopicQuietStart = com.cleo.cleos.ai.FreeTopicRules.minute(ta.freeTopicQuietStart, 1380)
+        freeTopicQuietEnd = com.cleo.cleos.ai.FreeTopicRules.minute(ta.freeTopicQuietEnd, 480)
         deepThinking = ta.deepThinking
         proactive = ta.proactive
     }
@@ -520,6 +530,36 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.companions.update(id) { it.copy(followUpDelaySeconds = value) } }
     }
 
+    fun setFreeTopic(on: Boolean) {
+        freeTopicEnabled = on
+        changeFreeTopic { it.copy(freeTopicEnabled = on) }
+    }
+
+    fun chooseFreeTopicLevel(level: Int) {
+        freeTopicLevel = com.cleo.cleos.ai.FreeTopicRules.level(level).id
+        val value = freeTopicLevel
+        changeFreeTopic { it.copy(freeTopicLevel = value) }
+    }
+
+    fun setFreeTopicQuiet(on: Boolean) {
+        freeTopicQuietOn = on
+        changeFreeTopic { it.copy(freeTopicQuietOn = on) }
+    }
+
+    fun setFreeTopicTime(start: Boolean, minutes: Int) {
+        val value = com.cleo.cleos.ai.FreeTopicRules.minute(minutes, if (start) 1380 else 480)
+        if (start) freeTopicQuietStart = value else freeTopicQuietEnd = value
+        changeFreeTopic { if (start) it.copy(freeTopicQuietStart = value) else it.copy(freeTopicQuietEnd = value) }
+    }
+
+    private fun changeFreeTopic(transform: (com.cleo.cleos.data.db.CompanionEntity) -> com.cleo.cleos.data.db.CompanionEntity) {
+        val id = companionId
+        viewModelScope.launch {
+            c.companions.update(id, transform)
+            c.freeTopics.configure(id)
+        }
+    }
+
     fun setThinking(on: Boolean) {
         deepThinking = on
         val id = companionId
@@ -623,12 +663,12 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     // A reply still running would write into conversations that are about to be replaced.
     fun restoreBackup(uri: Uri) = runBackup("恢复了") {
         c.chat.stopAll()
-        c.backup.restore(uri)
+        c.backup.restore(uri).also { c.freeTopics.restore() }
     }
 
     fun undoRestore() = runBackup("撤销了，回到恢复前：") {
         c.chat.stopAll()
-        c.backup.undoRestore()
+        c.backup.undoRestore().also { c.freeTopics.restore() }
     }
 
     /** A memory file being read in, and the word on how it went. */

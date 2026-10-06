@@ -797,15 +797,17 @@ class ChatRepository(
      * typing dots that came to nothing would be a message that never came.
      */
     private val followUpJobs = ConcurrentHashMap<Long, Job>()
+    private val wakeJobsByTa = ConcurrentHashMap<Long, Job>()
 
     fun cancelFollowUp(conversationId: Long) {
         synchronized(lock) { followUpJobs.remove(conversationId)?.cancel() }
     }
 
     suspend fun wake(conversationId: Long, instruction: String, followUp: Boolean = false, allowed: suspend () -> Boolean = { true }): WakeResult {
+        val taId = db.conversations().get(conversationId)?.companionId ?: return WakeResult.Skipped("对话已删除")
         val outcome = CompletableDeferred<WakeResult>()
         synchronized(lock) {
-            if (busy(conversationId)) return WakeResult.Busy
+            if (busy(conversationId) || wakeJobsByTa[taId]?.isActive == true) return WakeResult.Busy
             val seen = sends[conversationId]
             launchFor(conversationId) {
                 outcome.complete(
@@ -819,6 +821,7 @@ class ChatRepository(
                     },
                 )
                 followUpJobs.remove(conversationId, coroutineContext.job)
+                wakeJobsByTa.remove(taId, coroutineContext.job)
                 synchronized(lock) {
                     // Nothing sent meanwhile: done, off the map under the lock (see answerUntilQuiet).
                     if (sends[conversationId] == seen) {
@@ -831,6 +834,10 @@ class ChatRepository(
             if (followUp) jobs[conversationId]?.let { job ->
                 followUpJobs[conversationId] = job
                 job.invokeOnCompletion { followUpJobs.remove(conversationId, job) }
+            }
+            jobs[conversationId]?.let { job ->
+                wakeJobsByTa[taId] = job
+                job.invokeOnCompletion { wakeJobsByTa.remove(taId, job) }
             }
             // Stopped before it began (its TA deleted meanwhile): an answer all the same.
             jobs[conversationId]?.invokeOnCompletion { outcome.complete(WakeResult.Failed(STOPPED)) }

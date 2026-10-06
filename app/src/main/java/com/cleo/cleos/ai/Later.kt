@@ -33,26 +33,7 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
-/**
- * A TA reaching out on its own, the one way this app lets it: while talking it notes something
- * down ("gone to cook; ask how it went in forty minutes"), and when the time comes it reads the
- * note again, with whatever was said since, and decides whether to say it.
- *
- * Only something the TA noted itself ever wakes it. There is deliberately no timer that wakes it
- * to ask "anything to say?", no "it's been a while", no count of unanswered messages making it
- * sadder. That was settled in an earlier app of the same kind: the TA gets an outlet for when it
- * wants to say something, not a schedule. A schedule becomes a quota (something gets said because
- * a slot is free); a TA asked every quarter of an hour whether to speak ends up speaking; and
- * "you haven't written in a while" trades on guilt. Plugins that do exactly these things are
- * common, and it is what they end up sounding like.
- *
- * The one exception, asked for by the person: a greeting when their day starts and when it ends
- * (RoutineRules), which is kept as far from a timer as it can be.
- *
- * The phone decides when background work really runs: on some systems "in forty minutes" turns
- * into an hour, now and then into many. So every note expires. Past its time it is dropped
- * unsaid rather than delivered hours late.
- */
+/** Notes a TA leaves for itself. Independent of opt-in FreeTopics and FollowUps; late notes expire. */
 object LaterRules {
     /** Notes one TA can have waiting at once: past this it is noting things instead of talking. */
     const val MAX_WAITING = 4
@@ -257,7 +238,7 @@ class Later(
         val conversationId = conversationFor(note, ta)
         // Not on top of a reply being written, or of what the person is typing: a minute later.
         if (chat.busy(conversationId) || chat.isTyping(conversationId)) return stillInTime(note, ta, LaterRules.SOON_MINUTES, "一直在聊，没找到空说")
-        val lastSaid = db.messages().newest(conversationId, RECENT).firstOrNull { it.role == "user" && it.note == null }?.createdAt
+        val lastSaid = db.messages().lastUserFor(ta.id)
         if (db.wakes().sentSince(ta.id, lastSaid ?: 0L) >= LaterRules.UNANSWERED_MAX) {
             // Left for the next reply to take in, if the person writes while it is still in time.
             log(ta, WakeEntity.HELD, "前面自己说的还没回，这件先不推，等你回来再说")
@@ -349,7 +330,7 @@ class Later(
         // Not up yet, or the phone put down: looked at again in a while.
         if (!inUse()) return RoutineRules.CHECK_MINUTES
         if (chat.busy(conversationId) || chat.isTyping(conversationId)) return LaterRules.SOON_MINUTES
-        val lastSaid = db.messages().newest(conversationId, RECENT).firstOrNull { it.role == "user" && it.note == null }?.createdAt
+        val lastSaid = db.messages().lastUserFor(ta.id)
         if (db.wakes().sentSince(ta.id, lastSaid ?: 0L) >= LaterRules.UNANSWERED_MAX) {
             log(ta, WakeEntity.HELD, "前面自己说的还没回，这次不打招呼")
             return over(greeting, day)

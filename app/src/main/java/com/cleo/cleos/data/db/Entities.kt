@@ -34,6 +34,11 @@ data class CompanionEntity(
     @ColumnInfo(defaultValue = "3") val replyWaitSeconds: Int = 3,
     @ColumnInfo(defaultValue = "0") val followUpEnabled: Boolean = false,
     @ColumnInfo(defaultValue = "60") val followUpDelaySeconds: Int = 60,
+    @ColumnInfo(defaultValue = "0") val freeTopicEnabled: Boolean = false,
+    @ColumnInfo(defaultValue = "1") val freeTopicLevel: Int = 1,
+    @ColumnInfo(defaultValue = "1") val freeTopicQuietOn: Boolean = true,
+    @ColumnInfo(defaultValue = "1380") val freeTopicQuietStart: Int = 1380,
+    @ColumnInfo(defaultValue = "480") val freeTopicQuietEnd: Int = 480,
     /** May note things down to come back to, and say them on its own when they come due (ai/Later.kt). */
     @ColumnInfo(defaultValue = "1")
     val proactive: Boolean = true,
@@ -218,6 +223,15 @@ data class LetterEntity(
         const val AUTHOR_AI = "ai"
     }
 }
+
+/** Scheduling state is ephemeral and is intentionally not part of a user backup. */
+@Entity(tableName = "free_topics", foreignKeys = [ForeignKey(entity = CompanionEntity::class, parentColumns = ["id"], childColumns = ["companionId"], onDelete = ForeignKey.CASCADE)])
+data class FreeTopicStateEntity(
+    @PrimaryKey val companionId: Long,
+    val nextAt: Long,
+    val attemptDay: Long? = null,
+    val attempts: Int = 0,
+)
 
 @Serializable
 @Entity(tableName = "conversations", indices = [Index("companionId")])

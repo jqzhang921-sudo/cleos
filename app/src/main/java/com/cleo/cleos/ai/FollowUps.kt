@@ -1,6 +1,7 @@
 package com.cleo.cleos.ai
 
 import android.content.Context
+import androidx.room.withTransaction
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
@@ -12,6 +13,7 @@ import com.cleo.cleos.Notifier
 import com.cleo.cleos.data.db.AppDatabase
 import com.cleo.cleos.data.db.CompanionEntity
 import com.cleo.cleos.data.db.MessageEntity
+import com.cleo.cleos.data.db.WakeEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -115,8 +117,9 @@ class FollowUps(
             if (row.followUpMessageId != anchor) return
             val ta = db.companions().get(row.companionId) ?: return
             val now = System.currentTimeMillis()
+            val unanswered = db.wakes().sentSince(ta.id, db.messages().lastUserFor(ta.id) ?: 0L)
             if (!FollowUpRules.eligible(ta.followUpEnabled, anchor, latest(id)?.id, row.followUpAt, now,
-                    chat.busy(id) || chat.isTyping(id)) || revision(id) != version) {
+                    chat.busy(id) || chat.isTyping(id)) || revision(id) != version || unanswered >= LaterRules.UNANSWERED_MAX) {
                 db.conversations().cancelFollowUp(id)
                 return
             }
@@ -126,10 +129,19 @@ class FollowUps(
         }
         val result = chat.wake(id, FollowUpRules.instruction, followUp = true, allowed = {
             revision(id) == version && !chat.isTyping(id) &&
-                db.companions().get(ta.id)?.followUpEnabled == true && latest(id)?.id == anchor
+                db.companions().get(ta.id)?.followUpEnabled == true && latest(id)?.id == anchor &&
+                db.wakes().sentSince(ta.id, db.messages().lastUserFor(ta.id) ?: 0L) < LaterRules.UNANSWERED_MAX
         })
-        if (result is ChatRepository.WakeResult.Sent && !showing(id) && db.companions().get(ta.id) != null)
-            notifier.messages(ta, id, result.messages)
+        if (result is ChatRepository.WakeResult.Sent) {
+            db.withTransaction {
+                if (db.companions().get(ta.id) != null) {
+                    db.wakes().insert(WakeEntity(companionId = ta.id, at = System.currentTimeMillis(), outcome = WakeEntity.SENT,
+                        detail = ("聊完补充：" + result.messages.joinToString(" / ") { it.content }).take(200)))
+                    db.wakes().prune(ta.id, 50)
+                }
+            }
+            if (!showing(id) && db.companions().get(ta.id) != null) notifier.messages(ta, id, result.messages)
+        }
         // SKIP, cancellation and failures all consume the opportunity. Never schedule from a wake.
     }
 }

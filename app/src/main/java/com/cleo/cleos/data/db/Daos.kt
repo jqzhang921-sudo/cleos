@@ -36,6 +36,21 @@ interface CompanionDao {
 }
 
 @Dao
+interface FreeTopicDao {
+    @Query("SELECT * FROM free_topics WHERE companionId = :id")
+    suspend fun get(id: Long): FreeTopicStateEntity?
+
+    @Upsert
+    suspend fun put(state: FreeTopicStateEntity)
+
+    @Query("UPDATE free_topics SET nextAt = :next WHERE companionId = :id AND nextAt = :expected")
+    suspend fun move(id: Long, expected: Long, next: Long): Int
+
+    @Query("UPDATE free_topics SET nextAt = :next, attemptDay = :day, attempts = CASE WHEN attemptDay = :day THEN attempts + 1 ELSE 1 END WHERE companionId = :id AND nextAt = :expected AND (attemptDay IS NOT :day OR attempts < :maximum)")
+    suspend fun claim(id: Long, expected: Long, next: Long, day: Long, maximum: Int): Int
+}
+
+@Dao
 interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE companionId = :companionId ORDER BY updatedAt DESC")
     fun observeFor(companionId: Long): Flow<List<ConversationEntity>>
@@ -96,6 +111,12 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
+    @Query("SELECT MAX(m.createdAt) FROM messages m JOIN conversations c ON c.id = m.conversationId WHERE c.companionId = :companionId AND m.role = 'user' AND m.note IS NULL")
+    suspend fun lastUserFor(companionId: Long): Long?
+
+    @Query("SELECT MAX(m.createdAt) FROM messages m JOIN conversations c ON c.id = m.conversationId WHERE c.companionId = :companionId AND m.role IN ('user', 'assistant', 'pat', 'call') AND m.note IS NULL")
+    suspend fun lastActivityFor(companionId: Long): Long?
+
     @Query("SELECT * FROM messages WHERE conversationId = :id ORDER BY createdAt, id")
     suspend fun forFavorite(id: Long): List<MessageEntity>
 
@@ -459,10 +480,11 @@ interface WakeDao {
     @Query("SELECT COUNT(*) FROM wakes WHERE companionId = :companionId AND outcome = 'sent' AND at > :since")
     suspend fun sentSince(companionId: Long, since: Long): Int
 
-    /** All but the newest [keep] of a TA's. */
+    /** Keep recent status plus the last two sent turns, so quiet checks cannot erase the unanswered fuse. */
     @Query(
         "DELETE FROM wakes WHERE companionId = :companionId AND id NOT IN " +
-            "(SELECT id FROM wakes WHERE companionId = :companionId ORDER BY at DESC, id DESC LIMIT :keep)",
+            "(SELECT id FROM wakes WHERE companionId = :companionId ORDER BY at DESC, id DESC LIMIT :keep) " +
+            "AND id NOT IN (SELECT id FROM wakes WHERE companionId = :companionId AND outcome = 'sent' ORDER BY at DESC, id DESC LIMIT 2)",
     )
     suspend fun prune(companionId: Long, keep: Int)
 
