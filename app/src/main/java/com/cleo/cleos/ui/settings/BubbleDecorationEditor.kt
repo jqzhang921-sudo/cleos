@@ -23,7 +23,7 @@ internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDe
     val starPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { uri -> onImport(uri, false) } }
     val palette = LocalGlassPalette.current
     fun save(next: BubbleDecoration) { onChange(next); onSave(next) }
-    Text("装饰同时用于两边。自选图片适用于所有主题，保持原比例；普通照片可选择显示形状。",
+    Text("选择单个小脸或贴纸，透明图片效果更好。整张聊天截图需先裁剪处理，否则会整张缩小显示。",
         color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
     Chip(if (busy) "正在导入…" else "从相册选择小脸", false) { if (!busy) facePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     if (value.faceImage != null) {

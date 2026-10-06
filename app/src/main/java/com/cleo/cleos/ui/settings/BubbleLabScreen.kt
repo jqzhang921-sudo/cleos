@@ -35,6 +35,9 @@ fun BubbleLabScreen(onBack: () -> Unit) {
     val palette = LocalGlassPalette.current
     val type = remember(settings.chatTextSize) { ChatType(settings.chatTextSize) }
     var mine by rememberSaveable { mutableStateOf(true) }
+    var paddingDetails by rememberSaveable { mutableStateOf(false) }
+    var backgroundDetails by rememberSaveable { mutableStateOf(false) }
+    var decorationDetails by rememberSaveable { mutableStateOf(false) }
     var sample by rememberSaveable { mutableStateOf("short") }
     var x by remember(settings.bubblePaddingX) { mutableFloatStateOf(settings.bubblePaddingX.toFloat()) }
     var y by remember(settings.bubblePaddingY) { mutableFloatStateOf(settings.bubblePaddingY.toFloat()) }
@@ -74,30 +77,45 @@ fun BubbleLabScreen(onBack: () -> Unit) {
             }
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Section("主题") {
+                Section("选主题") {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         BubbleThemes.choices.forEach { (id, name) -> Chip(name, chosen == id) { vm.setBubbleTheme(mine, id) } }
                     }
                     Text("主题分别保存；留白和装饰调整同时用于两边。", color = palette.contentSecondary, fontSize = 12.sp)
                 }
-                Section("气泡留白") {
+                Section("调松紧") {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf(Triple("紧凑", 10, 6), Triple("标准", 12, 8), Triple("宽松", 16, 12)).forEach { (label, px, py) ->
                             Chip(label, x.roundToInt() == px && y.roundToInt() == py) { vm.setBubblePadding(px, py) }
                         }
                     }
-                    Text("左右留白：${x.roundToInt()}", color = palette.contentSecondary, fontSize = 12.sp)
-                    Slider(x, { x = it }, valueRange = 6f..24f, steps = 17, onValueChangeFinished = { vm.setBubblePadding(x.roundToInt(), y.roundToInt()) })
-                    Text("上下留白：${y.roundToInt()}", color = palette.contentSecondary, fontSize = 12.sp)
-                    Slider(y, { y = it }, valueRange = 4f..16f, steps = 11, onValueChangeFinished = { vm.setBubblePadding(x.roundToInt(), y.roundToInt()) })
+                    Chip(if (paddingDetails) "收起精细调整" else "精细调整", paddingDetails) { paddingDetails = !paddingDetails }
+                    if (paddingDetails) {
+                        Text("左右留白：${x.roundToInt()}", color = palette.contentSecondary, fontSize = 12.sp)
+                        Slider(x, { x = it }, valueRange = 6f..24f, steps = 17, onValueChangeFinished = { vm.setBubblePadding(x.roundToInt(), y.roundToInt()) })
+                        Text("上下留白：${y.roundToInt()}", color = palette.contentSecondary, fontSize = 12.sp)
+                        Slider(y, { y = it }, valueRange = 4f..16f, steps = 11, onValueChangeFinished = { vm.setBubblePadding(x.roundToInt(), y.roundToInt()) })
+                    }
                 }
-                Section("材质与背景") {
-                    BubbleBackgroundEditor(background ?: BubbleBackground.defaults(chosen), { background = it },
-                        { vm.setBubbleBackground(mine, chosen, it) }, { background = null; vm.setBubbleBackground(mine, chosen, null) })
-                    Text("按当前对象和主题分别保存，不会改动另一边的配色。", color = palette.contentSecondary, fontSize = 12.sp)
+                Section("换装饰") {
+                    Text("选择内置装饰，或展开后导入单个图片组件。", color = palette.contentSecondary, fontSize = 12.sp)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Chip("跟随主题", decor.faceEnabled && decor.starsEnabled && decor.faceImage == null && decor.starImage == null) { vm.setBubbleDecoration(com.cleo.cleos.data.BubbleDecoration()) }
+                        Chip("只留小脸", decor.faceEnabled && !decor.starsEnabled) { vm.setBubbleDecoration(decor.copy(faceEnabled = true, starsEnabled = false)) }
+                        Chip("干净气泡", !decor.faceEnabled && !decor.starsEnabled) { vm.setBubbleDecoration(decor.copy(faceEnabled = false, starsEnabled = false)) }
+                    }
+                    Chip(if (decorationDetails) "收起装饰编辑" else "换图片 / 精细调整", decorationDetails) { decorationDetails = !decorationDetails }
+                    if (decorationDetails) BubbleDecorationEditor(decor, { decor = it }, vm::setBubbleDecoration, vm::importBubbleImage, vm.bubbleImageBusy, vm.bubbleImageError)
                 }
-                Section("装饰组件") { BubbleDecorationEditor(decor, { decor = it }, vm::setBubbleDecoration, vm::importBubbleImage, vm.bubbleImageBusy, vm.bubbleImageError) }
-                if (mine && chosen == "glass") Section("玻璃底色") { MyBubbleColor(settings.myBubble, vm::setMyBubble) }
+                Section("更多设置") {
+                    Chip(if (backgroundDetails) "收起材质与配色" else "材质与配色", backgroundDetails) { backgroundDetails = !backgroundDetails }
+                    if (backgroundDetails) {
+                        BubbleBackgroundEditor(background ?: BubbleBackground.defaults(chosen), { background = it },
+                            { vm.setBubbleBackground(mine, chosen, it) }, { background = null; vm.setBubbleBackground(mine, chosen, null) })
+                        Text("按当前对象和主题分别保存，不会改动另一边的配色。", color = palette.contentSecondary, fontSize = 12.sp)
+                        if (mine && chosen == "glass") MyBubbleColor(settings.myBubble, vm::setMyBubble)
+                    }
+                }
                 Spacer(Modifier.height(8.dp))
             }
         }
