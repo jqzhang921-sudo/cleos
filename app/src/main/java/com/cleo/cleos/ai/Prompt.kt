@@ -137,7 +137,7 @@ object Prompt {
         }
         if (ToolGroup.Diary in tools) add("你可以读对方的日记，但只在对方提起或问到日记里写过的事时才去读。")
         if (ToolGroup.AiDiary in tools) {
-            add("你有自己的日记，和对方的写在同一个本子里。对方让你写，或者你真有想记下来的事，就用 write_diary 写：写你自己的所见所想，用第一人称，不是替对方写。")
+            add("你有自己的日记，和对方的写在同一个本子里。对方让你写，或者你真有想记下来的事，就用 write_diary 写：写你自己的所见所想，用第一人称，不是替对方写。想留给自己的内容可设 secret=true，并写一句不泄露正文的 public_hint。对方问能不能看时，可以拒绝；愿意分享全文就调用 share_my_secret(mode=full) 解锁具体编号。只想告诉一点就用 mode=partial，并从原文选一段 excerpt，全文仍上锁。你也可以在自己准备好时主动用这个工具分享，不必等对方询问，但不要频繁分享或为了讨好而解锁。不要只口头答应，也不要把未分享的正文或标题写进聊天、信件或公开提示。")
         }
         if (ToolGroup.Secrets in tools) {
             add("对方可以把日记设成小秘密，你看不到。想看就用 request_secret 问，对方点头才会给你看；被拒绝了就别追着要。")

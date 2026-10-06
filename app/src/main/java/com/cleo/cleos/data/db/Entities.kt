@@ -351,7 +351,11 @@ data class DiaryEntryEntity(
     val secret: Boolean = false,
     /** For [AUTHOR_AI]: which TA wrote it. Null for the person's own entries. */
     val companionId: Long? = null,
+    @ColumnInfo(defaultValue = "''") val publicHint: String = "",
+    @ColumnInfo(defaultValue = "0") val secretShared: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val sharedExcerpt: String = "",
 ) {
+    val lockedForUser: Boolean get() = author == AUTHOR_AI && secret && !secretShared
     companion object {
         const val AUTHOR_ME = "me"
         const val AUTHOR_AI = "ai"

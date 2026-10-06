@@ -52,6 +52,64 @@ class ToolBoxTest {
         runBlocking { box.run(ToolCall("c", name, args), settings, companionId = companionId) }
 
     @Test
+    fun partialShareKeepsTheRestLockedAndRejectsInventedExcerpts() {
+        run("write_diary", """{"text":"愿意分享这句。后面的事还想留给自己。","secret":true}""", companionId = 2)
+        val id = diary.rows.single().id
+        val shared = run("share_my_secret", """{"id":$id,"mode":"partial","excerpt":"愿意分享这句。"}""", companionId = 2)
+        assertEquals("愿意分享这句。", shared.sharedExcerpt)
+        assertTrue(diary.rows.single().lockedForUser)
+        assertEquals("愿意分享这句。", diary.rows.single().sharedExcerpt)
+        assertNull(run("share_my_secret", """{"id":$id,"mode":"partial","excerpt":"编造的原文"}""", companionId = 2).sharedDiaryId)
+        assertNull(run("share_my_secret", """{"id":$id,"mode":"partial","excerpt":""}""", companionId = 2).sharedDiaryId)
+        assertNull(run("share_my_secret", """{"id":$id,"mode":"unknown"}""", companionId = 2).sharedDiaryId)
+        assertEquals("愿意分享这句。", diary.rows.single().sharedExcerpt)
+        run("share_my_secret", """{"id":$id}""", companionId = 2)
+        assertFalse(diary.rows.single().lockedForUser)
+    }
+
+    @Test
+    fun secretExcerptCardKeepsOnlyTheSharedTextThroughStorage() {
+        val share = SecretShare(9, "只分享这句\n第二行")
+        assertEquals(share, SecretShares.decode(SecretShares.encode(share)))
+        assertNull(SecretShares.decode("broken"))
+    }
+
+    @Test
+    fun aiSecretStaysLockedUntilItsOwnAuthorSharesIt() {
+        val written = run("write_diary", """{"title":"隐藏标题","text":"私密正文","secret":true,"public_hint":"还想留给自己"}""", companionId = 2)
+        val entry = diary.rows.single()
+        assertTrue(entry.lockedForUser)
+        assertEquals("还想留给自己", entry.publicHint)
+        assertFalse(written.note.contains("隐藏标题"))
+        assertFalse(written.result.contains("隐藏标题"))
+        assertNull(run("share_my_secret", """{"id":${entry.id}}""", companionId = 3).sharedDiaryId)
+        assertTrue(diary.rows.single().lockedForUser)
+        val shared = run("share_my_secret", """{"id":${entry.id}}""", companionId = 2)
+        assertEquals(entry.id, shared.sharedDiaryId)
+        assertFalse(diary.rows.single().lockedForUser)
+        assertTrue(diary.rows.single().secret)
+    }
+
+    @Test
+    fun ownSecretsCanBeReadBackButNotRequestedAsThePersonsSecrets() {
+        run("write_diary", """{"text":"自己的正文","secret":true}""", companionId = 2)
+        val id = diary.rows.single().id
+        assertTrue(run("read_diary", "{}", companionId = 2).result.contains("自己的正文"))
+        assertFalse(run("read_diary", "{}", companionId = 3).result.contains("自己的正文"))
+        assertNull(run("request_secret", """{"id":$id}""", companionId = 2).request)
+        assertTrue(run("list_secrets", "{}", companionId = 2).result.contains("没有小秘密"))
+    }
+
+    @Test
+    fun normalDiaryAndThePersonsSecretCannotBeUnlockedByAi() {
+        run("write_diary", """{"text":"普通日记"}""")
+        assertNull(run("share_my_secret", """{"id":1}""").sharedDiaryId)
+        diary.rows += DiaryEntryEntity(id = 9, day = 1, title = "", blocks = "[]", createdAt = 1, updatedAt = 1, secret = true)
+        assertNull(run("share_my_secret", """{"id":9}""").sharedDiaryId)
+        assertFalse(diary.rows.last().secretShared)
+    }
+
+    @Test
     fun addTodoStoresItAndSaysWhere() {
         val out = run("add_todo", """{"title":" 交报告 ","due":"2026-9-24","note":"发到邮箱"}""")
         val t = todos.rows.single()
@@ -327,7 +385,7 @@ private class FakeDiary : DiaryDao {
     // The same visibility as the real queries: never a secret; the person's when [mine];
     // of the TAs' entries, only [own]'s.
     private fun readable(e: DiaryEntryEntity, mine: Boolean, own: Long) =
-        !e.secret && ((mine && e.author == DiaryEntryEntity.AUTHOR_ME) || writtenBy(e, own))
+        (mine && !e.secret && e.author == DiaryEntryEntity.AUTHOR_ME) || writtenBy(e, own)
     override suspend fun onDay(day: Long, mine: Boolean, own: Long) = rows.filter { it.day == day && readable(it, mine, own) }
     override suspend fun recent(mine: Boolean, own: Long, limit: Int) = newest.filter { readable(it, mine, own) }.take(limit)
 
@@ -339,8 +397,8 @@ private class FakeDiary : DiaryDao {
     }
     override suspend fun since(since: Long, mine: Boolean, own: Long, limit: Int) =
         newest.filter { it.createdAt > since && readable(it, mine, own) }.take(limit)
-    override suspend fun secrets() = newest.filter { it.secret }
-    override suspend fun secretsOnDay(day: Long) = rows.count { it.secret && it.day == day }
+    override suspend fun secrets() = newest.filter { it.secret && it.author == DiaryEntryEntity.AUTHOR_ME }
+    override suspend fun secretsOnDay(day: Long) = rows.count { it.secret && it.author == DiaryEntryEntity.AUTHOR_ME && it.day == day }
     override suspend fun insert(entry: DiaryEntryEntity): Long {
         val id = if (entry.id != 0L) entry.id else (rows.maxOfOrNull { it.id } ?: 0) + 1
         rows += entry.copy(id = id)

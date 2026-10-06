@@ -33,6 +33,15 @@ data class SecretRequest(
     }
 }
 
+@Serializable
+internal data class SecretShare(val diaryId: Long, val excerpt: String)
+
+internal object SecretShares {
+    private val json = Json { ignoreUnknownKeys = true }
+    fun encode(share: SecretShare): String = json.encodeToString(share)
+    fun decode(raw: String): SecretShare? = runCatching { json.decodeFromString<SecretShare>(raw) }.getOrNull()
+}
+
 internal object SecretRequests {
     // encodeDefaults: the status starts as its default, and has to be in the stored text.
     private val json = Json {

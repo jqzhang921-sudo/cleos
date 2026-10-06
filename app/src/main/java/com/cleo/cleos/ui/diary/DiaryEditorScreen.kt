@@ -161,7 +161,28 @@ fun DiaryEditorScreen(id: Long, startSecret: Boolean = false, onBack: () -> Unit
                 )
                 .liquidGlass(LocalWallpaperBackdrop.current, palette.card, GlassShape.Rounded(28.dp)),
         ) {
-            if (vm.loaded) EditorContent(vm, onOpenImage) { c.images.file(it) }
+            if (vm.loaded && vm.lockedForUser) {
+                Column(Modifier.align(Alignment.Center).verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Rounded.Lock, null, tint = palette.accentContent, modifier = Modifier.size(36.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("${ai}的小秘密", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(12.dp))
+                    Text(vm.publicHint.ifBlank { "有些话，暂时想留给自己" }, color = palette.contentSecondary)
+                    if (vm.sharedExcerpt.isNotBlank()) {
+                        Spacer(Modifier.height(20.dp))
+                        Text("TA 愿意分享的部分", color = palette.accentContent, fontSize = 14.sp)
+                        Spacer(Modifier.height(10.dp))
+                        Text(vm.sharedExcerpt, color = palette.content, fontSize = 17.sp, lineHeight = 27.sp)
+                        Spacer(Modifier.height(10.dp))
+                        Text("其余内容仍是小秘密", color = palette.contentSecondary, fontSize = 13.sp)
+                    }
+                    Spacer(Modifier.height(24.dp))
+                    GlassButton(onClick = vm::askToSee, backdrop = LocalWallpaperBackdrop.current, enabled = !vm.requesting) {
+                        Text(if (vm.requesting) "正在询问…" else "问问 TA，能不能看")
+                    }
+                    vm.requestError?.let { Text(it, color = palette.error, modifier = Modifier.padding(top = 12.dp)) }
+                }
+            } else if (vm.loaded) EditorContent(vm, onOpenImage) { c.images.file(it) }
         }
     }
 

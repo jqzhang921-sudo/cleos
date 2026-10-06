@@ -279,13 +279,13 @@ interface DiaryDao {
     // TA's diary is never among them.
 
     @Query(
-        "SELECT * FROM diary_entries WHERE day = :day AND secret = 0 " +
+        "SELECT * FROM diary_entries WHERE day = :day AND (secret = 0 OR author = 'ai') " +
             "AND ((:mine AND author = 'me') OR (author = 'ai' AND companionId = :own)) ORDER BY createdAt",
     )
     suspend fun onDay(day: Long, mine: Boolean, own: Long): List<DiaryEntryEntity>
 
     @Query(
-        "SELECT * FROM diary_entries WHERE secret = 0 " +
+        "SELECT * FROM diary_entries WHERE (secret = 0 OR author = 'ai') " +
             "AND ((:mine AND author = 'me') OR (author = 'ai' AND companionId = :own)) " +
             "ORDER BY day DESC, createdAt DESC LIMIT :limit",
     )
@@ -297,7 +297,7 @@ interface DiaryDao {
      * so callers check the plain text again.
      */
     @Query(
-        "SELECT * FROM diary_entries WHERE secret = 0 " +
+        "SELECT * FROM diary_entries WHERE (secret = 0 OR author = 'ai') " +
             "AND ((:mine AND author = 'me') OR (author = 'ai' AND companionId = :own)) " +
             "AND (title LIKE :pattern ESCAPE '!' OR blocks LIKE :pattern ESCAPE '!') " +
             "ORDER BY day DESC, createdAt DESC LIMIT :limit",
@@ -306,16 +306,16 @@ interface DiaryDao {
 
     /** Written after [since], newest first, with the same reach as the three above. */
     @Query(
-        "SELECT * FROM diary_entries WHERE secret = 0 AND createdAt > :since " +
+        "SELECT * FROM diary_entries WHERE (secret = 0 OR author = 'ai') AND createdAt > :since " +
             "AND ((:mine AND author = 'me') OR (author = 'ai' AND companionId = :own)) " +
             "ORDER BY createdAt DESC LIMIT :limit",
     )
     suspend fun since(since: Long, mine: Boolean, own: Long, limit: Int): List<DiaryEntryEntity>
 
-    @Query("SELECT * FROM diary_entries WHERE secret = 1 ORDER BY day DESC, createdAt DESC")
+    @Query("SELECT * FROM diary_entries WHERE secret = 1 AND author = 'me' ORDER BY day DESC, createdAt DESC")
     suspend fun secrets(): List<DiaryEntryEntity>
 
-    @Query("SELECT COUNT(*) FROM diary_entries WHERE secret = 1 AND day = :day")
+    @Query("SELECT COUNT(*) FROM diary_entries WHERE secret = 1 AND author = 'me' AND day = :day")
     suspend fun secretsOnDay(day: Long): Int
 
     @Insert

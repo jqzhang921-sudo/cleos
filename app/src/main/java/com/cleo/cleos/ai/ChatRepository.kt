@@ -731,7 +731,7 @@ class ChatRepository(
             val request = SecretRequests.decode(row.content)?.takeIf { it.status == SecretRequest.PENDING } ?: return@answer
             val ai = taOf(conversationId).name.trim().ifEmpty { "TA" }
             val day = LocalDate.ofEpochDay(request.day)
-            val entry = db.diary().get(request.diaryId)
+            val entry = db.diary().get(request.diaryId)?.takeIf { it.author == com.cleo.cleos.data.db.DiaryEntryEntity.AUTHOR_ME }
             if (grant && entry == null) {
                 db.messages().setContent(row.id, SecretRequests.encode(request.copy(status = SecretRequest.GONE)))
                 note(conversationId, "这个小秘密已经删掉了，没法给${ai}看")
@@ -1330,6 +1330,9 @@ class ChatRepository(
                         call = inCall,
                     ),
                 )
+                outcome.sharedDiaryId?.let { id ->
+                    db.messages().insert(MessageEntity(conversationId = conversationId, role = "note", content = outcome.sharedExcerpt?.let { "secret-excerpt:" + SecretShares.encode(SecretShare(id, it)) } ?: "shared-diary:$id", note = if (outcome.sharedExcerpt != null) "愿意告诉你一点" else "查看这篇小秘密", createdAt = at, call = inCall))
+                }
                 outcome.request?.let {
                     db.messages().insert(
                         MessageEntity(conversationId = conversationId, role = "request", content = SecretRequests.encode(it), createdAt = at, call = inCall),

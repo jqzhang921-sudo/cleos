@@ -62,6 +62,16 @@ class DiaryEditorViewModel(private val c: AppContainer, initialId: Long, startSe
     /** The model's own entries are read, not edited: they are its words. */
     val readOnly: Boolean get() = author == DiaryEntryEntity.AUTHOR_AI
     val blocks = mutableStateListOf<EditorBlock>()
+    var lockedForUser by mutableStateOf(false)
+        private set
+    var publicHint by mutableStateOf("")
+        private set
+    var sharedExcerpt by mutableStateOf("")
+        private set
+    var requesting by mutableStateOf(false)
+        private set
+    var requestError by mutableStateOf<String?>(null)
+        private set
     var loaded by mutableStateOf(false)
         private set
     var importing by mutableStateOf(false)
@@ -82,12 +92,15 @@ class DiaryEditorViewModel(private val c: AppContainer, initialId: Long, startSe
             if (initialId != 0L) {
                 c.db.diary().get(initialId)?.let { e ->
                     day = LocalDate.ofEpochDay(e.day)
-                    title = TextFieldValue(e.title)
+                    lockedForUser = e.lockedForUser
+                    publicHint = e.publicHint
+                    sharedExcerpt = e.sharedExcerpt
+                    title = TextFieldValue(if (e.lockedForUser) "" else e.title)
                     createdAt = e.createdAt
                     secret = e.secret
                     author = e.author
                     companionId = e.companionId
-                    DiaryBlocks.decode(e.blocks).forEach { b ->
+                    (if (e.lockedForUser) emptyList() else DiaryBlocks.decode(e.blocks)).forEach { b ->
                         when (b) {
                             is DiaryBlock.Text -> blocks += EditorBlock.Text(nextKey++, TextFieldValue(b.text))
                             is DiaryBlock.Image -> {
@@ -169,6 +182,26 @@ class DiaryEditorViewModel(private val c: AppContainer, initialId: Long, startSe
                 companionId = companionId,
             )
             if (entryId == 0L) entryId = c.db.diary().insert(entity) else c.db.diary().update(entity)
+        }
+    }
+
+    fun askToSee() {
+        if (requesting || !lockedForUser) return
+        requesting = true
+        requestError = null
+        viewModelScope.launch {
+            try {
+                val entry = c.db.diary().get(entryId) ?: error("这篇日记已经不在了")
+                val ta = entry.companionId?.let { c.companions.get(it) } ?: error("这位 TA 已经不在了")
+                val conversation = c.chat.resolveConversation(null, ta.id)
+                c.companions.select(ta.id)
+                c.settings.setCurrentConversation(conversation)
+                check(c.chat.send(conversation, "我有点好奇你在 ${Dates.full(day)} 写的小秘密（日记 #${entry.id}），可以让我看看吗？")) { "暂时发送不了，请稍后再试" }
+                c.opening.value = com.cleo.cleos.Opening.Chat(conversation)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                requestError = e.message ?: "请求没发出去，请再试一次"
+            } finally { requesting = false }
         }
     }
 

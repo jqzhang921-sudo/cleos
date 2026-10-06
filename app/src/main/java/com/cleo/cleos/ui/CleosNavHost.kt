@@ -114,6 +114,10 @@ fun CleosNavHost() {
     LaunchedEffect(opening) {
         when (val o = opening) {
             is Opening.Chat -> nav.popBackStack(MainRoute, inclusive = false)
+            is Opening.Diary -> {
+                nav.navigate(DiaryRoute(o.id))
+                c.opening.value = null
+            }
             is Opening.Letter -> {
                 nav.popBackStack(MainRoute, inclusive = false)
                 nav.navigate(LetterRoute(o.id))

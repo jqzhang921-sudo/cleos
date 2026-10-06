@@ -63,6 +63,7 @@ class CleosApp : Application() {
 sealed interface Opening {
     data class Chat(val conversationId: Long) : Opening
 
+    data class Diary(val id: Long) : Opening
     data class Letter(val id: Long) : Opening
 }
 

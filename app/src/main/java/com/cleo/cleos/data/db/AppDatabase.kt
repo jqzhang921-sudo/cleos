@@ -26,7 +26,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteEntity::class,
         LoreEntity::class,
     ],
-    version = 18,
+    version = 20,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -66,6 +66,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 16, to = 17),
         // 17 -> 18: a TA's 设定, brought over from another app's world book (a table).
         AutoMigration(from = 17, to = 18),
+        AutoMigration(from = 18, to = 19),
+        AutoMigration(from = 19, to = 20),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

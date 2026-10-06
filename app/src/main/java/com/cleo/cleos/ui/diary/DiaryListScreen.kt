@@ -86,7 +86,7 @@ private enum class DiaryFilter(val label: String, val empty: String, val hint: S
     All("全部", "还没有日记", "点右下角的笔，写第一篇"),
     Mine("我写的", "你还没写过日记", "点右下角的笔，写第一篇"),
     Theirs("TA 写的", "TA 还没写过日记", "在聊天里请 TA 写一篇"),
-    Secrets("小秘密", "还没有小秘密", "点右下角的笔写一个，TA 看不到"),
+    Secrets("小秘密", "还没有小秘密", "你和 TA 都可以把想留给自己的话写在这里"),
     ;
 
     fun accepts(e: DiaryEntryEntity) = when (this) {
@@ -192,9 +192,9 @@ private fun toRows(entries: List<DiaryEntryEntity>, file: (String) -> File): Lis
             DiaryCard(
                 id = e.id,
                 date = date,
-                title = e.title,
-                excerpt = DiaryBlocks.plainText(blocks).replace(Regex("\\s+"), " ").take(160),
-                cover = images.firstOrNull()?.let { file(it.file) },
+                title = if (e.lockedForUser) "TA 的小秘密" else e.title,
+                excerpt = if (e.lockedForUser) e.publicHint.ifBlank { "有些话，暂时想留给自己" } else DiaryBlocks.plainText(blocks).replace(Regex("\\s+"), " ").take(160),
+                cover = if (e.lockedForUser) null else images.firstOrNull()?.let { file(it.file) },
                 imageCount = images.size,
                 byTa = if (e.author == DiaryEntryEntity.AUTHOR_AI) e.companionId ?: 0L else null,
                 secret = e.secret,
@@ -268,7 +268,7 @@ private fun DiaryCardView(card: DiaryCard, ta: String?, onClick: () -> Unit) {
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 when {
-                    card.secret -> CardTag(Icons.Rounded.Lock, "小秘密")
+                    card.secret -> CardTag(Icons.Rounded.Lock, if (ta != null) "${ta}的小秘密" else "我的小秘密")
                     ta != null -> CardTag(Icons.Rounded.AutoAwesome, "${ta}写的")
                 }
                 if (card.title.isNotBlank()) {

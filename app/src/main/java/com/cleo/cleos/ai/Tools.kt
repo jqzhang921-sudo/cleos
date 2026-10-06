@@ -69,7 +69,7 @@ data class ToolCall(val id: String, val name: String, val arguments: String)
  * [result] goes back to the model; [note] is the one line the chat shows (none when
  * blank). A [request] is put to the person as a card in the chat.
  */
-data class ToolOutcome(val result: String, val note: String, val request: SecretRequest? = null)
+data class ToolOutcome(val result: String, val note: String, val request: SecretRequest? = null, val sharedDiaryId: Long? = null, val sharedExcerpt: String? = null)
 
 /**
  * A tool that could not do its job. [result] tells the model what to do instead;
@@ -132,12 +132,24 @@ object ToolSpecs {
         name = "write_diary",
         groups = setOf(ToolGroup.AiDiary),
         action = "写日记",
-        description = "写一篇你自己的日记，记在今天。和对方的日记在同一个本子里，标着是你写的；对方能看，但改不了。",
+        description = "写一篇你自己的日记，记在今天。和对方的日记在同一个本子里，标着是你写的；普通日记对方能看但改不了；想留给自己的小秘密设 secret=true，标题和正文会隐藏，public_hint 是对方可见的一句话，不要泄露秘密。",
         parameters = schema(
             required = listOf("text"),
             "title" to prop("string", "标题，可以不写"),
             "text" to prop("string", "正文：你自己的所见所想，用第一人称"),
+            "secret" to prop("boolean", "是否作为上锁的小秘密，默认 false"),
+            "public_hint" to prop("string", "上锁时给对方看的公开提示，不要泄露标题和正文"),
         ),
+    )
+    val shareMySecret = ToolSpec(
+        name = "share_my_secret",
+        groups = setOf(ToolGroup.AiDiary),
+        action = "分享小秘密",
+        description = "分享你自己的小秘密：可以回应对方的请求，也可以在你愿意时主动分享。mode=full 解锁全文；mode=partial 只分享 excerpt 这段原文，全文继续上锁。只口头同意不会解锁，不愿意就正常回复。编号来自请求或 read_diary。",
+        parameters = schema(required = listOf("id"),
+            "id" to prop("integer", "你写的那篇小秘密的编号"),
+            "mode" to prop("string", "full 或 partial，默认 full"),
+            "excerpt" to prop("string", "partial 时必填：选出一段连续原文，最多 2000 字，不要添加解释或改写")),
     )
     val listSecrets = ToolSpec(
         name = "list_secrets",
@@ -463,6 +475,7 @@ object ToolSpecs {
         updateTodo,
         readDiary,
         writeDiary,
+        shareMySecret,
         listSecrets,
         requestSecret,
         readLetters,
@@ -594,6 +607,7 @@ class ToolBox(
                 ToolSpecs.updateTodo.name -> updateTodo(args, today)
                 ToolSpecs.readDiary.name -> readDiary(args, today, settings.tools, companionId)
                 ToolSpecs.writeDiary.name -> writeDiary(args, today, companionId)
+                ToolSpecs.shareMySecret.name -> shareMySecret(args, companionId)
                 ToolSpecs.listSecrets.name -> listSecrets(today, companionId)
                 ToolSpecs.requestSecret.name -> requestSecret(args, companionId)
                 ToolSpecs.setMyAvatar.name -> setMyAvatar(args, conversationId, companionId)
@@ -911,12 +925,32 @@ class ToolBox(
                 updatedAt = now,
                 author = DiaryEntryEntity.AUTHOR_AI,
                 companionId = companionId,
+                secret = ToolArgs.bool(a, "secret") == true,
+                publicHint = ToolArgs.text(a, "public_hint").orEmpty().trim().take(120),
             ),
         )
         return ToolOutcome(
-            "写好了，记在 ${Describe.date(today, today)}：#$id ${title.ifEmpty { "（没有标题）" }}",
-            if (title.isEmpty()) "写了一篇日记" else "写了一篇日记「$title」",
+            "写好了，记在 ${Describe.date(today, today)}：#$id " + if (ToolArgs.bool(a, "secret") == true) "（已上锁的小秘密）" else title.ifEmpty { "（没有标题）" },
+            if (ToolArgs.bool(a, "secret") == true) "写下了一个小秘密" else if (title.isEmpty()) "写了一篇日记" else "写了一篇日记「$title」",
         )
+    }
+
+    private suspend fun shareMySecret(a: JsonObject, companionId: Long): ToolOutcome {
+        val id = ToolArgs.id(a["id"]) ?: throw ToolFailure("缺少日记编号。", "不知道是哪篇")
+        val entry = diary.get(id)?.takeIf { it.author == DiaryEntryEntity.AUTHOR_AI && it.companionId == companionId && it.secret }
+            ?: throw ToolFailure("只能分享你自己的小秘密。", "没找到你的这篇秘密")
+        val mode = ToolArgs.text(a, "mode") ?: "full"
+        if (mode !in setOf("full", "partial")) throw ToolFailure("mode 只能是 full 或 partial。", "分享方式写错了")
+        if (mode == "partial") {
+            val excerpt = ToolArgs.text(a, "excerpt").orEmpty().trim()
+            val body = DiaryBlocks.plainText(DiaryBlocks.decode(entry.blocks))
+            if (excerpt.isEmpty() || excerpt.length > 2000 || !body.contains(excerpt))
+                throw ToolFailure("excerpt 必须是这篇日记的一段连续原文，1 到 2000 字。先 read_diary 看原文再选。", "摘录不是有效原文")
+            diary.update(entry.copy(sharedExcerpt = excerpt, updatedAt = clock()))
+            return ToolOutcome("已分享 #$id 的这段摘录，未解锁的全文继续上锁。", "愿意告诉你一点", sharedDiaryId = id, sharedExcerpt = excerpt)
+        }
+        if (!entry.secretShared) diary.update(entry.copy(secretShared = true, updatedAt = clock()))
+        return ToolOutcome("已解锁 #$id，对方现在可以在日记里查看。", "愿意把这篇小秘密给你看了", sharedDiaryId = id)
     }
 
     private suspend fun listSecrets(today: LocalDate, companionId: Long): ToolOutcome {
@@ -940,7 +974,7 @@ class ToolBox(
 
     private suspend fun requestSecret(a: JsonObject, companionId: Long): ToolOutcome {
         val id = ToolArgs.id(a["id"]) ?: throw ToolFailure("缺少 id。先用 list_secrets 看看有哪些。", "不知道是哪一个")
-        val entry = diary.get(id)?.takeIf { it.secret }
+        val entry = diary.get(id)?.takeIf { it.secret && it.author == DiaryEntryEntity.AUTHOR_ME }
             ?: throw ToolFailure("#$id 不是小秘密。先用 list_secrets 看看有哪些。", "没找到这个小秘密")
         // One card per secret at a time: asking again while the first card waits is nagging.
         if (requests(companionId).any { it.diaryId == id && it.status == SecretRequest.PENDING }) {
@@ -1146,6 +1180,8 @@ internal object Describe {
             }
             used += minOf(body.length, room)
             buildString {
+                if (e.lockedForUser) append("【私密日记 #${e.id}，未分享，请勿透露正文】\n")
+                else if (e.author == DiaryEntryEntity.AUTHOR_AI) append("日记 #${e.id}\n")
                 append('【').append(date(LocalDate.ofEpochDay(e.day), today))
                 append(if (e.author == DiaryEntryEntity.AUTHOR_AI) " · 你写的" else " · 对方写的").append('】')
                 append(e.title.ifBlank { "（没有标题）" })

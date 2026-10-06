@@ -937,6 +937,25 @@ fun ChatTab(
                             val note = m.note
                             when {
                                 m.role == "call" -> CallNote(m, said = m.id in callsSaid) { readingCall = m.id }
+                                m.role == "note" && m.content.startsWith("secret-excerpt:") -> {
+                                    val share = remember(m.content) { com.cleo.cleos.ai.SecretShares.decode(m.content.removePrefix("secret-excerpt:")) }
+                                    if (share != null) GlassSurface(modifier = Modifier.fillMaxWidth(), shape = GlassShape.Rounded(22.dp), contentPadding = PaddingValues(16.dp)) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Text("${state.aiName}愿意告诉你一点", color = LocalGlassPalette.current.accentContent, fontSize = 14.sp)
+                                            Text(share.excerpt, color = LocalGlassPalette.current.content, fontSize = 16.sp, lineHeight = 24.sp)
+                                            Text("看看这篇日记  ›", color = LocalGlassPalette.current.accentContent, fontSize = 14.sp,
+                                                modifier = Modifier.clickable { c.opening.value = com.cleo.cleos.Opening.Diary(share.diaryId) })
+                                        }
+                                    }
+                                }
+                                m.role == "note" && m.content.startsWith("shared-diary:") -> {
+                                    val diaryId = m.content.removePrefix("shared-diary:").toLongOrNull()
+                                    GlassSurface(modifier = Modifier.fillMaxWidth().clickable {
+                                        diaryId?.let { c.opening.value = com.cleo.cleos.Opening.Diary(it) }
+                                    }, shape = GlassShape.Rounded(22.dp), contentPadding = PaddingValues(16.dp)) {
+                                        Text("查看这篇小秘密  ›", color = LocalGlassPalette.current.accentContent, fontSize = 16.sp)
+                                    }
+                                }
                                 m.role == "tool" || m.role == "note" ->
                                     ToolNote(
                                         note.orEmpty(),
@@ -1933,8 +1952,14 @@ private fun ToolDetailDialog(detail: ToolDetail, onDismiss: () -> Unit) {
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (detail.arguments.isNotBlank()) ToolDetailBlock("参数", detail.arguments)
-                ToolDetailBlock("结果", detail.result.ifBlank { "（空）" })
+                val privateDiary = (detail.name == "write_diary" &&
+                    com.cleo.cleos.ai.ToolArgs.parse(detail.arguments)?.let { com.cleo.cleos.ai.ToolArgs.bool(it, "secret") } == true) ||
+                    (detail.name == "read_diary" && detail.result.contains("【私密日记 #"))
+                if (privateDiary) Text("这里包含 TA 留给自己的小秘密，请在日记页询问 TA 是否愿意分享。")
+                else {
+                    if (detail.arguments.isNotBlank()) ToolDetailBlock("参数", detail.arguments)
+                    ToolDetailBlock("结果", detail.result.ifBlank { "（空）" })
+                }
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关上") } },
