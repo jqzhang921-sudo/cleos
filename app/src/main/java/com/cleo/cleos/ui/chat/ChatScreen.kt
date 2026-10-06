@@ -624,7 +624,9 @@ fun ChatTab(
     var diaryRequestId by rememberSaveable(state.conversationId) { mutableStateOf<Long?>(null) }
     val secretDraft by c.chat.secretDraft.collectAsStateWithLifecycle()
     var inputHeight by remember { mutableIntStateOf(0) }
+    var pickingAttachment by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) {
+        pickingAttachment = false
         vm.attach(it)
     }
     // Stickers: the collection, the drawer inside the input's glass, and a picture picked to add.
@@ -633,6 +635,7 @@ fun ChatTab(
     var drawerOpen by rememberSaveable { mutableStateOf(false) }
     var deletingSticker by remember { mutableStateOf<StickerEntity?>(null) }
     val stickerPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        pickingAttachment = false
         if (uri != null) vm.pickSticker(uri) { voiceHint = it }
     }
     val focusManager = LocalFocusManager.current
@@ -700,7 +703,11 @@ fun ChatTab(
         if (sentCount > 0) listState.animateScrollToItem(0)
     }
     // Something in the box: the TA waits for it before answering.
-    LaunchedEffect(input.isNotBlank(), pageShown) { vm.typing(pageShown && input.isNotBlank()) }
+    val composing = input.isNotBlank() || recording || pickingAttachment || vm.attaching || vm.attachments.isNotEmpty() || drawerOpen
+    val processingMedia = recording || pickingAttachment || vm.attaching
+    LaunchedEffect(composing, processingMedia, pageShown, state.conversationId) {
+        vm.typing(pageShown && composing, processingMedia = processingMedia)
+    }
 
     val scope = rememberCoroutineScope()
     val inputFocus = remember { FocusRequester() }
@@ -847,7 +854,7 @@ fun ChatTab(
                 onTextChange = { input = it; if (it.isBlank()) diaryRequestId = null },
                 attachments = vm.attachments,
                 attaching = vm.attaching,
-                onPick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onPick = { pickingAttachment = true; vm.typing(true, processingMedia = true); picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onRemove = vm::detach,
                 quote = if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
                 onDropQuote = { diaryRequestId = null; vm.unquote() },
@@ -879,7 +886,7 @@ fun ChatTab(
                     StickerDrawer(
                         stickers = stickers,
                         onSend = { if (vm.sendSticker(it)) sentCount++ },
-                        onAdd = { stickerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        onAdd = { pickingAttachment = true; vm.typing(true, processingMedia = true); stickerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                         onRename = vm::renameSticker,
                         onDelete = { deletingSticker = it },
                     )

@@ -187,8 +187,8 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     /** Whether something is being written in the input: the TA waits for it, a while. */
-    fun typing(now: Boolean) {
-        conversationId.value?.let { c.chat.typing(it, now) }
+    fun typing(now: Boolean, processingMedia: Boolean = false) {
+        conversationId.value?.let { c.chat.typing(it, now, processingMedia) }
     }
 
     /** False when nothing went out: the text and pictures stay where they are. */

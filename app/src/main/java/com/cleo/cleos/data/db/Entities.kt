@@ -31,6 +31,7 @@ data class CompanionEntity(
     /** Asks the model to think before it answers (the switch DeepSeek and GLM take). */
     @ColumnInfo(defaultValue = "0")
     val deepThinking: Boolean = false,
+    @ColumnInfo(defaultValue = "3") val replyWaitSeconds: Int = 3,
     /** May note things down to come back to, and say them on its own when they come due (ai/Later.kt). */
     @ColumnInfo(defaultValue = "1")
     val proactive: Boolean = true,

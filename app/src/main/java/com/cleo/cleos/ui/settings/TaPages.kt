@@ -246,6 +246,15 @@ private fun ConnectionFields(fields: EndpointFields) {
 /** How the TA goes about answering: thinking first, and coming to find the person on their own. */
 @Composable
 internal fun BehaviorPage(vm: SettingsViewModel) {
+    Section("等我说完再回复") {
+        Text("最后一条消息后，停顿多久再开始回复", color = LocalGlassPalette.current.contentSecondary, fontSize = 14.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            com.cleo.cleos.ai.ReplyWaitRules.OPTIONS.forEach { seconds ->
+                Chip("${seconds} 秒", selected = vm.replyWaitSeconds == seconds) { vm.setReplyWait(seconds) }
+            }
+        }
+        Text("连续发送文字、图片或表情包会重新计时。正在输入、录音或选附件时继续等，草稿最多额外等待 30 秒。语音转写完成后再回答；等待结束后才开始生成，还需要模型的响应时间。", color = LocalGlassPalette.current.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+    }
     ListCard {
         ExplainedSwitch(
             "深度思考",

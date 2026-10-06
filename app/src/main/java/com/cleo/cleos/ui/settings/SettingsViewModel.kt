@@ -78,6 +78,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     /** The TA's persona as saved, kept up to date: PersonaScreen writes it, never this. */
     var persona by mutableStateOf("")
         private set
+    var replyWaitSeconds by mutableStateOf(3)
+        private set
     var deepThinking by mutableStateOf(false)
         private set
     var proactive by mutableStateOf(true)
@@ -221,6 +223,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         spoken.load(ta.spokenApiBaseUrl, ta.spokenApiModel)
         aiName = ta.name
         persona = ta.persona
+        replyWaitSeconds = com.cleo.cleos.ai.ReplyWaitRules.seconds(ta.replyWaitSeconds)
         deepThinking = ta.deepThinking
         proactive = ta.proactive
     }
@@ -490,6 +493,13 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     /** Takes effect at once, like the tool switches. */
+    fun setReplyWait(seconds: Int) {
+        val value = com.cleo.cleos.ai.ReplyWaitRules.seconds(seconds)
+        replyWaitSeconds = value
+        val id = companionId
+        viewModelScope.launch { c.companions.update(id) { it.copy(replyWaitSeconds = value) } }
+    }
+
     fun setThinking(on: Boolean) {
         deepThinking = on
         val id = companionId

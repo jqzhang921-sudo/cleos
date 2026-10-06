@@ -200,6 +200,8 @@ class ChatRepository(
 
     /** Conversations where the person is typing right now. */
     private val typingIn = ConcurrentHashMap.newKeySet<Long>()
+    private val quietSince = ConcurrentHashMap<Long, Long>()
+    private val mediaIn = ConcurrentHashMap.newKeySet<Long>()
 
     /** Voice messages still being turned into text, counted by conversation: a reply waits for their words. */
     private val holds = ConcurrentHashMap<Long, Int>()
@@ -213,8 +215,10 @@ class ChatRepository(
     private fun stamp(): Long = lastStamp.updateAndGet { maxOf(it + 1, System.currentTimeMillis()) }
 
     /** Whether the person is writing something in [conversationId]: a reply waits for them, a while. */
-    fun typing(conversationId: Long, now: Boolean) {
-        if (now) typingIn += conversationId else typingIn -= conversationId
+    fun typing(conversationId: Long, now: Boolean, processingMedia: Boolean = false) {
+        if (now && processingMedia) mediaIn += conversationId else mediaIn -= conversationId
+        if (now) typingIn += conversationId
+        else if (typingIn.remove(conversationId)) quietSince[conversationId] = System.currentTimeMillis()
     }
 
     /** Whether something is in the person's input box in [conversationId] right now. */
@@ -253,15 +257,18 @@ class ChatRepository(
     }
 
     /**
-     * Until the person has stopped: [REPLY_WAIT] since they last sent something, and not
-     * typing or waiting on a voice message's words, which hold it up to [HOLD_MAX] at most.
+     * Wait the TA's configured quiet interval. Unsent text can hold for thirty seconds;
+     * recording, importing pictures and transcription finish before their messages are read.
      */
     private suspend fun awaitQuiet(conversationId: Long) {
+        val waitSeconds = ReplyWaitRules.seconds(taOf(conversationId).replyWaitSeconds)
         while (true) {
-            val since = System.currentTimeMillis() - (lastSent[conversationId] ?: 0L)
-            val held = conversationId in typingIn || (holds[conversationId] ?: 0) > 0
-            if (since >= REPLY_WAIT && (!held || since >= HOLD_MAX)) return
-            delay(if (since < REPLY_WAIT) REPLY_WAIT - since else HOLD_CHECK)
+            val now = System.currentTimeMillis()
+            val sent = lastSent[conversationId] ?: 0L
+            val quiet = maxOf(sent, quietSince[conversationId] ?: 0L)
+            if (ReplyWaitRules.ready(now - sent, now - quiet, waitSeconds,
+                    composing = conversationId in typingIn, transcribing = (holds[conversationId] ?: 0) > 0 || conversationId in mediaIn)) return
+            delay(HOLD_CHECK)
         }
     }
 
@@ -1458,11 +1465,6 @@ class ChatRepository(
         /** Messages sent in one go: past this it is a flood, not a conversation. */
         const val MAX_MESSAGES = 8
 
-        /** How long the TA waits after the person's last message before answering: long enough for the next one. */
-        const val REPLY_WAIT = 2_000L
-
-        /** How long typing (or a voice message's words) can hold the answer up, counted from the last message. */
-        private const val HOLD_MAX = 20_000L
         private const val HOLD_CHECK = 300L
 
         /** How far back to look for what the person said and wasn't answered, or what the TA quotes. */
