@@ -664,6 +664,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(bubblePaddingX = horizontal.coerceIn(6, 24), bubblePaddingY = vertical.coerceIn(4, 16)) } }
     }
 
+    fun setBubbleDecoration(value: com.cleo.cleos.data.BubbleDecoration) {
+        viewModelScope.launch { c.settings.update { it.copy(bubbleDecoration = value.normalized()) } }
+    }
+
     /** The TA's voice messages beside the ear on headphones (EarVoice). */
     fun setEarVoice(on: Boolean) {
         viewModelScope.launch { c.settings.update { it.copy(earVoice = on) } }

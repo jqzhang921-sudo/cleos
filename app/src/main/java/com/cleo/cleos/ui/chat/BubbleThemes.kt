@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import com.cleo.cleos.R
+import com.cleo.cleos.data.BubbleDecoration
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -31,6 +32,7 @@ object BubbleThemes {
 
 val LocalBubbleThemes = compositionLocalOf { "glass" to "glass" }
 val LocalBubblePadding = compositionLocalOf { 10 to 6 }
+val LocalBubbleDecoration = compositionLocalOf { BubbleDecoration() }
 
 /** Decorations occupy reserved space and are drawn in dp, never scaled with the message. */
 @Composable
@@ -40,6 +42,7 @@ fun ChatBubbleSurface(
     theme: String = if (mine) LocalBubbleThemes.current.first else LocalBubbleThemes.current.second,
     horizontalPadding: Int = LocalBubblePadding.current.first,
     verticalPadding: Int = LocalBubblePadding.current.second,
+    decoration: BubbleDecoration = LocalBubbleDecoration.current,
     content: @Composable (Color) -> Unit,
 ) {
     val palette = LocalGlassPalette.current
@@ -47,13 +50,19 @@ fun ChatBubbleSurface(
     val style = if (mine) palette.bubbleMine else palette.bubble
     val glassInk = if (mine) palette.mineContent else palette.content
     val padding = PaddingValues(horizontal = horizontalPadding.coerceIn(6, 24).dp, vertical = verticalPadding.coerceIn(4, 16).dp)
+    val decor = decoration.normalized()
+    val faceCorner = if (decor.faceCorner == "auto") (if (id == "blue") "tr" else "tl") else decor.faceCorner
+    val starCorner = if (decor.starCorner == "auto") (if (id == "blue") "bl" else "br") else decor.starCorner
+    val faceShown = decor.faceEnabled && (id == "blue" || id == "peach")
+    val raised = decor.faceSize * 0.85f
     if (id == "glass") {
         GlassSurface(modifier = modifier, style = style, shape = GlassShape.Rounded(16.dp),
             contentPadding = padding) { content(glassInk) }
         return
     }
     val ink = if (id == "clear") glassInk else Color(0xFF424854)
-    Box(modifier.padding(top = if (id == "clear") 4.dp else 18.dp, bottom = 5.dp, start = 6.dp, end = 6.dp)) {
+    Box(modifier.padding(top = if (faceShown && faceCorner.startsWith("t")) raised.dp else 4.dp,
+        bottom = if (faceShown && faceCorner.startsWith("b")) raised.dp else 7.dp, start = 6.dp, end = 6.dp)) {
         if (id == "clear") {
             GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
                 contentPadding = padding) { content(ink) }
@@ -79,32 +88,34 @@ fun ChatBubbleSurface(
         }
         Canvas(Modifier.matchParentSize()) {
             val line = if (id == "clear") ink.copy(alpha = 0.65f) else Color(0xFF838493)
-            if (id == "clear") {
+            if (id == "clear" && decor.starsEnabled) {
                 drawCircle(line, 3.dp.toPx(), Offset(4.dp.toPx(), 1.dp.toPx()), style = Stroke(1.dp.toPx()))
                 drawCircle(line, 1.dp.toPx(), Offset(13.dp.toPx(), -2.dp.toPx()))
                 drawArc(line, 5f, 70f, false, Offset(size.width - 20.dp.toPx(), size.height - 18.dp.toPx()),
                     Size(20.dp.toPx(), 20.dp.toPx()), style = Stroke(1.dp.toPx()))
-            } else {
+            } else if (id != "clear" && decor.starsEnabled) {
                 // Faces hang outside the body. The text padding also keeps long first/last lines clear.
-                val x = if (id == "blue") 9.dp.toPx() else size.width - 8.dp.toPx()
-                val y = size.height - 2.dp.toPx()
+                val radius = (decor.starSize / 2f).dp.toPx()
+                val x = if (starCorner.endsWith("l")) (radius + 2.dp.toPx()) else size.width - radius - 2.dp.toPx()
+                val y = if (starCorner.startsWith("t")) 0f else size.height
                 drawCircle(line.copy(alpha = 0.45f), 1.4.dp.toPx(), Offset(x, y))
                 drawCircle(if (id == "blue") Color(0xFFAFCDEB) else Color(0xFFE8B6C4),
-                    2.dp.toPx(), Offset(x + 7.dp.toPx(), y - 2.dp.toPx()))
+                    1.5.dp.toPx(), Offset(x + (if (starCorner.endsWith("l")) 7 else -7).dp.toPx(), y - 2.dp.toPx()))
                 val star = Path().apply {
-                    moveTo(x - 8.dp.toPx(), y - 8.dp.toPx()); lineTo(x - 6.dp.toPx(), y - 3.dp.toPx())
-                    lineTo(x - 2.dp.toPx(), y); lineTo(x - 6.dp.toPx(), y + 2.dp.toPx())
-                    lineTo(x - 8.dp.toPx(), y + 6.dp.toPx()); lineTo(x - 10.dp.toPx(), y + 2.dp.toPx())
-                    lineTo(x - 14.dp.toPx(), y); lineTo(x - 10.dp.toPx(), y - 3.dp.toPx()); close()
+                    moveTo(x, y - radius); lineTo(x + radius * 0.3f, y - radius * 0.3f)
+                    lineTo(x + radius, y); lineTo(x + radius * 0.3f, y + radius * 0.3f)
+                    lineTo(x, y + radius); lineTo(x - radius * 0.3f, y + radius * 0.3f)
+                    lineTo(x - radius, y); lineTo(x - radius * 0.3f, y - radius * 0.3f); close()
                 }
                 drawPath(star, line, style = Stroke(1.dp.toPx()))
             }
         }
-        if (id == "blue" || id == "peach") Image(
+        if (faceShown) Image(
             painter = painterResource(if (id == "blue") R.drawable.bubble_sleep else R.drawable.bubble_bunny),
             contentDescription = null,
-            modifier = Modifier.align(if (id == "blue") Alignment.TopEnd else Alignment.TopStart)
-                .offset(y = (-18).dp).size(24.dp),
+            modifier = Modifier.align(when(faceCorner) {
+                "tr" -> Alignment.TopEnd; "bl" -> Alignment.BottomStart; "br" -> Alignment.BottomEnd; else -> Alignment.TopStart
+            }).offset(y = (if (faceCorner.startsWith("t")) -raised else raised).dp).size(decor.faceSize.dp),
         )
     }
 }

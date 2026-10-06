@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +25,8 @@ internal fun BubbleThemeSection(settings: AppSettings, vm: SettingsViewModel) {
     val palette = LocalGlassPalette.current
     var paddingX by remember(settings.bubblePaddingX) { mutableFloatStateOf(settings.bubblePaddingX.toFloat()) }
     var paddingY by remember(settings.bubblePaddingY) { mutableFloatStateOf(settings.bubblePaddingY.toFloat()) }
+    var decoration by remember(settings.bubbleDecoration) { mutableStateOf(settings.bubbleDecoration) }
+    var editing by remember { mutableStateOf(false) }
     Section("气泡主题") {
         Text("气泡留白", color = palette.content, fontSize = 14.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -39,6 +42,8 @@ internal fun BubbleThemeSection(settings: AppSettings, vm: SettingsViewModel) {
             onValueChangeFinished = { vm.setBubblePadding(paddingX.toInt(), paddingY.toInt()) })
         Text("分别选择你的气泡和当前 TA 的气泡。文字、语音和正在生成的回复使用同一套外观。",
             color = palette.contentSecondary, fontSize = 12.sp)
+        Chip(if (editing) "收起装饰编辑" else "编辑装饰", selected = editing) { editing = !editing }
+        if (editing) BubbleDecorationEditor(decoration, { decoration = it }, vm::setBubbleDecoration)
         for (mine in listOf(true, false)) {
             val chosen = BubbleThemes.valid(if (mine) settings.myBubbleTheme else settings.taBubbleThemes[vm.companionId.toString()] ?: "glass")
             Text(if (mine) "我的气泡" else "当前 TA 的气泡", color = palette.content, fontSize = 14.sp)
@@ -49,13 +54,13 @@ internal fun BubbleThemeSection(settings: AppSettings, vm: SettingsViewModel) {
             }
             Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                ChatBubbleSurface(Modifier.widthIn(max = 260.dp), mine, chosen, paddingX.toInt(), paddingY.toInt()) { ink ->
+                ChatBubbleSurface(Modifier.widthIn(max = 260.dp), mine, chosen, paddingX.toInt(), paddingY.toInt(), decoration) { ink ->
                     Text("你在呀。", color = ink, fontSize = 15.sp)
                 }
-                ChatBubbleSurface(Modifier.widthIn(max = 260.dp), mine, chosen, paddingX.toInt(), paddingY.toInt()) { ink ->
+                ChatBubbleSurface(Modifier.widthIn(max = 260.dp), mine, chosen, paddingX.toInt(), paddingY.toInt(), decoration) { ink ->
                     Text("刚刚想起一件小事，想慢慢讲给你听。你在的话，我会很开心。", color = ink, fontSize = 15.sp, lineHeight = 23.sp)
                 }
-                ChatBubbleSurface(Modifier.widthIn(max = 260.dp), mine, chosen, paddingX.toInt(), paddingY.toInt()) { ink ->
+                ChatBubbleSurface(Modifier.widthIn(max = 260.dp), mine, chosen, paddingX.toInt(), paddingY.toInt(), decoration) { ink ->
                     Text("▶  8 秒", color = ink, fontSize = 15.sp)
                 }
             }

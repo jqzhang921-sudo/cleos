@@ -914,7 +914,8 @@ fun ChatTab(
         val inputTop = inputBottom + with(density) { inputHeight.toDp() }
         CompositionLocalProvider(LocalFaces provides faces, LocalStickers provides stickerBook, LocalChatType provides chatType, LocalPat provides patActions,
             LocalBubbleThemes provides (appSettings.myBubbleTheme to (appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass")),
-            LocalBubblePadding provides (appSettings.bubblePaddingX to appSettings.bubblePaddingY)) {
+            LocalBubblePadding provides (appSettings.bubblePaddingX to appSettings.bubblePaddingY),
+            LocalBubbleDecoration provides appSettings.bubbleDecoration) {
             if (editingPat) {
                 PatDialog(
                     aiName = state.aiName,
