@@ -660,6 +660,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         }
     }
 
+    fun setBubblePadding(horizontal: Int, vertical: Int) {
+        viewModelScope.launch { c.settings.update { it.copy(bubblePaddingX = horizontal.coerceIn(6, 24), bubblePaddingY = vertical.coerceIn(4, 16)) } }
+    }
+
     /** The TA's voice messages beside the ear on headphones (EarVoice). */
     fun setEarVoice(on: Boolean) {
         viewModelScope.launch { c.settings.update { it.copy(earVoice = on) } }

@@ -913,7 +913,8 @@ fun ChatTab(
     ) {
         val inputTop = inputBottom + with(density) { inputHeight.toDp() }
         CompositionLocalProvider(LocalFaces provides faces, LocalStickers provides stickerBook, LocalChatType provides chatType, LocalPat provides patActions,
-            LocalBubbleThemes provides (appSettings.myBubbleTheme to (appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass"))) {
+            LocalBubbleThemes provides (appSettings.myBubbleTheme to (appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass")),
+            LocalBubblePadding provides (appSettings.bubblePaddingX to appSettings.bubblePaddingY)) {
             if (editingPat) {
                 PatDialog(
                     aiName = state.aiName,
@@ -1471,10 +1472,9 @@ private fun VoiceBubble(
 ) {
     val palette = LocalGlassPalette.current
     var expanded by rememberSaveable(messageId, defaultExpanded) { mutableStateOf(defaultExpanded) }
-    val length = 92.dp + 150.dp * (audio.ms.toFloat() / Voice.MAX_MS).coerceIn(0f, 1f)
     ChatBubbleSurface(
         modifier = Modifier
-            .widthIn(min = length, max = bubbleMaxWidth())
+            .widthIn(max = bubbleMaxWidth())
             .combinedClickable(interactionSource = null, indication = null, onClick = onClick, onLongClick = onLongClick),
         mine = mine,
     ) { ink ->

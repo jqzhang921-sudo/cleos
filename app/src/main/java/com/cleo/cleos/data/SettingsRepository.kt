@@ -79,6 +79,8 @@ data class AppSettings(
     /** The colour of the person's own bubbles (ARGB), still glass; null follows the wallpaper. */
     val myBubble: Int? = null,
     val myBubbleTheme: String = "glass",
+    val bubblePaddingX: Int = 10,
+    val bubblePaddingY: Int = 6,
     /** Each TA can use a different theme; keys are companion ids, preserved by backups. */
     val taBubbleThemes: Map<String, String> = emptyMap(),
     /** The notification permission was asked for once already; after that it is theirs to change in settings. */
@@ -184,6 +186,8 @@ class SettingsRepository(private val context: Context) {
         val patBuzz = booleanPreferencesKey("pat_buzz")
         val myBubble = intPreferencesKey("my_bubble")
         val myBubbleTheme = stringPreferencesKey("my_bubble_theme")
+        val bubblePaddingX = intPreferencesKey("bubble_padding_x")
+        val bubblePaddingY = intPreferencesKey("bubble_padding_y")
         val taBubbleThemes = stringPreferencesKey("ta_bubble_themes")
         val notificationsAsked = booleanPreferencesKey("notifications_asked")
         val letterReply = stringPreferencesKey("letter_reply")
@@ -241,6 +245,8 @@ class SettingsRepository(private val context: Context) {
             patBuzz = this[Keys.patBuzz] ?: d.patBuzz,
             myBubble = this[Keys.myBubble],
             myBubbleTheme = this[Keys.myBubbleTheme] ?: "glass",
+            bubblePaddingX = (this[Keys.bubblePaddingX] ?: 10).coerceIn(6, 24),
+            bubblePaddingY = (this[Keys.bubblePaddingY] ?: 6).coerceIn(4, 16),
             taBubbleThemes = decodeVoices(this[Keys.taBubbleThemes]),
             notificationsAsked = this[Keys.notificationsAsked] ?: d.notificationsAsked,
             letterReply = ReplyWhen.of(this[Keys.letterReply]),
@@ -280,6 +286,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.avatarEachMessage] = next.avatarEachMessage
             prefs[Keys.chatTextSize] = next.chatTextSize
             prefs[Keys.myBubbleTheme] = next.myBubbleTheme
+            prefs[Keys.bubblePaddingX] = next.bubblePaddingX.coerceIn(6, 24)
+            prefs[Keys.bubblePaddingY] = next.bubblePaddingY.coerceIn(4, 16)
             prefs[Keys.taBubbleThemes] = encodeVoices(next.taBubbleThemes)
             prefs[Keys.expandVoiceText] = next.expandVoiceText
             prefs[Keys.patVerb] = next.patVerb
