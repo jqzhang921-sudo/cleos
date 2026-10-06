@@ -1,6 +1,7 @@
 package com.cleo.cleos.ui.settings
 
 import android.net.Uri
+import android.graphics.Bitmap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -9,7 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -18,12 +19,14 @@ import com.cleo.cleos.glass.LocalGlassPalette
 import kotlin.math.roundToInt
 
 @Composable
-internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDecoration) -> Unit, onSave: (BubbleDecoration) -> Unit, onImport: (Uri, Boolean) -> Unit, busy: Boolean, error: String?) {
-    val facePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { uri -> onImport(uri, true) } }
-    val starPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { uri -> onImport(uri, false) } }
+internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDecoration) -> Unit, onSave: (BubbleDecoration) -> Unit, onImport: (Bitmap, Boolean) -> Unit, busy: Boolean, error: String?) {
+    var pending by remember { mutableStateOf<Pair<Uri, Boolean>?>(null) }
+    pending?.let { (uri, face) -> BubbleImageCrop(uri, { pending = null }, { bitmap -> pending = null; onImport(bitmap, face) }) }
+    val facePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { uri -> pending = uri to true } }
+    val starPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { uri -> pending = uri to false } }
     val palette = LocalGlassPalette.current
     fun save(next: BubbleDecoration) { onChange(next); onSave(next) }
-    Text("选择单个小脸或贴纸，透明图片效果更好。整张聊天截图需先裁剪处理，否则会整张缩小显示。",
+    Text("选图后先裁剪小组件，确认预览再应用。透明图片效果更好，裁剪不会自动去掉底色。",
         color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
     Chip(if (busy) "正在导入…" else "从相册选择小脸", false) { if (!busy) facePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
     if (value.faceImage != null) {

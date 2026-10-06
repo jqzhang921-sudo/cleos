@@ -600,17 +600,17 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         private set
     var bubbleImageError by mutableStateOf<String?>(null)
         private set
-    fun importBubbleImage(uri: Uri, face: Boolean) {
+    fun importBubbleImage(bitmap: android.graphics.Bitmap, face: Boolean) {
         if (bubbleImageBusy) return
         bubbleImageBusy = true
         bubbleImageError = null
         viewModelScope.launch {
             try {
-                val stored = c.images.import(uri, maxEdge = 512, prefix = "bubble-")
+                val file = c.images.save(bitmap, prefix = "bubble-")
                 c.settings.update {
                     val d = it.bubbleDecoration
-                    it.copy(bubbleDecoration = (if (face) d.copy(faceImage = stored.file, faceEnabled = true)
-                        else d.copy(starImage = stored.file, starsEnabled = true, starSize = 24)).normalized())
+                    it.copy(bubbleDecoration = (if (face) d.copy(faceImage = file, faceEnabled = true)
+                        else d.copy(starImage = file, starsEnabled = true, starSize = 24)).normalized())
                 }
             } catch (e: Exception) { bubbleImageError = "这张图读不出来，请换一张试试。" }
             finally { bubbleImageBusy = false }
