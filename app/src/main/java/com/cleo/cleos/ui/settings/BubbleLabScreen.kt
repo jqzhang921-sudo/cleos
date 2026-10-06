@@ -98,9 +98,9 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                     }
                 }
                 Section("换装饰") {
-                    Text("选择内置装饰，或展开后导入单个图片组件。", color = palette.contentSecondary, fontSize = 12.sp)
+                    Text("选择内置装饰，或展开后使用 Emoji、自选图片。", color = palette.contentSecondary, fontSize = 12.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Chip("跟随主题", decor.faceEnabled && decor.starsEnabled && decor.faceImage == null && decor.starImage == null) { vm.setBubbleDecoration(com.cleo.cleos.data.BubbleDecoration()) }
+                        Chip("跟随主题", decor.faceEnabled && decor.starsEnabled && decor.faceImage == null && decor.starImage == null && decor.faceEmoji.isEmpty() && decor.starEmoji.isEmpty()) { vm.setBubbleDecoration(com.cleo.cleos.data.BubbleDecoration()) }
                         Chip("只留小脸", decor.faceEnabled && !decor.starsEnabled) { vm.setBubbleDecoration(decor.copy(faceEnabled = true, starsEnabled = false)) }
                         Chip("干净气泡", !decor.faceEnabled && !decor.starsEnabled) { vm.setBubbleDecoration(decor.copy(faceEnabled = false, starsEnabled = false)) }
                     }

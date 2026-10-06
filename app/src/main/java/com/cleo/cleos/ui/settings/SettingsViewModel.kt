@@ -609,8 +609,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
                 val file = c.images.save(bitmap, prefix = "bubble-")
                 c.settings.update {
                     val d = it.bubbleDecoration
-                    it.copy(bubbleDecoration = (if (face) d.copy(faceImage = file, faceEnabled = true, faceShape = "original")
-                        else d.copy(starImage = file, starsEnabled = true, starSize = 24, starShape = "original")).normalized())
+                    it.copy(bubbleDecoration = (if (face) d.copy(faceImage = file, faceEmoji = "", faceEnabled = true, faceShape = "original")
+                        else d.copy(starImage = file, starEmoji = "", starsEnabled = true, starSize = 24, starShape = "original")).normalized())
                 }
             } catch (e: Exception) { bubbleImageError = "这张图读不出来，请换一张试试。" }
             finally { bubbleImageBusy = false }

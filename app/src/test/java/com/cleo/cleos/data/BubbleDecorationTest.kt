@@ -18,4 +18,9 @@ class BubbleDecorationTest {
         assertEquals(d, Json.decodeFromString<BubbleDecoration>(Json.encodeToString(d)).normalized())
         assertEquals(BubbleDecoration(), Json.decodeFromString<BubbleDecoration>("{}"))
     }
+    @Test fun combinedEmojiSurvivesSettingsSerializationWithoutSplitting() {
+        val d = BubbleDecoration(faceEmoji = "👩🏽‍🚀", starEmoji = "🇨🇳", starSize = 24)
+        assertEquals(d, Json.decodeFromString<BubbleDecoration>(Json.encodeToString(d)).normalized())
+        assertEquals("", BubbleDecoration(faceEmoji = "x\ny").normalized().faceEmoji)
+    }
 }

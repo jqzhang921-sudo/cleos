@@ -1,5 +1,9 @@
 package com.cleo.cleos.ui.chat
 
+import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.TextStyle
 import coil3.compose.AsyncImage
 import com.cleo.cleos.ui.common.appContainer
 import androidx.compose.ui.layout.ContentScale
@@ -68,8 +72,8 @@ fun ChatBubbleSurface(
     val images = appContainer().images
     val faceFile = decor.faceImage?.let { images.file(it) }?.takeIf { it.exists() }
     val starFile = decor.starImage?.let { images.file(it) }?.takeIf { it.exists() }
-    val customStar = decor.starsEnabled && starFile != null
-    val faceShown = decor.faceEnabled && (faceFile != null || id == "blue" || id == "peach")
+    val customStar = decor.starsEnabled && (starFile != null || decor.starEmoji.isNotEmpty())
+    val faceShown = decor.faceEnabled && (decor.faceEmoji.isNotEmpty() || faceFile != null || id == "blue" || id == "peach")
     val raised = (decor.faceSize * 0.85f + decor.faceDistance).coerceAtLeast(0f)
     val starRaised = (decor.starSize / 2f + decor.starDistance).coerceAtLeast(0f)
     if (id == "glass" && background == null && !faceShown && !customStar) {
@@ -150,14 +154,27 @@ fun ChatBubbleSurface(
         if (faceShown) {
             val faceModifier = Modifier.align(corner(faceCorner))
                 .offset(y = (if (faceCorner.startsWith("t")) -raised else raised).dp).size(decor.faceSize.dp)
-            if (faceFile != null) AsyncImage(model = faceFile, contentDescription = null,
+            if (decor.faceEmoji.isNotEmpty()) EmojiDecoration(decor.faceEmoji, decor.faceSize, faceModifier)
+            else if (faceFile != null) AsyncImage(model = faceFile, contentDescription = null,
                 contentScale = ContentScale.Fit, modifier = shaped(faceModifier, decor.faceShape))
             else Image(painterResource(if (id == "blue") R.drawable.bubble_sleep else R.drawable.bubble_bunny),
                 contentDescription = null, modifier = faceModifier)
         }
-        if (customStar) AsyncImage(model = starFile, contentDescription = null, contentScale = ContentScale.Fit,
-            modifier = shaped(Modifier.align(corner(starCorner)).offset(y =
-                (if (starCorner.startsWith("t")) -starRaised else starRaised).dp)
-                .size(decor.starSize.dp), decor.starShape))
+        if (customStar) {
+            val starModifier = Modifier.align(corner(starCorner)).offset(y =
+                (if (starCorner.startsWith("t")) -starRaised else starRaised).dp).size(decor.starSize.dp)
+            if (decor.starEmoji.isNotEmpty()) EmojiDecoration(decor.starEmoji, decor.starSize, starModifier)
+            else AsyncImage(model = starFile, contentDescription = null, contentScale = ContentScale.Fit,
+                modifier = shaped(starModifier, decor.starShape))
+        }
+    }
+}
+
+@Composable
+private fun EmojiDecoration(emoji: String, size: Int, modifier: Modifier) {
+    val font = with(LocalDensity.current) { (size * 0.8f).dp.toSp() }
+    Box(modifier, contentAlignment = Alignment.Center) {
+        Text(emoji, maxLines = 1, softWrap = false, style = TextStyle(fontSize = font,
+            lineHeight = font, platformStyle = PlatformTextStyle(includeFontPadding = false)))
     }
 }
