@@ -11,6 +11,8 @@ data class BubbleDecoration(
     val starShape: String = "original",
     val faceEnabled: Boolean = true,
     val starsEnabled: Boolean = true,
+    val faceDistance: Int = 0,
+    val starDistance: Int = 0,
     val faceSize: Int = 24,
     val starSize: Int = 7,
     val faceCorner: String = "auto",
@@ -19,6 +21,7 @@ data class BubbleDecoration(
     fun normalized() = copy(faceImage = safeFile(faceImage), starImage = safeFile(starImage),
         faceShape = faceShape.takeIf { it in shapes } ?: "original",
         starShape = starShape.takeIf { it in shapes } ?: "original",
+        faceDistance = faceDistance.coerceIn(-8, 16), starDistance = starDistance.coerceIn(-8, 16),
         faceSize = faceSize.coerceIn(16, 32), starSize = starSize.coerceIn(4, if (safeFile(starImage) != null) 32 else 12),
         faceCorner = faceCorner.takeIf { it in corners } ?: "auto",
         starCorner = starCorner.takeIf { it in corners } ?: "auto")

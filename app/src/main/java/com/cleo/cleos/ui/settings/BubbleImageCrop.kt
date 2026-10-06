@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntOffset
@@ -50,7 +51,7 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
         Column(Modifier.fillMaxSize().background(Color(0xFF202127)).systemBarsPadding().padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(if (preview == null) "1 · 裁剪装饰" else "2 · 确认预览", color = Color.White)
-            Text(if (preview == null) "双指放大、单指移动图片；拖动四角调整选框。" else "确认保留下来的部分。背景也会保留，可返回重新裁剪。", color = Color.LightGray)
+            Text(if (preview == null) "双指缩放、单指移动图片；拖动四角调整选框。框内空白会保存为透明。" else "确认保留下来的部分。背景也会保留，可返回重新裁剪。", color = Color.LightGray)
             val bitmap = source?.getOrNull()
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 if (preview != null) {
@@ -59,31 +60,27 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
                     val image = remember(bitmap) { bitmap.asImageBitmap() }
                     fun frame() = Rect((size.width * (1 - frameWidth)) / 2, (size.height * (1 - frameHeight)) / 2,
                         (size.width * (1 + frameWidth)) / 2, (size.height * (1 + frameHeight)) / 2)
-                    fun scale(): Float = max(min(size.width.toFloat() / bitmap.width, size.height.toFloat() / bitmap.height) * zoom,
-                        max(frame().width / bitmap.width, frame().height / bitmap.height))
+                    fun scale(): Float = min(size.width.toFloat() / bitmap.width, size.height.toFloat() / bitmap.height) * zoom
                     fun clampPan(candidate: Offset): Offset {
-                        val s = scale()
-                        val f = frame()
-                        return Offset(candidate.x.coerceIn(-(bitmap.width * s - f.width).coerceAtLeast(0f) / 2,
-                            (bitmap.width * s - f.width).coerceAtLeast(0f) / 2),
-                            candidate.y.coerceIn(-(bitmap.height * s - f.height).coerceAtLeast(0f) / 2,
-                                (bitmap.height * s - f.height).coerceAtLeast(0f) / 2))
+                        val limitX = (bitmap.width * scale() + size.width) / 2
+                        val limitY = (bitmap.height * scale() + size.height) / 2
+                        return Offset(candidate.x.coerceIn(-limitX, limitX), candidate.y.coerceIn(-limitY, limitY))
                     }
                     fun sourceRect(): Rect {
                         val s = scale().coerceAtLeast(0.0001f)
                         val left = size.width / 2f + pan.x - bitmap.width * s / 2
                         val top = size.height / 2f + pan.y - bitmap.height * s / 2
                         val f = frame()
-                        return Rect(((f.left - left) / s).coerceIn(0f, bitmap.width - 1f),
-                            ((f.top - top) / s).coerceIn(0f, bitmap.height - 1f),
-                            ((f.right - left) / s).coerceIn(1f, bitmap.width.toFloat()),
-                            ((f.bottom - top) / s).coerceIn(1f, bitmap.height.toFloat()))
+                        return Rect((f.left - left) / s,
+                            (f.top - top) / s,
+                            (f.right - left) / s,
+                            (f.bottom - top) / s)
                     }
                     Box(Modifier.fillMaxSize().onSizeChanged { size = it }) {
                         Canvas(Modifier.fillMaxSize().pointerInput(bitmap) {
                             detectTransformGestures { centroid, delta, factor, _ ->
                                 val oldScale = scale()
-                                zoom = (zoom * factor).coerceIn(1f, 20f)
+                                zoom = (zoom * factor).coerceIn(0.25f, 20f)
                                 val ratio = scale() / oldScale.coerceAtLeast(0.0001f)
                                 val centre = Offset(size.width / 2f, size.height / 2f)
                                 pan = clampPan((pan + centre - centroid) * ratio + centroid - centre + delta)
@@ -129,13 +126,13 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
                 Text("选区放大预览", color = Color.LightGray)
                 Canvas(Modifier.fillMaxWidth().height(88.dp).background(Color(0xFF393A40))) {
                     val r = selection
-                    val w = r.width.roundToInt().coerceAtLeast(1)
-                    val h = r.height.roundToInt().coerceAtLeast(1)
-                    val factor = min(this.size.width / w, this.size.height / h)
-                    val target = IntSize((w * factor).roundToInt().coerceAtLeast(1), (h * factor).roundToInt().coerceAtLeast(1))
-                    drawImage(bitmap.asImageBitmap(), srcOffset = IntOffset(r.left.toInt(), r.top.toInt()),
-                        srcSize = IntSize(w.coerceAtMost(bitmap.width - r.left.toInt()), h.coerceAtMost(bitmap.height - r.top.toInt())),
-                        dstOffset = IntOffset(((this.size.width - target.width) / 2).roundToInt(), ((this.size.height - target.height) / 2).roundToInt()), dstSize = target)
+                    val factor = min(this.size.width / r.width, this.size.height / r.height)
+                    val dx = (this.size.width - r.width * factor) / 2
+                    val dy = (this.size.height - r.height * factor) / 2
+                    clipRect(dx, dy, dx + r.width * factor, dy + r.height * factor) {
+                        drawImage(bitmap.asImageBitmap(), dstOffset = IntOffset((dx - r.left * factor).roundToInt(), (dy - r.top * factor).roundToInt()),
+                            dstSize = IntSize((bitmap.width * factor).roundToInt().coerceAtLeast(1), (bitmap.height * factor).roundToInt().coerceAtLeast(1)))
+                    }
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -146,14 +143,17 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
                     if (!submitting) {
                         if (preview != null) { submitting = true; onApply(preview!!) }
                         else {
-                            val left = selection.left.toInt().coerceIn(0, bitmap.width - 1)
-                            val top = selection.top.toInt().coerceIn(0, bitmap.height - 1)
-                            val right = selection.right.roundToInt().coerceIn(left + 1, bitmap.width)
-                            val bottom = selection.bottom.roundToInt().coerceIn(top + 1, bitmap.height)
-                            val cropped = Bitmap.createBitmap(bitmap, left, top, right - left, bottom - top)
-                            val ratio = min(1f, 512f / maxOf(cropped.width, cropped.height))
-                            preview = if (ratio < 1f) Bitmap.createScaledBitmap(cropped,
-                                (cropped.width * ratio).roundToInt().coerceAtLeast(1), (cropped.height * ratio).roundToInt().coerceAtLeast(1), true) else cropped
+                            val r = selection
+                            if (r.width > 0 && r.height > 0) {
+                                val ratio = min(1f, 512f / maxOf(r.width, r.height))
+                                val cropped = Bitmap.createBitmap((r.width * ratio).roundToInt().coerceAtLeast(1),
+                                    (r.height * ratio).roundToInt().coerceAtLeast(1), Bitmap.Config.ARGB_8888)
+                                android.graphics.Canvas(cropped).drawBitmap(bitmap, null,
+                                    android.graphics.RectF(-r.left * ratio, -r.top * ratio,
+                                        (bitmap.width - r.left) * ratio, (bitmap.height - r.top) * ratio),
+                                    android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG))
+                                preview = cropped
+                            }
                         }
                     }
                 }

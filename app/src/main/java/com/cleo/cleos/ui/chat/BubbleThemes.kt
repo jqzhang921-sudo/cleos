@@ -70,7 +70,8 @@ fun ChatBubbleSurface(
     val starFile = decor.starImage?.let { images.file(it) }?.takeIf { it.exists() }
     val customStar = decor.starsEnabled && starFile != null
     val faceShown = decor.faceEnabled && (faceFile != null || id == "blue" || id == "peach")
-    val raised = decor.faceSize * 0.85f
+    val raised = (decor.faceSize * 0.85f + decor.faceDistance).coerceAtLeast(0f)
+    val starRaised = (decor.starSize / 2f + decor.starDistance).coerceAtLeast(0f)
     if (id == "glass" && background == null && !faceShown && !customStar) {
         GlassSurface(modifier = modifier, style = style, shape = GlassShape.Rounded(16.dp),
             contentPadding = padding) { content(glassInk) }
@@ -105,8 +106,8 @@ fun ChatBubbleSurface(
             Box(Modifier.padding(padding)) { content(ink) }
         }
     }
-    Box(modifier.padding(top = maxOf(if (faceShown && faceCorner.startsWith("t")) raised else 4f, if (customStar && starCorner.startsWith("t")) decor.starSize / 2f else 0f).dp,
-        bottom = maxOf(if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) decor.starSize / 2f else 0f).dp, start = 6.dp, end = 6.dp)) {
+    Box(modifier.padding(top = maxOf(if (faceShown && faceCorner.startsWith("t")) raised else 4f, if (customStar && starCorner.startsWith("t")) starRaised else 0f).dp,
+        bottom = maxOf(if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) starRaised else 0f).dp, start = 6.dp, end = 6.dp)) {
         if ((id == "clear" || id == "glass") && background == null) {
             GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
                 contentPadding = padding) { content(ink) }
@@ -156,7 +157,7 @@ fun ChatBubbleSurface(
         }
         if (customStar) AsyncImage(model = starFile, contentDescription = null, contentScale = ContentScale.Fit,
             modifier = shaped(Modifier.align(corner(starCorner)).offset(y =
-                (if (starCorner.startsWith("t")) -decor.starSize / 2f else decor.starSize / 2f).dp)
+                (if (starCorner.startsWith("t")) -starRaised else starRaised).dp)
                 .size(decor.starSize.dp), decor.starShape))
     }
 }
