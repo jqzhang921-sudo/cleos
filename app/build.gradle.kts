@@ -26,8 +26,8 @@ android {
         applicationId = "com.cleo.cleos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 91
-        versionName = "0.41.14"
+        versionCode = 92
+        versionName = "0.41.15"
     }
 
     signingConfigs {

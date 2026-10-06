@@ -912,7 +912,8 @@ fun ChatTab(
         },
     ) {
         val inputTop = inputBottom + with(density) { inputHeight.toDp() }
-        CompositionLocalProvider(LocalFaces provides faces, LocalStickers provides stickerBook, LocalChatType provides chatType, LocalPat provides patActions) {
+        CompositionLocalProvider(LocalFaces provides faces, LocalStickers provides stickerBook, LocalChatType provides chatType, LocalPat provides patActions,
+            LocalBubbleThemes provides (appSettings.myBubbleTheme to (appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass"))) {
             if (editingPat) {
                 PatDialog(
                     aiName = state.aiName,
@@ -1322,7 +1323,7 @@ private fun MessageBubble(
                             when (piece) {
                                 // A sticker stands on its own, outside any bubble, as chat apps draw them.
                                 is StickerText.Piece.Sticker -> StickerView(piece.sticker) { menu = true }
-                                is StickerText.Piece.Words -> GlassSurface(
+                                is StickerText.Piece.Words -> ChatBubbleSurface(
                                     modifier = Modifier
                                         .widthIn(max = bubbleMaxWidth())
                                         .combinedClickable(
@@ -1331,13 +1332,11 @@ private fun MessageBubble(
                                             onClick = {},
                                             onLongClick = { menu = true },
                                         ),
-                                    style = if (mine) palette.bubbleMine else palette.bubble,
-                                    shape = GlassShape.Rounded(20.dp),
-                                    contentPadding = BubblePadding,
-                                ) {
+                                    mine = mine,
+                                ) { bubbleInk ->
                                     Text(
                                         piece.text,
-                                        color = if (mine) palette.mineContent else palette.content,
+                                        color = bubbleInk,
                                         style = LocalChatType.current.body,
                                     )
                                 }
@@ -1471,17 +1470,14 @@ private fun VoiceBubble(
     onLongClick: () -> Unit,
 ) {
     val palette = LocalGlassPalette.current
-    val ink = if (mine) palette.mineContent else palette.content
     var expanded by rememberSaveable(messageId, defaultExpanded) { mutableStateOf(defaultExpanded) }
     val length = 92.dp + 150.dp * (audio.ms.toFloat() / Voice.MAX_MS).coerceIn(0f, 1f)
-    GlassSurface(
+    ChatBubbleSurface(
         modifier = Modifier
             .widthIn(min = length, max = bubbleMaxWidth())
             .combinedClickable(interactionSource = null, indication = null, onClick = onClick, onLongClick = onLongClick),
-        style = if (mine) palette.bubbleMine else palette.bubble,
-        shape = GlassShape.Rounded(20.dp),
-        contentPadding = BubblePadding,
-    ) {
+        mine = mine,
+    ) { ink ->
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -1673,13 +1669,10 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
                     pieces.forEach { piece ->
                         when (piece) {
                             is StickerText.Piece.Sticker -> StickerView(piece.sticker) {}
-                            is StickerText.Piece.Words -> GlassSurface(
+                            is StickerText.Piece.Words -> ChatBubbleSurface(
                                 modifier = Modifier.widthIn(max = bubbleMaxWidth()),
-                                style = palette.bubble,
-                                shape = GlassShape.Rounded(20.dp),
-                                contentPadding = BubblePadding,
-                            ) {
-                                Text(piece.text, color = palette.content, style = LocalChatType.current.body)
+                            ) { ink ->
+                                Text(piece.text, color = ink, style = LocalChatType.current.body)
                             }
                         }
                     }

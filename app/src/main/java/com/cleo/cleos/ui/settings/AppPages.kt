@@ -255,6 +255,7 @@ internal fun LookPage(vm: SettingsViewModel, onOpenLab: () -> Unit) {
     }
 
     // It names itself ("我的气泡"), so its card has no title.
+    BubbleThemeSection(settings, vm)
     Section(null) {
         MyBubbleColor(settings.myBubble, vm::setMyBubble)
     }

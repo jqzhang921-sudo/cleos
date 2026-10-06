@@ -78,6 +78,9 @@ data class AppSettings(
     val patBuzz: Boolean = true,
     /** The colour of the person's own bubbles (ARGB), still glass; null follows the wallpaper. */
     val myBubble: Int? = null,
+    val myBubbleTheme: String = "glass",
+    /** Each TA can use a different theme; keys are companion ids, preserved by backups. */
+    val taBubbleThemes: Map<String, String> = emptyMap(),
     /** The notification permission was asked for once already; after that it is theirs to change in settings. */
     val notificationsAsked: Boolean = false,
     /** When a letter's reply should come, as picked the last time one was sent. */
@@ -180,6 +183,8 @@ class SettingsRepository(private val context: Context) {
         val patSuffix = stringPreferencesKey("pat_suffix")
         val patBuzz = booleanPreferencesKey("pat_buzz")
         val myBubble = intPreferencesKey("my_bubble")
+        val myBubbleTheme = stringPreferencesKey("my_bubble_theme")
+        val taBubbleThemes = stringPreferencesKey("ta_bubble_themes")
         val notificationsAsked = booleanPreferencesKey("notifications_asked")
         val letterReply = stringPreferencesKey("letter_reply")
         val letterEveryDays = intPreferencesKey("letter_every_days")
@@ -235,6 +240,8 @@ class SettingsRepository(private val context: Context) {
             patSuffix = this[Keys.patSuffix] ?: d.patSuffix,
             patBuzz = this[Keys.patBuzz] ?: d.patBuzz,
             myBubble = this[Keys.myBubble],
+            myBubbleTheme = this[Keys.myBubbleTheme] ?: "glass",
+            taBubbleThemes = decodeVoices(this[Keys.taBubbleThemes]),
             notificationsAsked = this[Keys.notificationsAsked] ?: d.notificationsAsked,
             letterReply = ReplyWhen.of(this[Keys.letterReply]),
             letterEveryDays = this[Keys.letterEveryDays] ?: d.letterEveryDays,
@@ -272,6 +279,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.chatAvatars] = next.chatAvatars
             prefs[Keys.avatarEachMessage] = next.avatarEachMessage
             prefs[Keys.chatTextSize] = next.chatTextSize
+            prefs[Keys.myBubbleTheme] = next.myBubbleTheme
+            prefs[Keys.taBubbleThemes] = encodeVoices(next.taBubbleThemes)
             prefs[Keys.expandVoiceText] = next.expandVoiceText
             prefs[Keys.patVerb] = next.patVerb
             prefs[Keys.patSuffix] = next.patSuffix

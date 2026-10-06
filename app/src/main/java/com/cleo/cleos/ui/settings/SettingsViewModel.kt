@@ -651,6 +651,15 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(myBubble = argb) } }
     }
 
+    fun setBubbleTheme(mine: Boolean, theme: String) {
+        val id = companionId.toString()
+        val chosen = com.cleo.cleos.ui.chat.BubbleThemes.valid(theme)
+        viewModelScope.launch {
+            c.settings.update { if (mine) it.copy(myBubbleTheme = chosen)
+                else it.copy(taBubbleThemes = it.taBubbleThemes + (id to chosen)) }
+        }
+    }
+
     /** The TA's voice messages beside the ear on headphones (EarVoice). */
     fun setEarVoice(on: Boolean) {
         viewModelScope.launch { c.settings.update { it.copy(earVoice = on) } }
