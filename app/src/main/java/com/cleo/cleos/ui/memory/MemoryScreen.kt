@@ -140,9 +140,10 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "从别的地方搬东西过来：选一个文件，角色卡、世界书、记忆库、历史聊天都认。角色卡会新开一个 TA（东西都归他），" +
-                                "世界书进那个 TA 的「设定」；只搬记忆的话，JSON、纯文本、Markdown 都行（一段或一行一件，「名字: 内容」拆成两半），" +
-                                "导进当前这个 TA，同名的并进已有那件，缺的细节补上。",
+                            "从别的地方搬东西过来：选一个文件，角色卡（PNG 图片卡也认）、世界书、记忆库、历史聊天都认。" +
+                                "一张角色卡新开一个 TA，文件里几张就开几个，别的东西都归第一个，世界书进他的「设定」；" +
+                                "只搬记忆的话，JSON、纯文本、Markdown 都行（一段或一行一件，「名字: 内容」拆成两半），" +
+                                "导进当前这个 TA，同名的并进已有那件，缺的细节补上；一类最多记 10 件，多的放进「设定」。",
                             color = palette.contentSecondary,
                             fontSize = 12.sp,
                             lineHeight = 18.sp,

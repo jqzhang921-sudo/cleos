@@ -608,10 +608,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         private set
 
     /**
-     * Brings a file from another app in: a 角色卡 (which makes a TA of its own, and everything
-     * else in the file goes to them), a world book, a memory store, a chat log — any of the
-     * four, or several at once. Nothing already here is touched: a memory of the same name
-     * only gets the details it was missing, and a 设定 entry that is already there is left be.
+     * Brings a file from another app in: a 角色卡 (one TA each, and everything else in the file
+     * goes to the first of them), a world book, a memory store, a chat log — any of the four, or
+     * several at once. Nothing already here is touched: a memory of the same name only gets the
+     * details it was missing, a 设定 entry that is already there is left be, and a memory whose
+     * kind is full goes to 设定 rather than nowhere.
      */
     fun importMemoryFile(uri: Uri) {
         if (memoryBusy) return
@@ -623,8 +624,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
             try {
                 val r = c.imports.import(uri, id)
                 memoryMessage = r.said()
-                // A 角色卡 makes a TA and switches to them: the fields here follow, so what is
-                // typed next is about the one just imported.
+                // A 角色卡 makes a TA (a file of cards, one each) and switches to the first:
+                // the fields here follow, so what is typed next is about the one just imported.
                 r.newTaId?.let { made ->
                     persist()
                     c.companions.select(made)

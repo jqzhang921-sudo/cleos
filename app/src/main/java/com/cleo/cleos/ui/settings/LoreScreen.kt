@@ -173,8 +173,8 @@ fun LoreScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "从别的 app 搬过来：选一个文件，角色卡、世界书、记忆库、聊天记录都认。" +
-                                "文件里有角色卡，就照它新开一个 TA，里面的东西都归他；只是设定的话，搬进现在这个 TA。" +
+                            "从别的 app 搬过来：选一个文件，角色卡（PNG 图片卡也认）、世界书、记忆库、聊天记录都认。" +
+                                "文件里有角色卡，一张就新开一个 TA，里面的东西都归第一个；只是设定的话，搬进现在这个 TA。" +
                                 "已经有的条目不会重复进来。",
                             color = palette.contentSecondary,
                             fontSize = 12.sp,

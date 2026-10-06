@@ -21,11 +21,17 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
+import java.util.Base64
 
 class ImportException(message: String) : Exception(message)
 
-/** What a memory import brought in: topics added, details added, and topics left out because their kind was full. */
-data class MemoryImport(val added: Int, val details: Int, val skipped: Int = 0)
+/** What a memory import brought in: topics added, details added, and topics their kind had no room for. */
+data class MemoryImport(
+    val added: Int,
+    val details: Int,
+    /** Their kind was full; they went to 设定 instead (still here, still readable, just not in every prompt). */
+    val moved: Int = 0,
+)
 
 /** One topic as a foreign file has it: what it is, the line the TA reads, and the details behind it. */
 data class ImportedMemory(
@@ -66,16 +72,19 @@ data class ImportedMessage(val fromMe: Boolean, val content: String, val at: Lon
 
 /** Everything one file held, by module: what such a file can carry, all four of them or any one. */
 data class ForeignExport(
-    val card: ImportedCard? = null,
+    val cards: List<ImportedCard> = emptyList(),
     val lore: List<ImportedLore> = emptyList(),
     val memories: List<ImportedMemory> = emptyList(),
     val chats: List<ImportedChat> = emptyList(),
 ) {
     val books: List<String> get() = lore.map { it.book }.filter { it.isNotEmpty() }.distinct()
 
+    /** The one card, when the file has just the one: its opening line, and the name to file under. */
+    val card: ImportedCard? get() = cards.firstOrNull()
+
     /** Nothing in it had any of the four shapes. */
     val empty: Boolean
-        get() = card == null && lore.isEmpty() && memories.isEmpty() && chats.none { it.messages.isNotEmpty() }
+        get() = cards.isEmpty() && lore.isEmpty() && memories.isEmpty() && chats.none { it.messages.isNotEmpty() }
 }
 
 /**
@@ -222,6 +231,10 @@ object ForeignMemory {
  * 世界书 is the world they live in; a 记忆库 is what their app remembers; a 聊天记录 is what
  * was said. One file may hold one of them, or all four one after another.
  *
+ * A 角色卡 comes in two shapes and both are read: the 酒馆 one that most apps write and read
+ * each other's cards with, and Operit's own, which its card backup is made of — a file holding
+ * every card it has, read as one card after another.
+ *
  * Anything that is none of the four is read as memory the way it always was, so a plain text
  * or Markdown file of notes still works.
  */
@@ -231,6 +244,20 @@ object ForeignFile {
         "system_prompt", "personality", "scenario", "greeting_message", "first_mes",
         "example_dialogue", "mes_example", "char_persona", "character_book",
     )
+
+    /** What a 酒馆 card writes even when the card itself says little; nothing else has these. */
+    private val TAVERN_ONLY = listOf(
+        "creator_notes", "alternate_greetings", "character_version", "post_history_instructions",
+    )
+
+    /** The keys only Operit's own 角色卡 has, the way its database keeps them. */
+    private val OPERIT_KEYS = listOf(
+        "characterSetting", "openingStatement", "advancedCustomPrompt", "otherContentChat",
+        "otherContentVoice", "chatModelBindingMode", "memoryProfileBindingMode",
+    )
+
+    /** What a file of several cards is wrapped in: a whole-app backup of them, or a plainer name. */
+    private val CARD_WRAPPERS = listOf("characterCards", "cards")
 
     /** Throws [ImportException] when the file holds nothing that can be read at all. */
     fun read(text: String): ForeignExport {
@@ -244,21 +271,40 @@ object ForeignFile {
         val blocks = blocks(body)
         if (blocks.isNotEmpty()) {
             val many = ForeignExport(
-                card = blocks.firstNotNullOfOrNull { card(it) },
+                cards = blocks.flatMap { cardBodies(it) }.map(::aCard),
                 lore = blocks.flatMap { lore(it) },
                 memories = blocks.flatMap { memories(it) },
                 chats = blocks.mapNotNull { chat(it) },
             )
             if (!many.empty) return many
         }
-        return ForeignExport(memories = ForeignMemory.parse(body))
+        return try {
+            ForeignExport(memories = ForeignMemory.parse(body))
+        } catch (e: ImportException) {
+            // A file that is none of the four is still read as notes (ForeignMemory does that, and
+            // the throw comes from there). When it is not notes either, say what it does hold: that
+            // line, sent on, is where reading this kind of file starts.
+            throw ImportException(unknown(json) ?: e.message.orEmpty())
+        }
+    }
+
+    /** What a file that could not be read at all turned out to have in it, by its outermost keys. */
+    private fun unknown(json: JsonElement?): String? {
+        val keys = (json as? JsonObject)?.keys.orEmpty()
+        if (keys.isEmpty()) return null
+        return "这个文件里没有能认出来的东西。最外层写着：${keys.take(KEY_HINT).joinToString("、")}"
     }
 
     /** One object as one module; null when it is none of the four (it is then read as memory). */
     private fun module(o: JsonObject, position: Int): ForeignExport? {
         chat(o)?.let { return ForeignExport(chats = listOf(it)) }
         lore(o, position).takeIf { it.isNotEmpty() }?.let { return ForeignExport(lore = it) }
-        card(o)?.let { c -> return ForeignExport(card = c, lore = book(o, c.name)) }
+        val cards = cardBodies(o)
+        if (cards.isNotEmpty()) {
+            // A card is a whole TA. A file of them (Operit backs all of them up into one) is a TA
+            // each, and the world book a card carries inside itself comes along with it.
+            return ForeignExport(cards = cards.map(::aCard), lore = cards.flatMap(::book))
+        }
         memories(o).takeIf { it.isNotEmpty() }?.let { return ForeignExport(memories = it) }
         return null
     }
@@ -311,43 +357,99 @@ object ForeignFile {
         )
     }
 
+    /**
+     * Every 角色卡 one object holds: a file of them (Operit backs all of its own up into one), or
+     * the one. A card is not a book and not a memory: nothing else is read out of the object.
+     */
+    private fun cardBodies(o: JsonObject): List<JsonObject> {
+        val many = CARD_WRAPPERS.firstNotNullOfOrNull { o[it] as? JsonArray }
+        if (many != null) return many.mapNotNull { (it as? JsonObject)?.let(::cardBody) }
+        return listOfNotNull(cardBody(o))
+    }
+
+    /**
+     * Where one card's fields sit. Operit writes its own cards with `characterSetting` and
+     * `openingStatement` straight down; a 酒馆 card keeps them under `data`, where it also fills
+     * in the few keys of its own even for a card that says little.
+     */
+    private fun cardBody(o: JsonObject): JsonObject? = when {
+        isOperitCard(o) || isTavernCard(o) -> o
+        else -> (o["data"] as? JsonObject)?.takeIf {
+            isOperitCard(it) || isTavernCard(it) || (it["name"] != null && TAVERN_ONLY.any { k -> it[k] != null })
+        }
+    }
+
+    private fun isTavernCard(o: JsonObject): Boolean = CARD_KEYS.any { o[it] != null }
+
+    private fun isOperitCard(o: JsonObject): Boolean = OPERIT_KEYS.any { o[it] != null }
+
+    /** One card, in whichever of the two shapes it came in. */
+    private fun aCard(body: JsonObject): ImportedCard =
+        if (isOperitCard(body)) operitCard(body) else tavernCard(body)
+
+    /** A 酒馆 character card, as that app wrote it (Operit exports its own cards this way too). */
+    private fun tavernCard(src: JsonObject): ImportedCard {
+        val persona = joined(
+            listOfNotNull(
+                text(src["description"]),
+                text(src["personality"])?.let { "性格：$it" },
+                text(src["scenario"])?.let { "场景：$it" },
+                text(src["system_prompt"]),
+                text(src["char_persona"]),
+                text(src["example_dialogue"])?.let { "说话的样子（照这个来）：\n$it" },
+                text(src["mes_example"])?.let { "说话的样子（照这个来）：\n$it" },
+            ),
+        )
+        return ImportedCard(
+            name = text(src["name"]).orEmpty().ifEmpty { text(src["char_name"]).orEmpty() }.take(NAME_MAX),
+            persona = persona.take(Companions.PERSONA_LIMIT),
+            greeting = text(src["greeting_message"]) ?: text(src["first_mes"]) ?: text(src["greeting"]) ?: "",
+        )
+    }
+
+    /**
+     * Operit's own card, the way its database keeps one: `characterSetting` is the 引导词 it was
+     * written with and `openingStatement` the line it opens with; the tags it carries are prompts
+     * of their own. What it says about models and bindings is left where it is — that is Operit's
+     * business, not this app's.
+     */
+    private fun operitCard(src: JsonObject): ImportedCard {
+        val tags = (src["attachedTags"] as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonObject)?.let { tag -> text(tag["promptContent"]) } }
+        val persona = joined(
+            listOfNotNull(
+                text(src["description"]),
+                text(src["characterSetting"]),
+                text(src["advancedCustomPrompt"]),
+                text(src["otherContentChat"])?.let { "说话的样子（照这个来）：\n$it" },
+            ) + tags,
+        )
+        return ImportedCard(
+            name = text(src["name"]).orEmpty().take(NAME_MAX),
+            persona = persona.take(Companions.PERSONA_LIMIT),
+            greeting = text(src["openingStatement"]).orEmpty(),
+        )
+    }
+
+    /** The parts of a persona, one blank line apart; the same words often sit in two fields. */
+    private fun joined(parts: List<String>): String = parts
+        .fold(mutableListOf<String>()) { kept, part ->
+            if (kept.none { it.contains(part) }) kept += part
+            kept
+        }
+        .joinToString("\n\n")
+
     /** The world book a card carries inside it, when it carries one. */
-    private fun book(o: JsonObject, name: String): List<ImportedLore> {
-        val inner = o["character_book"] as? JsonObject ?: return emptyList()
+    private fun book(card: JsonObject): List<ImportedLore> {
+        val inner = card["character_book"] as? JsonObject ?: return emptyList()
         val raw = inner["entries"] ?: return emptyList()
-        val bookName = text(inner["name"]).orEmpty().ifEmpty { name }
+        val bookName = text(inner["name"]).orEmpty().ifEmpty { text(card["name"]).orEmpty() }
         return when (raw) {
             is JsonArray -> raw.mapIndexedNotNull { i, e -> (e as? JsonObject)?.let { entry(it, bookName, i) } }
             is JsonObject -> raw.mapNotNull { (k, v) -> (v as? JsonObject)?.let { entry(it, bookName, k.toIntOrNull() ?: 0) } }
             else -> emptyList()
         }
     }
-
-    /** A character card: the strong keys only it has, straight or under `data` (the newer shape). */
-    private fun card(o: JsonObject): ImportedCard? {
-        val src = (o["data"] as? JsonObject)?.takeIf { isCard(it) } ?: o
-        if (!isCard(src)) return null
-        val persona = listOfNotNull(
-            text(src["description"]),
-            text(src["personality"])?.let { "性格：$it" },
-            text(src["scenario"])?.let { "场景：$it" },
-            text(src["system_prompt"]),
-            text(src["char_persona"]),
-            text(src["example_dialogue"])?.let { "说话的样子（照这个来）：\n$it" },
-            text(src["mes_example"])?.let { "说话的样子（照这个来）：\n$it" },
-        ).fold(mutableListOf<String>()) { kept, part ->
-            // The same words often sit in two of these fields; the model does not need them twice.
-            if (kept.none { it.contains(part) }) kept += part
-            kept
-        }.joinToString("\n\n").take(Companions.PERSONA_LIMIT)
-        return ImportedCard(
-            name = text(src["name"]).orEmpty().ifEmpty { text(src["char_name"]).orEmpty() }.take(NAME_MAX),
-            persona = persona,
-            greeting = text(src["greeting_message"]) ?: text(src["first_mes"]) ?: text(src["greeting"]) ?: "",
-        )
-    }
-
-    private fun isCard(o: JsonObject): Boolean = CARD_KEYS.any { o[it] != null }
 
     /** What a 记忆库 holds: the memories, and the person's own idea of themselves beside them. */
     private fun memories(o: JsonObject): List<ImportedMemory> {
@@ -416,12 +518,57 @@ object ForeignFile {
     private const val NAME_MAX = 40
     private const val TITLE_MAX = 60
     private const val TITLE_FROM_CONTENT = 20
+
+    /** How many of a file's own keys a note about an unreadable one names. */
+    private const val KEY_HINT = 6
 }
 
 /**
- * Brings what another app exported into this one: memory into a TA's memory, a world book into
- * their 设定, a chat log into a conversation of its own, and a character card into a TA of its
- * own — everything else in that file going to that new TA. Nothing already here is touched.
+ * A 角色卡 as a picture: 酒馆 cards travel as PNGs with the card's JSON tucked into the file's own
+ * text, base64 under the keyword `chara` (the newer `ccv3` carries the same thing). Operit exports
+ * its cards this way too, so a card that arrives as an image is read like any other file.
+ */
+internal object PngCard {
+    private val HEADER = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+    private val KEYWORDS = setOf("chara", "ccv3")
+
+    /** The JSON this picture carries, or null when it is not a picture with a card in it. */
+    fun json(bytes: ByteArray): String? {
+        if (bytes.size < HEADER.size || !bytes.copyOfRange(0, HEADER.size).contentEquals(HEADER)) return null
+        var at = HEADER.size
+        // Chunks, one after another: a length, a name, that many bytes, then a checksum. The
+        // checksum is not this app's business — the card is read, not the picture. The length is
+        // held as a Long: a picture that says it is two gigabytes long must not wrap round.
+        while (at + 12 <= bytes.size) {
+            val length = readLength(bytes, at)
+            if (length < 0 || at + 12L + length > bytes.size) return null
+            val type = String(bytes, at + 4, 4, Charsets.ISO_8859_1)
+            if (type == "tEXt") {
+                val data = String(bytes, at + 8, length.toInt(), Charsets.ISO_8859_1)
+                val split = data.indexOf('\u0000')
+                if (split > 0 && data.substring(0, split) in KEYWORDS) return decoded(data.substring(split + 1))
+            }
+            at += 12 + length.toInt()
+        }
+        return null
+    }
+
+    private fun readLength(bytes: ByteArray, at: Int): Long =
+        ((bytes[at].toLong() and 0xFF) shl 24) or
+            ((bytes[at + 1].toLong() and 0xFF) shl 16) or
+            ((bytes[at + 2].toLong() and 0xFF) shl 8) or
+            (bytes[at + 3].toLong() and 0xFF)
+
+    /** base64, on the way these cards are written: whitespace and all. */
+    private fun decoded(s: String): String? =
+        runCatching { String(Base64.getMimeDecoder().decode(s.trim()), Charsets.UTF_8) }.getOrNull()
+}
+
+/**
+ * Brings what another app exported into this one: memory into a TA's memory (and, where a kind is
+ * full, into 设定 rather than nowhere), a world book into their 设定, a chat log into a conversation
+ * of its own, and a character card into a TA of its own — a file of cards into one each — with
+ * everything else in that file going to the first of them. Nothing already here is touched.
  */
 class ForeignImport(
     context: Context,
@@ -434,16 +581,19 @@ class ForeignImport(
     /** What one import made, for the line the page shows. */
     suspend fun import(uri: Uri, companionId: Long): ForeignImportResult = withContext(Dispatchers.IO) {
         val bytes = resolver.openInputStream(uri)?.use { readAtMost(it, MAX_BYTES) } ?: throw ImportException("打不开这个文件")
-        val file = ForeignFile.read(bytes.decodeToString())
+        // A card can arrive as a picture (PngCard); anything else is read as the text it is.
+        val file = ForeignFile.read(PngCard.json(bytes) ?: bytes.decodeToString())
         val now = System.currentTimeMillis()
         var target = companionId
-        var made: String? = null
-        file.card?.let { card ->
-            // The card is the TA; everything else in the file is about them, so they are made first.
+        val made = mutableListOf<Pair<Long, String>>()
+        for (card in file.cards) {
+            // Each card is the TA; everything else in the file is about them, so they are made
+            // first. A whole file of cards (Operit backs all of them up into one) is one TA each,
+            // and what else the file holds goes to the first of them.
             val id = companions.add()
             companions.update(id) { it.copy(name = card.name, persona = card.persona) }
-            target = id
-            made = card.name
+            if (made.isEmpty()) target = id
+            made += id to card.name
         }
         val memories = if (file.memories.isEmpty()) MemoryImport(0, 0) else merge(file.memories, target, now)
         val lore = addLore(file.lore, target, now)
@@ -464,8 +614,8 @@ class ForeignImport(
             written = writeChat(target, title, kept, now)
         }
         ForeignImportResult(
-            newTa = made,
-            newTaId = if (made == null) null else target,
+            newTas = made.map { it.second },
+            newTaId = if (made.isEmpty()) null else target,
             memories = memories,
             lore = lore,
             books = file.books,
@@ -479,22 +629,37 @@ class ForeignImport(
     private suspend fun merge(imported: List<ImportedMemory>, companionId: Long, now: Long): MemoryImport {
         var added = 0
         var details = 0
-        var skipped = 0
+        var moved = 0
         db.withTransaction {
             val have = db.memories().allFor(companionId).toMutableList()
             // Every topic's line goes with every message, so a kind holds [MemoryKinds.PER_KIND] of
-            // them and no more, the same as when the TA remembers something itself: what is over
-            // is left out, and said so, rather than quietly making every message longer.
+            // them and no more, the same as when the TA remembers something itself: a person who
+            // brings over more than that is told where the rest went rather than quietly making
+            // every message longer.
             val room = MemoryKinds.all
                 .associate { kind -> kind.key to (MemoryKinds.PER_KIND - have.count { it.kind == kind.key }).coerceAtLeast(0) }
                 .toMutableMap()
+            // What a full kind cannot take goes to 设定, which is only a list of titles until the TA
+            // looks one up: nothing there costs what a memory would have, and a person who handed
+            // over a pile of them gets the pile rather than two thirds of it. The ones already
+            // there, by title and text, are left be: importing the same file twice changes nothing.
+            val kept = db.lore().allFor(companionId)
+            val known = kept.map { it.title.trim() to it.content.trim() }.toMutableSet()
+            var position = (kept.filter { it.book == MOVED_BOOK }.maxOfOrNull { it.position } ?: -1) + 1
             for (m in imported) {
                 val same = have.firstOrNull { it.name.trim() == m.name.trim() }
-                if (same == null) {
-                    if ((room[m.kind] ?: 0) <= 0) {
-                        skipped++
-                        continue
+                if (same != null) {
+                    val old = MemoryDetails.decode(same.details)
+                    val merged = (old + m.details.filter { it !in old }).take(MemoryKinds.DETAILS)
+                    if (merged.size > old.size) {
+                        // Filling in isn't news: the topic keeps the date it was last noted. A third-party
+                        // file says nothing about when it was noted, so there is no newer date to take.
+                        db.memories().update(same.copy(details = MemoryDetails.encode(merged)))
+                        details += merged.size - old.size
                     }
+                    continue
+                }
+                if ((room[m.kind] ?: 0) > 0) {
                     room[m.kind] = (room[m.kind] ?: 1) - 1
                     val entity = m.entity(companionId, now)
                     // Kept in [have] as well, so a file naming the same topic twice makes one.
@@ -502,17 +667,29 @@ class ForeignImport(
                     added++
                     continue
                 }
-                val old = MemoryDetails.decode(same.details)
-                val merged = (old + m.details.filter { it !in old }).take(MemoryKinds.DETAILS)
-                if (merged.size > old.size) {
-                    // Filling in isn't news: the topic keeps the date it was last noted. A third-party
-                    // file says nothing about when it was noted, so there is no newer date to take.
-                    db.memories().update(same.copy(details = MemoryDetails.encode(merged)))
-                    details += merged.size - old.size
-                }
+                val title = m.name.trim().ifEmpty { m.summary.trim() }.take(TITLE_MAX)
+                val body = (listOf(m.summary.trim()) + m.details).filter { it.isNotEmpty() }.joinToString("\n")
+                if (body.isEmpty() || !known.add(title to body)) continue
+                db.lore().insert(
+                    LoreEntity(
+                        companionId = companionId,
+                        book = MOVED_BOOK,
+                        title = title,
+                        // No words of its own to bring it up by: the TA finds it by searching
+                        // 「记忆」 for what it is about, or by the title in front of it.
+                        keys = LoreKeys.encode(emptyList()),
+                        content = body.take(CONTENT_MAX),
+                        enabled = true,
+                        position = position++,
+                        source = MemoryEntity.SOURCE_IMPORT,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+                moved++
             }
         }
-        return MemoryImport(added, details, skipped)
+        return MemoryImport(added, details, moved)
     }
 
     /** 设定 entries, skipping the ones already there: importing the same book twice changes nothing. */
@@ -612,14 +789,23 @@ class ForeignImport(
 
         /** A conversation title is a heading, not a sentence. */
         private const val TITLE_MAX = 60
+
+        /**
+         * The 设定 book the memories a full kind could not take go into. A book of their own, so the
+         * page groups them and the person can see at a glance what came over this way.
+         */
+        private const val MOVED_BOOK = "搬来的记忆"
     }
 }
 
 /** What one file brought in, module by module, so the page can say what happened. */
 data class ForeignImportResult(
-    /** The TA a 角色卡 made, by name; empty when the card had no name. Everything else went to them. */
-    val newTa: String? = null,
-    /** That TA's id, so the page can follow them. Null when the file had no 角色卡. */
+    /**
+     * The TAs the file's 角色卡 made, by name; empty when it had no card, and a name may be empty
+     * when a card has none. Everything else in the file went to the first of them.
+     */
+    val newTas: List<String> = emptyList(),
+    /** That first TA, so the page can follow them. Null when the file had no 角色卡. */
     val newTaId: Long? = null,
     val memories: MemoryImport = MemoryImport(0, 0),
     val lore: Int = 0,
@@ -633,12 +819,18 @@ data class ForeignImportResult(
     /** What the person is told afterwards, whichever of the four modules the file had. */
     fun said(): String {
         val parts = mutableListOf<String>()
-        val who = newTa?.trim().orEmpty()
-        if (newTa != null) {
-            parts += if (who.isEmpty()) {
+        val who = newTas.map { it.trim() }
+        when {
+            newTas.size > 1 -> {
+                val named = who.filter { it.isNotEmpty() }
+                val list = if (named.isEmpty()) "" else "（${named.take(3).joinToString("、")}" +
+                    if (named.size > 3) " 等）" else "）"
+                parts += "文件里有 ${newTas.size} 张角色卡，照它们新开了 ${newTas.size} 个 TA$list"
+            }
+            newTas.size == 1 -> parts += if (who[0].isEmpty()) {
                 "文件里有一张角色卡，照它新开了一个 TA（还没起名字）"
             } else {
-                "文件里有一张角色卡，照它新开了一个 TA「$who」"
+                "文件里有一张角色卡，照它新开了一个 TA「${who[0]}」"
             }
         }
         if (memories.added > 0 || memories.details > 0) {
@@ -656,17 +848,18 @@ data class ForeignImportResult(
             }
             parts += "搬来 $lore 条设定$from"
         }
-        if (chatMessages > 0) parts += "接上 ${chatMessages} 句聊天"
-        if (parts.isEmpty()) {
-            return when {
-                memories.skipped > 0 -> "这个文件里没有能认出来的东西。有 ${memories.skipped} 条记忆因为同类已满没进来：" +
-                    "先在「记忆」里把同类的合并或删掉一些，再导一次。"
-                else -> "这个文件里没有能认出来的东西。"
-            }
+        if (memories.moved > 0) {
+            parts += "还有 ${memories.moved} 条同类满了，放进了「设定」（那边要用才查，随时能删）"
         }
+        if (chatMessages > 0) parts += "接上 ${chatMessages} 句聊天"
+        // Nothing to say means everything the file held was already here: it read fine, there was
+        // just nothing new in it. (A file that could not be read at all throws instead.)
+        if (parts.isEmpty()) return "这个文件读下来了，里面的东西这边都已经有了，没有新的。"
         val tail = buildString {
-            if (newTa != null) append("，都归他")
-            if (memories.skipped > 0) append("。还有 ${memories.skipped} 条记忆没进来：一类最多 ${MemoryKinds.PER_KIND} 件")
+            when (newTas.size) {
+                1 -> append("，都归他")
+                in 2..Int.MAX_VALUE -> append("，别的东西都归第一个")
+            }
             if (chatTruncated) append("。聊天太长，只接上了最近的一部分")
         }
         return parts.joinToString("，") + tail + "。"

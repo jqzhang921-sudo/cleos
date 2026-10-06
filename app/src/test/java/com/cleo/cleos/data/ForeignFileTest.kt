@@ -1,7 +1,6 @@
 package com.cleo.cleos.data
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -20,8 +19,7 @@ class ForeignFileTest {
              "system_prompt":"别叫她姐姐","greeting_message":"嗨，你来啦","created_at":1}
             """.trimIndent(),
         )
-        assertNotNull(out.card)
-        val card = out.card!!
+        val card = out.cards.single()
         assertEquals("林夏", card.name)
         assertEquals("嗨，你来啦", card.greeting)
         assertTrue(card.persona.contains("安静的人"))
@@ -31,6 +29,72 @@ class ForeignFileTest {
         // A card is not a book and not a memory: it makes a TA, and nothing else comes with it.
         assertTrue(out.lore.isEmpty())
         assertTrue(out.memories.isEmpty())
+    }
+
+    @Test
+    fun anOperitCardIsReadAsACard() {
+        // Operit's own card, as its database keeps it and its card backup writes it out.
+        val out = ForeignFile.read(
+            """
+            {"id":"c1","name":"洺洺","description":"一起用小红书的人","characterSetting":"你是洺洺，说话短",
+             "openingStatement":"在吗","otherContentChat":"嗯。",
+             "attachedTags":[{"name":"口癖","promptContent":"不要说「好的」"}],
+             "chatModelBindingMode":"FOLLOW_GLOBAL","createdAt":1}
+            """.trimIndent(),
+        )
+        val card = out.cards.single()
+        assertEquals("洺洺", card.name)
+        assertEquals("在吗", card.greeting)
+        assertTrue(card.persona.contains("一起用小红书的人"))
+        assertTrue(card.persona.contains("你是洺洺，说话短"))
+        assertTrue(card.persona.contains("不要说「好的」"))
+        // Which model it talks through, and what it may call, is Operit's business, not this app's.
+        assertTrue(!card.persona.contains("FOLLOW_GLOBAL"))
+        assertTrue(out.memories.isEmpty())
+    }
+
+    @Test
+    fun aBackupOfEveryCardIsOneCardAfterAnother() {
+        val out = ForeignFile.read(
+            """
+            {"characterCards":[
+               {"id":"c1","name":"洺洺","characterSetting":"说话短","openingStatement":"在吗"},
+               {"id":"c2","name":"夏以昼","characterSetting":"话多","openingStatement":"早"}],
+             "promptTags":[{"id":"t1","name":"口癖"}]}
+            """.trimIndent(),
+        )
+        assertEquals(listOf("洺洺", "夏以昼"), out.cards.map { it.name })
+        assertEquals("早", out.cards[1].greeting)
+        assertTrue(out.lore.isEmpty())
+        assertTrue(out.memories.isEmpty())
+    }
+
+    @Test
+    fun aTavernCardKeepsItsFieldsUnderData() {
+        // What Operit writes when one of its cards is exported as a 酒馆 card, and what other apps
+        // write; the world book, when there is one, sits under `data` with the rest of it.
+        val out = ForeignFile.read(
+            """
+            {"spec":"chara_card_v2","spec_version":"2.0","data":{
+              "name":"林夏","description":"安静的人","personality":"","first_mes":"嗨","mes_example":"",
+              "scenario":"","system_prompt":"别叫她姐姐","creator_notes":"","tags":[],
+              "character_book":{"name":"世界观","entries":[{"keys":["学校"],"content":"学校在海边","comment":"学校"}]}}}
+            """.trimIndent(),
+        )
+        val card = out.cards.single()
+        assertEquals("林夏", card.name)
+        assertEquals("嗨", card.greeting)
+        assertTrue(card.persona.contains("别叫她姐姐"))
+        assertEquals("世界观", out.lore.single().book)
+    }
+
+    @Test
+    fun aFileThatIsNoneOfTheFourSaysWhatItHasInIt() {
+        // The one thing a person can act on, or send on, when a file reads as nothing at all.
+        val e = assertThrows(ImportException::class.java) { ForeignFile.read("""{"whatever":[1],"else":2}""") }
+        val said = e.message.orEmpty()
+        assertTrue(said.contains("whatever"))
+        assertTrue(said.contains("else"))
     }
 
     @Test
