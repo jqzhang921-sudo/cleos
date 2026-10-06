@@ -8,6 +8,9 @@ import androidx.compose.foundation.background
 import com.cleo.cleos.data.BubbleBackgroundRemoval
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -75,7 +78,7 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
         Column(Modifier.fillMaxSize().background(Color(0xFF202127)).systemBarsPadding().padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(if (preview == null) "1 · 裁剪装饰" else "2 · 确认预览", color = Color.White)
-            Text(if (preview == null) "双指缩放、单指移动图片；拖动四角调整选框。框内空白会保存为透明。" else "确认保留下来的部分。背景也会保留，可返回重新裁剪。", color = Color.LightGray)
+            Text(if (preview == null) "双指缩放、单指移动图片；拖动四角调整选框。框内空白会保存为透明。" else "确认选区；需要透明效果？点下方「去掉背景」。", color = Color.LightGray)
             val bitmap = source?.getOrNull()
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 if (preview != null) {
@@ -184,22 +187,22 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
                 }
             }
             if (preview != null) {
-                Chip(if (removalOpen) "收起去底" else "可选：去相近底色", removalOpen) { removalOpen = !removalOpen }
+                CropAction(if (removalOpen) "收起去底设置" else "去掉背景", removalOpen) { removalOpen = !removalOpen }
                 if (removalOpen) {
                     Text("点一下图片中要去掉的底色，只处理相连区域。复杂照片、浅色轮廓可能需要保留原图。", color = Color.LightGray)
                     if (backgroundSeed != null) {
                         Text(if (processing) "正在处理…" else "容差：${tolerance.roundToInt()} · 越大去除范围越广", color = Color.White)
                         Slider(tolerance, { tolerance = it }, valueRange = 0f..100f)
-                        Chip("恢复原图", false) { removalEnabled = false; backgroundSeed = null }
+                        CropAction("恢复原图", false) { removalEnabled = false; backgroundSeed = null }
                     }
                     if (processed?.isFailure == true) Text("处理失败，可恢复原图重试。", color = Color.White)
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Chip(if (preview == null) "取消" else "重新裁剪", false) {
+                CropAction(if (preview == null) "取消" else "重新裁剪", false) {
                     if (!submitting) { if (preview == null) onDismiss() else { preview = null; backgroundSeed = null; removalEnabled = false } }
                 }
-                if (bitmap != null) Chip(if (preview == null) "预览选区" else "应用装饰", true) {
+                if (bitmap != null) CropAction(if (preview == null) "预览选区" else "应用装饰", true) {
                     if (!submitting) {
                         if (preview != null) { if (!processing && processed?.isFailure != true) { submitting = true; onApply(displayed!!) } }
                         else {
@@ -219,5 +222,16 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
                 }
             }
         }
+    }
+}
+
+/** Explicit dark-surface colors: the page does not use the wallpaper's glass palette. */
+@Composable
+private fun CropAction(text: String, selected: Boolean, onClick: () -> Unit) {
+    OutlinedButton(onClick = onClick,
+        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.7f)),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White,
+            containerColor = if (selected) Color(0xFF505563) else Color(0xFF30333A))) {
+        Text(text)
     }
 }
