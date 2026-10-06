@@ -76,11 +76,12 @@ fun FavoritesScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = top + 10.dp, bottom = bottom + 80.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item("search") {
-                GlassSurface(Modifier.fillMaxWidth(), shape = GlassShape.Rounded(22.dp), contentPadding = PaddingValues(6.dp)) {
-                    TextField(query, { query = it }, Modifier.fillMaxWidth(), placeholder = { Text("搜索原文和备注") }, singleLine = true,
-                        colors = TextFieldDefaults.colors(focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
-                            unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent))
-                }
+                GlassSearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "搜索原文和备注",
+                    description = "搜索收藏",
+                )
             }
             if (shown.isEmpty()) item("empty") {
                 GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(24.dp)) {

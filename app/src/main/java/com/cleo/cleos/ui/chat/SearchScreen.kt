@@ -175,38 +175,13 @@ fun SearchScreen(onBack: () -> Unit, onFound: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "field") {
-                GlassSurface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = GlassShape.Capsule,
-                    contentPadding = PaddingValues(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Rounded.Search, contentDescription = null, tint = palette.contentSecondary, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(10.dp))
-                        Box(Modifier.weight(1f).padding(vertical = 10.dp)) {
-                            if (query.isEmpty()) Text("搜聊过的话", color = palette.contentSecondary, fontSize = 16.sp)
-                            BasicTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                singleLine = true,
-                                textStyle = TextStyle(color = palette.content, fontSize = 16.sp),
-                                cursorBrush = SolidColor(palette.accentContent),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(focus)
-                                    .semantics { contentDescription = "搜索聊天记录" },
-                            )
-                        }
-                        if (query.isNotEmpty()) {
-                            Box(
-                                Modifier.size(34.dp).clip(CircleShape).clickable { query = "" },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(Icons.Rounded.Close, contentDescription = "清空", tint = palette.contentSecondary, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-                }
+                com.cleo.cleos.ui.common.GlassSearchField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = "搜聊过的话",
+                    description = "搜索聊天记录",
+                    fieldModifier = Modifier.focusRequester(focus),
+                )
             }
             item(key = "sides") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
