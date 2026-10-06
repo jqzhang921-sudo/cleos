@@ -96,6 +96,8 @@ class AppContainer(context: Context) {
 
     private val version = runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() ?: "0"
 
+    internal val updates = Updates(context, http, version)
+
     val companions = Companions(db, settings, secrets, images)
     val chatClient = ChatClient(http)
     private val calendar = PhoneCalendar(context)

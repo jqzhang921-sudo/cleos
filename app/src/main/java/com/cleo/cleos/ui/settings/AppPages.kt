@@ -410,6 +410,9 @@ internal fun AboutPage() {
     val context = LocalContext.current
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() }
     var releasesHint by remember { mutableStateOf<String?>(null) }
+    val updates = com.cleo.cleos.ui.common.appContainer().updates
+    val checkingUpdate by updates.checking.collectAsStateWithLifecycle()
+    val updateFeedback by updates.feedback.collectAsStateWithLifecycle()
     var showNotices by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -421,6 +424,10 @@ internal fun AboutPage() {
             fontSize = 12.sp,
             lineHeight = 18.sp,
         )
+        Chip(if (checkingUpdate) "正在检查更新…" else "检查更新", selected = false) {
+            if (!checkingUpdate) scope.launch { updates.check(manual = true) }
+        }
+        updateFeedback?.let { Text(it, color = palette.contentSecondary, fontSize = 12.sp) }
         Chip("去蓝奏云看新版", selected = false) {
             // The page asks for the code once; it is on the clipboard by then.
             context.getSystemService(ClipboardManager::class.java)

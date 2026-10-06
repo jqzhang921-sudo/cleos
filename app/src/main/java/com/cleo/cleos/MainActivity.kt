@@ -28,7 +28,14 @@ class MainActivity : ComponentActivity() {
             // drawing before that would flash the default wallpaper and colours.
             val settings: AppSettings? by container.settings.settings.collectAsStateWithLifecycle(initialValue = null)
             settings?.let { s ->
-                CleosTheme(s, container.images) { CleosNavHost() }
+                CleosTheme(s, container.images) {
+                    CleosNavHost()
+                    com.cleo.cleos.ui.common.UpdatePrompt(container)
+                }
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(1500)
+                    container.updates.check()
+                }
                 AskForNotifications(container, s)
             }
         }
