@@ -1,5 +1,11 @@
 package com.cleo.cleos.ui.chat
 
+import coil3.compose.AsyncImage
+import com.cleo.cleos.ui.common.appContainer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -59,9 +65,13 @@ fun ChatBubbleSurface(
     val decor = decoration.normalized()
     val faceCorner = if (decor.faceCorner == "auto") (if (id == "blue") "tr" else "tl") else decor.faceCorner
     val starCorner = if (decor.starCorner == "auto") (if (id == "blue") "bl" else "br") else decor.starCorner
-    val faceShown = decor.faceEnabled && (id == "blue" || id == "peach")
+    val images = appContainer().images
+    val faceFile = decor.faceImage?.let { images.file(it) }?.takeIf { it.exists() }
+    val starFile = decor.starImage?.let { images.file(it) }?.takeIf { it.exists() }
+    val customStar = decor.starsEnabled && starFile != null
+    val faceShown = decor.faceEnabled && (faceFile != null || id == "blue" || id == "peach")
     val raised = decor.faceSize * 0.85f
-    if (id == "glass" && background == null) {
+    if (id == "glass" && background == null && !faceShown && !customStar) {
         GlassSurface(modifier = modifier, style = style, shape = GlassShape.Rounded(16.dp),
             contentPadding = padding) { content(glassInk) }
         return
@@ -71,7 +81,7 @@ fun ChatBubbleSurface(
     val last = if (bg.gradient) Color(bg.endColor) else first
     val middle = Color((first.red + last.red) / 2, (first.green + last.green) / 2, (first.blue + last.blue) / 2)
     val whiteInk = if (bg.opacity < 50) palette.content.luminance() > 0.5f else middle.luminance() < 0.35f
-    val ink = if (id == "clear" && background == null) glassInk else if (whiteInk) Color.White else Color(0xFF292D35)
+    val ink = if ((id == "clear" || id == "glass") && background == null) glassInk else if (whiteInk) Color.White else Color(0xFF292D35)
     fun contrast(c: Color) = if (whiteInk) 1.05f / (c.luminance() + 0.05f) else (c.luminance() + 0.05f) / 0.08f
     val needsScrim = min(contrast(first), contrast(last)) < 4.5f
     @Composable fun Fill() {
@@ -95,9 +105,9 @@ fun ChatBubbleSurface(
             Box(Modifier.padding(padding)) { content(ink) }
         }
     }
-    Box(modifier.padding(top = if (faceShown && faceCorner.startsWith("t")) raised.dp else 4.dp,
-        bottom = if (faceShown && faceCorner.startsWith("b")) raised.dp else 7.dp, start = 6.dp, end = 6.dp)) {
-        if (id == "clear" && background == null) {
+    Box(modifier.padding(top = maxOf(if (faceShown && faceCorner.startsWith("t")) raised else 4f, if (customStar && starCorner.startsWith("t")) decor.starSize / 2f else 0f).dp,
+        bottom = maxOf(if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) decor.starSize / 2f else 0f).dp, start = 6.dp, end = 6.dp)) {
+        if ((id == "clear" || id == "glass") && background == null) {
             GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
                 contentPadding = padding) { content(ink) }
         } else if (bg.material == "glass") {
@@ -106,12 +116,12 @@ fun ChatBubbleSurface(
         } else Fill()
         Canvas(Modifier.matchParentSize()) {
             val line = if (id == "clear") ink.copy(alpha = 0.65f) else Color(0xFF838493)
-            if (id == "clear" && decor.starsEnabled) {
+            if (id == "clear" && decor.starsEnabled && !customStar) {
                 drawCircle(line, 3.dp.toPx(), Offset(4.dp.toPx(), 1.dp.toPx()), style = Stroke(1.dp.toPx()))
                 drawCircle(line, 1.dp.toPx(), Offset(13.dp.toPx(), -2.dp.toPx()))
                 drawArc(line, 5f, 70f, false, Offset(size.width - 20.dp.toPx(), size.height - 18.dp.toPx()),
                     Size(20.dp.toPx(), 20.dp.toPx()), style = Stroke(1.dp.toPx()))
-            } else if ((id == "blue" || id == "peach") && decor.starsEnabled) {
+            } else if ((id == "blue" || id == "peach") && decor.starsEnabled && !customStar) {
                 // Faces hang outside the body. The text padding also keeps long first/last lines clear.
                 val radius = (decor.starSize / 2f).dp.toPx()
                 val x = if (starCorner.endsWith("l")) (radius + 2.dp.toPx()) else size.width - radius - 2.dp.toPx()
@@ -128,12 +138,25 @@ fun ChatBubbleSurface(
                 drawPath(star, line, style = Stroke(1.dp.toPx()))
             }
         }
-        if (faceShown) Image(
-            painter = painterResource(if (id == "blue") R.drawable.bubble_sleep else R.drawable.bubble_bunny),
-            contentDescription = null,
-            modifier = Modifier.align(when(faceCorner) {
-                "tr" -> Alignment.TopEnd; "bl" -> Alignment.BottomStart; "br" -> Alignment.BottomEnd; else -> Alignment.TopStart
-            }).offset(y = (if (faceCorner.startsWith("t")) -raised else raised).dp).size(decor.faceSize.dp),
-        )
+        fun corner(which: String) = when(which) {
+            "tr" -> Alignment.TopEnd; "bl" -> Alignment.BottomStart; "br" -> Alignment.BottomEnd; else -> Alignment.TopStart
+        }
+        fun shaped(mod: Modifier, shape: String) = when(shape) {
+            "circle" -> mod.clip(CircleShape)
+            "rounded" -> mod.clip(RoundedCornerShape(6.dp))
+            else -> mod
+        }
+        if (faceShown) {
+            val faceModifier = Modifier.align(corner(faceCorner))
+                .offset(y = (if (faceCorner.startsWith("t")) -raised else raised).dp).size(decor.faceSize.dp)
+            if (faceFile != null) AsyncImage(model = faceFile, contentDescription = null,
+                contentScale = ContentScale.Fit, modifier = shaped(faceModifier, decor.faceShape))
+            else Image(painterResource(if (id == "blue") R.drawable.bubble_sleep else R.drawable.bubble_bunny),
+                contentDescription = null, modifier = faceModifier)
+        }
+        if (customStar) AsyncImage(model = starFile, contentDescription = null, contentScale = ContentScale.Fit,
+            modifier = shaped(Modifier.align(corner(starCorner)).offset(y =
+                (if (starCorner.startsWith("t")) -decor.starSize / 2f else decor.starSize / 2f).dp)
+                .size(decor.starSize.dp), decor.starShape))
     }
 }

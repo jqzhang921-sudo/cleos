@@ -230,3 +230,5 @@ keyPassword=...
 - 表情包的做法参考了 [cute-chat-stickers](https://github.com/Anko3o/cute-chat-stickers) 的思路（没用它的代码和数据）。
 
 © 2026 jqzhang921-sudo. All rights reserved
+
+气泡实验室支持从相册导入小脸或星点图片，保持原比例，可选原图、圆形或圆角显示；自选装饰适用于所有主题，并随备份保存。

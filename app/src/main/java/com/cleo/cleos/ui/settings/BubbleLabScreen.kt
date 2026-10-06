@@ -96,7 +96,7 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                         { vm.setBubbleBackground(mine, chosen, it) }, { background = null; vm.setBubbleBackground(mine, chosen, null) })
                     Text("按当前对象和主题分别保存，不会改动另一边的配色。", color = palette.contentSecondary, fontSize = 12.sp)
                 }
-                Section("装饰组件") { BubbleDecorationEditor(decor, { decor = it }, vm::setBubbleDecoration) }
+                Section("装饰组件") { BubbleDecorationEditor(decor, { decor = it }, vm::setBubbleDecoration, vm::importBubbleImage, vm.bubbleImageBusy, vm.bubbleImageError) }
                 if (mine && chosen == "glass") Section("玻璃底色") { MyBubbleColor(settings.myBubble, vm::setMyBubble) }
                 Spacer(Modifier.height(8.dp))
             }

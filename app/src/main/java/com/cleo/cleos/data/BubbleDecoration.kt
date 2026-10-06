@@ -5,6 +5,10 @@ import kotlinx.serialization.Serializable
 /** Small local editor state, independent of assets and message content. */
 @Serializable
 data class BubbleDecoration(
+    val faceImage: String? = null,
+    val starImage: String? = null,
+    val faceShape: String = "original",
+    val starShape: String = "original",
     val faceEnabled: Boolean = true,
     val starsEnabled: Boolean = true,
     val faceSize: Int = 24,
@@ -12,9 +16,15 @@ data class BubbleDecoration(
     val faceCorner: String = "auto",
     val starCorner: String = "auto",
 ) {
-    fun normalized() = copy(faceSize = faceSize.coerceIn(16, 32), starSize = starSize.coerceIn(4, 12),
+    fun normalized() = copy(faceImage = safeFile(faceImage), starImage = safeFile(starImage),
+        faceShape = faceShape.takeIf { it in shapes } ?: "original",
+        starShape = starShape.takeIf { it in shapes } ?: "original",
+        faceSize = faceSize.coerceIn(16, 32), starSize = starSize.coerceIn(4, if (safeFile(starImage) != null) 32 else 12),
         faceCorner = faceCorner.takeIf { it in corners } ?: "auto",
         starCorner = starCorner.takeIf { it in corners } ?: "auto")
 
-    companion object { val corners = listOf("auto", "tl", "tr", "bl", "br") }
+    companion object {
+        val shapes = listOf("original", "circle", "rounded")
+        private fun safeFile(name: String?) = name?.takeIf { it.isNotBlank() && it != "." && it != ".." && it.matches(Regex("[A-Za-z0-9._-]+")) }
+        val corners = listOf("auto", "tl", "tr", "bl", "br") }
 }

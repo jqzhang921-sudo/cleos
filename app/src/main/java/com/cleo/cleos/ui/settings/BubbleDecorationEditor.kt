@@ -1,5 +1,9 @@
 package com.cleo.cleos.ui.settings
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -14,11 +18,18 @@ import com.cleo.cleos.glass.LocalGlassPalette
 import kotlin.math.roundToInt
 
 @Composable
-internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDecoration) -> Unit, onSave: (BubbleDecoration) -> Unit) {
+internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDecoration) -> Unit, onSave: (BubbleDecoration) -> Unit, onImport: (Uri, Boolean) -> Unit, busy: Boolean, error: String?) {
+    val facePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { uri -> onImport(uri, true) } }
+    val starPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { it?.let { uri -> onImport(uri, false) } }
     val palette = LocalGlassPalette.current
     fun save(next: BubbleDecoration) { onChange(next); onSave(next) }
-    Text("装饰调整同时用于两边的主题。小脸和星点的位置、大小用于雾蓝与奶桃；透明留白可关闭几何装饰。",
+    Text("装饰同时用于两边。自选图片适用于所有主题，保持原比例；普通照片可选择显示形状。",
         color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+    Chip(if (busy) "正在导入…" else "从相册选择小脸", false) { if (!busy) facePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    if (value.faceImage != null) {
+        Shapes(value.faceShape) { save(value.copy(faceShape = it)) }
+        Chip("恢复内置小脸", false) { save(value.copy(faceImage = null, faceShape = "original")) }
+    }
     ExplainedSwitch("显示小脸", "关闭后去掉小脸和它的外侧留白", null, value.faceEnabled) { save(value.copy(faceEnabled = it)) }
     if (value.faceEnabled) {
         Text("小脸大小：${value.faceSize}", color = palette.contentSecondary, fontSize = 12.sp)
@@ -26,10 +37,16 @@ internal fun BubbleDecorationEditor(value: BubbleDecoration, onChange: (BubbleDe
             onValueChange = { onChange(value.copy(faceSize = it.roundToInt())) }, onValueChangeFinished = { onSave(value) })
         Corners("小脸位置", value.faceCorner) { save(value.copy(faceCorner = it)) }
     }
+    Chip(if (busy) "正在导入…" else "从相册选择星点装饰", false) { if (!busy) starPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+    if (value.starImage != null) {
+        Shapes(value.starShape) { save(value.copy(starShape = it)) }
+        Chip("恢复内置星点", false) { save(value.copy(starImage = null, starShape = "original", starSize = 7)) }
+    }
+    error?.let { Text(it, color = palette.error, fontSize = 12.sp) }
     ExplainedSwitch("显示星点 / 几何装饰", "可单独保留小脸，或使用干净的渐变气泡", null, value.starsEnabled) { save(value.copy(starsEnabled = it)) }
     if (value.starsEnabled) {
         Text("星星大小：${value.starSize}", color = palette.contentSecondary, fontSize = 12.sp)
-        Slider(value = value.starSize.toFloat(), valueRange = 4f..12f, steps = 7,
+        Slider(value = value.starSize.toFloat(), valueRange = 4f..(if (value.starImage != null) 32f else 12f), steps = if (value.starImage != null) 27 else 7,
             onValueChange = { onChange(value.copy(starSize = it.roundToInt())) }, onValueChangeFinished = { onSave(value) })
         Corners("星点位置", value.starCorner) { save(value.copy(starCorner = it)) }
     }
@@ -44,5 +61,13 @@ private fun Corners(label: String, chosen: String, onPick: (String) -> Unit) {
         listOf("auto" to "跟随主题", "tl" to "左上", "tr" to "右上", "bl" to "左下", "br" to "右下").forEach { (id, name) ->
             Chip(name, selected = id == chosen) { onPick(id) }
         }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun Shapes(chosen: String, onPick: (String) -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        listOf("original" to "原图", "circle" to "圆形", "rounded" to "圆角").forEach { (id, name) -> Chip(name, chosen == id) { onPick(id) } }
     }
 }
