@@ -162,6 +162,7 @@ class Later(
     private val companions: Companions,
     private val settings: SettingsRepository,
     private val glance: Glance,
+    private val activities: WakeActivities,
     /**
      * Whether the person is using the phone right now: screen on and past the lock screen. How a
      * greeting tells they are up (or still up); a screen lit by a notification doesn't count.
@@ -226,6 +227,8 @@ class Later(
         if (!ta.proactive) {
             // Switched off since: what it noted goes unsaid.
             db.later().delete(id)
+            activities.record(ta.id, note.conversationId, com.cleo.cleos.data.db.WakeActivityEntity.NOTE,
+                com.cleo.cleos.data.db.WakeActivityEntity.HELD, "主动找你已关闭，这一笔不再发送")
             return null
         }
         if (now >= note.expiresAt) {
@@ -237,7 +240,11 @@ class Later(
         if (now < note.dueAt) return LaterRules.SOON_MINUTES
         val conversationId = conversationFor(note, ta)
         // Not on top of a reply being written, or of what the person is typing: a minute later.
-        if (chat.busy(conversationId) || chat.isTyping(conversationId)) return stillInTime(note, ta, LaterRules.SOON_MINUTES, "一直在聊，没找到空说")
+        if (chat.busy(conversationId) || chat.isTyping(conversationId)) {
+            activities.record(ta.id, conversationId, com.cleo.cleos.data.db.WakeActivityEntity.NOTE,
+                com.cleo.cleos.data.db.WakeActivityEntity.HELD, "正在聊天或输入，稍后再看这一笔；未请求模型")
+            return stillInTime(note, ta, LaterRules.SOON_MINUTES, "一直在聊，没找到空说")
+        }
         val lastSaid = db.messages().lastUserFor(ta.id)
         if (db.wakes().sentSince(ta.id, lastSaid ?: 0L) >= LaterRules.UNANSWERED_MAX) {
             // Left for the next reply to take in, if the person writes while it is still in time.
@@ -332,7 +339,8 @@ class Later(
         if (chat.busy(conversationId) || chat.isTyping(conversationId)) return LaterRules.SOON_MINUTES
         val lastSaid = db.messages().lastUserFor(ta.id)
         if (db.wakes().sentSince(ta.id, lastSaid ?: 0L) >= LaterRules.UNANSWERED_MAX) {
-            log(ta, WakeEntity.HELD, "前面自己说的还没回，这次不打招呼")
+            log(ta, WakeEntity.HELD, "前面自己说的还没回，这次不打招呼",
+                if (greeting == Greeting.Morning) com.cleo.cleos.data.db.WakeActivityEntity.MORNING else com.cleo.cleos.data.db.WakeActivityEntity.NIGHT)
             return over(greeting, day)
         }
         val tomorrow = RoutineRules.startOf(day.plusDays(1), now.zone)
@@ -342,7 +350,7 @@ class Later(
         }
         // What was said reads as a greeting by itself; a skip or a failure says which one it was.
         fun which(why: String) = (if (greeting == Greeting.Morning) "早上的招呼" else "睡前的招呼") + (if (why.isBlank()) "" else "：$why")
-        return when (val result = chat.wake(conversationId, text)) {
+        return when (val result = chat.wake(conversationId, text, source = if (greeting == Greeting.Morning) com.cleo.cleos.data.db.WakeActivityEntity.MORNING else com.cleo.cleos.data.db.WakeActivityEntity.NIGHT)) {
             is ChatRepository.WakeResult.Sent -> {
                 log(ta, WakeEntity.SENT, result.messages.joinToString(" / ") { StickerText.plain(it.content) })
                 said(ta, conversationId, result.messages)
@@ -439,7 +447,10 @@ class Later(
      * to take the whole app down. Asking and writing in one transaction, so that a TA being deleted
      * alongside lands wholly before or wholly after it and can't slip in between.
      */
-    private suspend fun log(ta: CompanionEntity, outcome: String, detail: String) {
+    private suspend fun log(ta: CompanionEntity, outcome: String, detail: String, source: String = com.cleo.cleos.data.db.WakeActivityEntity.NOTE) {
+        if (outcome == WakeEntity.HELD || outcome == WakeEntity.EXPIRED) activities.record(ta.id, null,
+            source,
+            if (outcome == WakeEntity.EXPIRED) com.cleo.cleos.data.db.WakeActivityEntity.EXPIRED else com.cleo.cleos.data.db.WakeActivityEntity.HELD, detail)
         db.withTransaction {
             if (!stillHere(ta)) return@withTransaction
             db.wakes().insert(WakeEntity(companionId = ta.id, at = clock(), outcome = outcome, detail = detail.take(DETAIL_MAX)))

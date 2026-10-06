@@ -132,6 +132,7 @@ class AppContainer(context: Context) {
 
     /** The TA's voice messages beside the ear, on headphones. */
     val ear = EarVoice(context, images)
+    val wakeActivities = com.cleo.cleos.ai.WakeActivities(db)
     val chat: ChatRepository = ChatRepository(
         db, settings, secrets, chatClient, tools, images, companions, recaps, mcp, transcriber, speaker, appScope,
         // A reply finished where the person isn't looking (they left, or went to another page): as a notification.
@@ -140,6 +141,7 @@ class AppContainer(context: Context) {
             followUps.plan(ta, conversationId, said)
         },
         interrupted = { followUps.cancel(it); freeTopics.interrupt(it) },
+        activities = wakeActivities,
         listening = { Listening(music, lyrics).line() },
     )
     val stickers = Stickers(context, db, images)
@@ -173,13 +175,15 @@ class AppContainer(context: Context) {
         companions = companions,
         settings = settings,
         glance = Glance(db, calendar, settings) { PhoneCalendar.allowed(context) },
+        activities = wakeActivities,
         inUse = {
             context.getSystemService(PowerManager::class.java)?.isInteractive == true &&
                 context.getSystemService(KeyguardManager::class.java)?.isKeyguardLocked != true
         },
     )
-    val followUps = com.cleo.cleos.ai.FollowUps(context, db, chat, notifier, appScope) { id -> visible && chatOnScreen == id }
+    val followUps = com.cleo.cleos.ai.FollowUps(context, db, chat, notifier, appScope, wakeActivities) { id -> visible && chatOnScreen == id }
     val freeTopics = com.cleo.cleos.ai.FreeTopics(context, db, chat, notifier, appScope,
+        activities = wakeActivities,
         showing = { id -> visible && chatOnScreen == id },
         onEnabled = { later.wantsNotifications.value = true })
     val letters = Letters(db, settings, secrets, chatClient, appScope, written = { later.letterWritten(it) })
@@ -204,6 +208,7 @@ class AppContainer(context: Context) {
     init {
         // The first TA is made from the old settings before anything asks who is being talked to.
         appScope.launch {
+            wakeActivities.recover()
             companions.ensure()
             favorites.prune()
             // What a TA brought from another app used to sit in their persona; it moves into their memory, once.

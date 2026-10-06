@@ -469,6 +469,36 @@ interface LaterDao {
 }
 
 @Dao
+interface WakeActivityDao {
+    @Query("SELECT * FROM wake_activities WHERE companionId = :id ORDER BY startedAt DESC, id DESC LIMIT 30")
+    fun observe(id: Long): Flow<List<WakeActivityEntity>>
+
+    @Query("SELECT * FROM wake_activities WHERE id = :id")
+    suspend fun get(id: Long): WakeActivityEntity?
+
+    @Insert
+    suspend fun insert(activity: WakeActivityEntity): Long
+
+    @Query("UPDATE wake_activities SET requests = requests + 1, phase = '正在请求模型' WHERE id = :id AND finishedAt IS NULL")
+    suspend fun request(id: Long)
+
+    @Query("UPDATE wake_activities SET phase = :phase WHERE id = :id AND finishedAt IS NULL")
+    suspend fun phase(id: Long, phase: String)
+
+    @Query("UPDATE wake_activities SET toolCalls = toolCalls + :count, toolSummary = :summary, phase = '正在使用工具' WHERE id = :id AND finishedAt IS NULL")
+    suspend fun tools(id: Long, count: Int, summary: String)
+
+    @Query("UPDATE wake_activities SET status = :status, detail = :detail, sent = :sent, finishedAt = :at WHERE id = :id AND finishedAt IS NULL")
+    suspend fun finish(id: Long, status: String, detail: String, sent: Int, at: Long): Int
+
+    @Query("UPDATE wake_activities SET status = 'interrupted', detail = '上次应用退出或进程中断，这次执行未完成', finishedAt = :now WHERE finishedAt IS NULL")
+    suspend fun interruptOpen(now: Long)
+
+    @Query("DELETE FROM wake_activities WHERE companionId = :id AND finishedAt IS NOT NULL AND id NOT IN (SELECT id FROM wake_activities WHERE companionId = :id ORDER BY startedAt DESC, id DESC LIMIT :keep)")
+    suspend fun prune(id: Long, keep: Int)
+}
+
+@Dao
 interface WakeDao {
     @Insert
     suspend fun insert(wake: WakeEntity): Long

@@ -22,12 +22,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MemoryEntity::class,
         LaterEntity::class,
         WakeEntity::class,
+        WakeActivityEntity::class,
         StickerEntity::class,
         FavoriteEntity::class,
         LoreEntity::class,
         FreeTopicStateEntity::class,
     ],
-    version = 24,
+    version = 25,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -73,6 +74,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 21, to = 22),
         AutoMigration(from = 22, to = 23),
         AutoMigration(from = 23, to = 24),
+        AutoMigration(from = 24, to = 25),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -86,6 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memories(): MemoryDao
     abstract fun later(): LaterDao
     abstract fun wakes(): WakeDao
+    abstract fun wakeActivities(): WakeActivityDao
     abstract fun stickers(): StickerDao
     abstract fun favorites(): FavoriteDao
     abstract fun lore(): LoreDao

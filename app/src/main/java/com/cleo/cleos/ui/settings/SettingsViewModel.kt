@@ -146,6 +146,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         .flatMapLatest { c.db.wakes().observeLatest(it) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val wakeActivity: StateFlow<List<com.cleo.cleos.data.db.WakeActivityEntity>> = snapshotFlow { companionId }
+        .flatMapLatest { c.db.wakeActivities().observe(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** What this TA has noted and is waiting on: how many, and when the first comes due. Not what. */
     @OptIn(ExperimentalCoroutinesApi::class)
     val waiting: StateFlow<List<LaterEntity>> = snapshotFlow { companionId }

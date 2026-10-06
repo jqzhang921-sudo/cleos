@@ -289,4 +289,5 @@ internal fun BehaviorPage(vm: SettingsViewModel) {
     if (vm.proactive || vm.freeTopicEnabled || vm.followUpEnabled) {
         Section("主动找你的时候") { ReachOutStatus(vm) }
     }
+    WakeActivitySection(vm)
 }

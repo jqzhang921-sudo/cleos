@@ -31,6 +31,7 @@ class FollowUps(
     private val chat: ChatRepository,
     private val notifier: Notifier,
     private val scope: CoroutineScope,
+    private val activities: WakeActivities,
     private val showing: (Long) -> Boolean,
 ) {
     private val work = WorkManager.getInstance(context)
@@ -42,14 +43,18 @@ class FollowUps(
     private fun name(id: Long) = "follow-up-$id"
 
     /** Input cancels the waiting opportunity even if the draft is later discarded. */
-    fun cancel(id: Long) {
+    fun cancel(id: Long, reason: String = "你开始输入或发送了新消息，取消等待；未请求模型") {
         val version = revisions.merge(id, 1L, Long::plus)!!
         timers.remove(id)?.cancel()
         work.cancelUniqueWork(name(id))
         scope.launch {
             mutex.withLock {
                 if (revision(id) == version && (clearedRevisions[id] ?: -1L) < version) {
+                    val row = db.conversations().get(id)
                     db.conversations().cancelFollowUp(id)
+                    if (row?.followUpMessageId != null) activities.record(row.companionId, id,
+                        com.cleo.cleos.data.db.WakeActivityEntity.FOLLOW_UP, com.cleo.cleos.data.db.WakeActivityEntity.CANCELLED,
+                        reason)
                     clearedRevisions[id] = version
                 }
             }
@@ -59,7 +64,7 @@ class FollowUps(
     suspend fun cancelFor(companionId: Long) {
         for (id in db.conversations().idsFor(companionId)) {
             chat.cancelFollowUp(id)
-            cancel(id)
+            cancel(id, "聊完补充已关闭，取消等待；未请求模型")
         }
     }
 
@@ -121,13 +126,21 @@ class FollowUps(
             if (!FollowUpRules.eligible(ta.followUpEnabled, anchor, latest(id)?.id, row.followUpAt, now,
                     chat.busy(id) || chat.isTyping(id)) || revision(id) != version || unanswered >= LaterRules.UNANSWERED_MAX) {
                 db.conversations().cancelFollowUp(id)
+                activities.record(ta.id, id, com.cleo.cleos.data.db.WakeActivityEntity.FOLLOW_UP,
+                    com.cleo.cleos.data.db.WakeActivityEntity.HELD,
+                    when {
+                        !ta.followUpEnabled -> "聊完补充已关闭"
+                        row.followUpAt != null && now - row.followUpAt > FollowUpRules.GRACE_MS -> "执行较晚，这次补充已过时"
+                        unanswered >= LaterRules.UNANSWERED_MAX -> "前面主动消息还没回，先保持安静"
+                        else -> "对话状态改变或正在聊天，取消这次补充"
+                    })
                 return
             }
             // The timer and worker cannot both win, including after an app restart.
             if (db.conversations().claimFollowUp(id, anchor, now) != 1) return
             ta
         }
-        val result = chat.wake(id, FollowUpRules.instruction, followUp = true, allowed = {
+        val result = chat.wake(id, FollowUpRules.instruction, followUp = true, source = com.cleo.cleos.data.db.WakeActivityEntity.FOLLOW_UP, allowed = {
             revision(id) == version && !chat.isTyping(id) &&
                 db.companions().get(ta.id)?.followUpEnabled == true && latest(id)?.id == anchor &&
                 db.wakes().sentSince(ta.id, db.messages().lastUserFor(ta.id) ?: 0L) < LaterRules.UNANSWERED_MAX

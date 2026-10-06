@@ -396,3 +396,40 @@ data class TodoEntity(
     val createdAt: Long,
     val doneAt: Long? = null,
 )
+
+/** Local activity log; tool payloads and model reasoning are never stored here. */
+@Entity(tableName = "wake_activities", indices = [Index("companionId"), Index("conversationId")], foreignKeys = [
+    ForeignKey(entity = CompanionEntity::class, parentColumns = ["id"], childColumns = ["companionId"], onDelete = ForeignKey.CASCADE),
+    ForeignKey(entity = ConversationEntity::class, parentColumns = ["id"], childColumns = ["conversationId"], onDelete = ForeignKey.CASCADE),
+])
+data class WakeActivityEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val companionId: Long,
+    val conversationId: Long? = null,
+    val source: String,
+    val startedAt: Long,
+    val finishedAt: Long? = null,
+    val status: String = RUNNING,
+    val phase: String = "检查当前状态",
+    val requests: Int = 0,
+    val toolCalls: Int = 0,
+    val toolSummary: String = "",
+    val sent: Int = 0,
+    val detail: String = "",
+) {
+    companion object {
+        const val RUNNING = "running"
+        const val SENT = "sent"
+        const val QUIET = "quiet"
+        const val HELD = "held"
+        const val FAILED = "failed"
+        const val CANCELLED = "cancelled"
+        const val EXPIRED = "expired"
+        const val INTERRUPTED = "interrupted"
+        const val FREE = "free"
+        const val FOLLOW_UP = "follow_up"
+        const val NOTE = "note"
+        const val MORNING = "morning"
+        const val NIGHT = "night"
+    }
+}

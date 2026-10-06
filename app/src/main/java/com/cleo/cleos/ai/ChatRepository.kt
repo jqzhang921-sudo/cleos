@@ -102,6 +102,7 @@ class ChatRepository(
     /** The song playing, as a reply is told it (Listening), while 一起听歌 is on; null when nothing plays. */
     private val listening: suspend () -> String? = { null },
     private val interrupted: (Long) -> Unit = {},
+    private val activities: WakeActivities = WakeActivities(db),
 ) {
     /** The replies being written, by conversation. */
     private val _streaming = MutableStateFlow<Map<Long, StreamingReply>>(emptyMap())
@@ -803,7 +804,27 @@ class ChatRepository(
         synchronized(lock) { followUpJobs.remove(conversationId)?.cancel() }
     }
 
-    suspend fun wake(conversationId: Long, instruction: String, followUp: Boolean = false, allowed: suspend () -> Boolean = { true }): WakeResult {
+    suspend fun wake(conversationId: Long, instruction: String, followUp: Boolean = false,
+                     source: String = com.cleo.cleos.data.db.WakeActivityEntity.NOTE,
+                     allowed: suspend () -> Boolean = { true }): WakeResult {
+        val taId = db.conversations().get(conversationId)?.companionId ?: return WakeResult.Skipped("对话已删除")
+        val activity = activities.begin(taId, conversationId, source)
+        return try {
+            val result = wakeRecorded(conversationId, instruction, followUp, activity, allowed)
+            if (result is WakeResult.Failed && result.why == STOPPED)
+                activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.CANCELLED, "执行被取消，可能已发送部分内容；可在聊天里查看")
+            else activities.result(activity, result)
+            result
+        } catch (e: CancellationException) {
+            withContext(NonCancellable) { activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.CANCELLED, "执行被取消，可能已发送部分内容；可在聊天里查看") }
+            throw e
+        } catch (e: Exception) {
+            activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.FAILED, e.message ?: "执行失败")
+            throw e
+        }
+    }
+
+    private suspend fun wakeRecorded(conversationId: Long, instruction: String, followUp: Boolean, activity: Long?, allowed: suspend () -> Boolean): WakeResult {
         val taId = db.conversations().get(conversationId)?.companionId ?: return WakeResult.Skipped("对话已删除")
         val outcome = CompletableDeferred<WakeResult>()
         synchronized(lock) {
@@ -812,7 +833,7 @@ class ChatRepository(
             launchFor(conversationId) {
                 outcome.complete(
                     try {
-                        if (allowed()) wakeTurn(conversationId, instruction) else WakeResult.Skipped("这次补充已取消")
+                        if (allowed()) wakeTurn(conversationId, instruction, activity) else WakeResult.Skipped("这次补充已取消")
                     } catch (e: CancellationException) {
                         outcome.complete(WakeResult.Failed(STOPPED))
                         throw e
@@ -845,7 +866,8 @@ class ChatRepository(
         return outcome.await()
     }
 
-    private suspend fun wakeTurn(conversationId: Long, instruction: String): WakeResult {
+    private suspend fun wakeTurn(conversationId: Long, instruction: String, activity: Long?): WakeResult {
+        activities.preparing(activity)
         val s = settings.current()
         val ta = taOf(conversationId)
         val key = secrets.key(ta.apiBaseUrl)
@@ -881,7 +903,7 @@ class ChatRepository(
         try {
             while (true) {
                 val mayRefuse = rounds == 0 && (groups.isNotEmpty() || thinking)
-                when (val step = step(conversationId, endpoint, messages, tools.specs(groups), mayRefuse, thinking, showThought = ta.deepThinking, wake = true)) {
+                when (val step = step(conversationId, endpoint, messages, tools.specs(groups), mayRefuse, thinking, showThought = ta.deepThinking, wake = true, onRequest = { activities.request(activity) })) {
                     is Step.Said -> {
                         val error = step.error
                         if (error != null) return if (sent().isEmpty()) WakeResult.Failed(error) else result("")
@@ -912,6 +934,7 @@ class ChatRepository(
                     }
                     is Step.Called -> {
                         if (rounds == MAX_TOOL_ROUNDS) return result("连着用了太多次工具")
+                        activities.tools(activity, step.message.toolCalls.map { tools.action(it.name) })
                         val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, emptyList(), ta.name, wake = true)
                         if (step.message.toolCalls.all { it.name in ToolSpecs.speaking }) return result("")
                         messages = messages + step.message + results
@@ -1118,6 +1141,7 @@ class ChatRepository(
         thinking: Boolean,
         showThought: Boolean,
         wake: Boolean = false,
+        onRequest: suspend () -> Unit = {},
     ): Step {
         val startedAt = System.currentTimeMillis()
         val text = StringBuilder()
@@ -1146,6 +1170,7 @@ class ChatRepository(
         }
         live(StreamingReply(conversationId, "", thinking = false))
         try {
+            onRequest()
             client.stream(endpoint, messages, specs, thinking).collect { event ->
                 when (event) {
                     is ChatEvent.Delta -> {

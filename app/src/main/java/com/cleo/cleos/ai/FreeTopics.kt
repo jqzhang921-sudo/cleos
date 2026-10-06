@@ -31,6 +31,7 @@ class FreeTopics(
     private val chat: ChatRepository,
     private val notifier: Notifier,
     private val scope: CoroutineScope,
+    private val activities: WakeActivities,
     private val showing: (Long) -> Boolean,
     private val onEnabled: () -> Unit,
 ) {
@@ -113,7 +114,11 @@ class FreeTopics(
                 ta.freeTopicQuietOn, start(ta), end(ta)).toInstant().toEpochMilli()
         } else next(ta, now)
         if (reason != null || target == null) {
-            if (db.freeTopics().move(id, state.nextAt, next) == 1) log(id, WakeEntity.HELD, reason ?: "还没有聊天")
+            if (db.freeTopics().move(id, state.nextAt, next) == 1) {
+                log(id, WakeEntity.HELD, reason ?: "还没有聊天")
+                activities.record(id, target, com.cleo.cleos.data.db.WakeActivityEntity.FREE,
+                    com.cleo.cleos.data.db.WakeActivityEntity.HELD, reason ?: "还没有聊天")
+            }
             return db.freeTopics().get(id)?.nextAt
         }
         // Reserve the next slot and charge this consideration before starting a request.
@@ -122,7 +127,7 @@ class FreeTopics(
         val mine = Active(target, conversations)
         if (active.putIfAbsent(id, mine) != null) return next
         try {
-            val result = chat.wake(target, FreeTopicRules.instruction, followUp = true, allowed = {
+            val result = chat.wake(target, FreeTopicRules.instruction, followUp = true, source = com.cleo.cleos.data.db.WakeActivityEntity.FREE, allowed = {
                 val current = db.companions().get(id)
                 current != null && current.freeTopicEnabled && db.freeTopics().get(id)?.nextAt == next &&
                     !FreeTopicRules.quiet(now(), current.freeTopicQuietOn, start(current), end(current)) &&
