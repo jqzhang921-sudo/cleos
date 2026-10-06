@@ -109,6 +109,9 @@ class ChatRepository(
     /** A message found somewhere else (a search) that the chat should bring into view. */
     data class Focus(val conversationId: Long, val messageId: Long)
 
+    data class SecretDraft(val conversationId: Long, val diaryId: Long, val text: String)
+    val secretDraft = MutableStateFlow<SecretDraft?>(null)
+
     private val _focus = MutableStateFlow<Focus?>(null)
     val focus: StateFlow<Focus?> = _focus.asStateFlow()
 
@@ -375,16 +378,22 @@ class ChatRepository(
      * stopped for a moment ([answerSoon]). [quote]: the message this one answers. False only
      * when there is nothing to send.
      */
-    fun send(conversationId: Long, text: String, pictures: List<MessageImage> = emptyList(), quote: MessageQuote? = null): Boolean {
+    fun send(conversationId: Long, text: String, pictures: List<MessageImage> = emptyList(), quote: MessageQuote? = null, diaryRequestId: Long? = null): Boolean {
         val content = text.trim()
         if (content.isEmpty() && pictures.isEmpty()) return false
         val at = stamp()
         scope.launch {
+            val request = diaryRequestId?.let { id ->
+                val entry = db.diary().get(id)
+                val ta = db.conversations().get(conversationId)?.companionId
+                id.takeIf { entry?.author == com.cleo.cleos.data.db.DiaryEntryEntity.AUTHOR_AI && entry.secret && entry.companionId == ta }
+            }
             db.messages().insert(
                 MessageEntity(
                     conversationId = conversationId,
                     role = "user",
                     content = content,
+                    diaryRequestId = request,
                     createdAt = at,
                     images = MessageImages.encode(pictures),
                     quote = quote?.let(MessageQuotes::encode),

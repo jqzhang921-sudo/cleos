@@ -304,6 +304,8 @@ data class MessageEntity(
      * row. The chat shows the call as that one row; what was said is read from it.
      */
     val call: Long? = null,
+    /** User request tied to a diary; hidden from the visible message text. */
+    val diaryRequestId: Long? = null,
 )
 
 /**

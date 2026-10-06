@@ -192,9 +192,9 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     /** False when nothing went out: the text and pictures stay where they are. */
-    fun send(text: String): Boolean {
+    fun send(text: String, diaryRequestId: Long? = null): Boolean {
         val id = conversationId.value ?: return false
-        if (!c.chat.send(id, text, attachments.toList(), quoting)) return false
+        if (!c.chat.send(id, text, attachments.toList(), quoting, diaryRequestId)) return false
         attachments.clear()
         quoting = null
         return true

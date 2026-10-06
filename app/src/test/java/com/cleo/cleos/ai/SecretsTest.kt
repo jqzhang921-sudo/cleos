@@ -18,6 +18,18 @@ class SecretsTest {
     private val today = LocalDate.of(2026, 9, 23)
 
     @Test
+    fun editedSecretRequestKeepsItsDiaryAssociationOnlyInModelContext() {
+        val message = MessageEntity(id = 1, conversationId = 1, role = "user", content = "不方便也没关系，可以看看吗？", createdAt = 1, diaryRequestId = 42)
+        val ta = CompanionEntity(id = 1, apiBaseUrl = "", apiModel = "", createdAt = 0)
+        val now = ZonedDateTime.of(2026, 9, 23, 21, 0, 0, 0, ZoneId.of("Asia/Shanghai"))
+        val out = Prompt.messages(AppSettings(), ta, listOf(message), now, setOf(ToolGroup.AiDiary))
+        assertTrue(out.last().content.contains("日记 #42"))
+        assertTrue(out.last().content.contains(message.content))
+        assertFalse(message.content.contains("#42"))
+        assertTrue(out.last().content.contains("share_my_secret"))
+    }
+
+    @Test
     fun aRequestKeepsItsStatusThroughStorage() {
         val r = SecretRequest(diaryId = 7, day = today.toEpochDay(), title = "今天的事", reason = "想知道")
         val raw = SecretRequests.encode(r)

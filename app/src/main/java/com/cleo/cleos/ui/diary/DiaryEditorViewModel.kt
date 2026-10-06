@@ -196,7 +196,7 @@ class DiaryEditorViewModel(private val c: AppContainer, initialId: Long, startSe
                 val conversation = c.chat.resolveConversation(null, ta.id)
                 c.companions.select(ta.id)
                 c.settings.setCurrentConversation(conversation)
-                check(c.chat.send(conversation, "我有点好奇你在 ${Dates.full(day)} 写的小秘密（日记 #${entry.id}），可以让我看看吗？")) { "暂时发送不了，请稍后再试" }
+                c.chat.secretDraft.value = com.cleo.cleos.ai.ChatRepository.SecretDraft(conversation, entry.id, "我有点好奇你在 ${Dates.full(day)} 写的小秘密，可以让我看看吗？")
                 c.opening.value = com.cleo.cleos.Opening.Chat(conversation)
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e

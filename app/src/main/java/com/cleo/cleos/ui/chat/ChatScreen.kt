@@ -621,6 +621,8 @@ fun ChatTab(
     val density = LocalDensity.current
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
+    var diaryRequestId by rememberSaveable(state.conversationId) { mutableStateOf<Long?>(null) }
+    val secretDraft by c.chat.secretDraft.collectAsStateWithLifecycle()
     var inputHeight by remember { mutableIntStateOf(0) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) {
         vm.attach(it)
@@ -702,6 +704,16 @@ fun ChatTab(
 
     val scope = rememberCoroutineScope()
     val inputFocus = remember { FocusRequester() }
+    LaunchedEffect(secretDraft, state.conversationId, pageShown) {
+        val draft = secretDraft ?: return@LaunchedEffect
+        if (!pageShown || state.conversationId != draft.conversationId) return@LaunchedEffect
+        input = if (input.isBlank()) draft.text else input.trimEnd() + "\n" + draft.text
+        diaryRequestId = draft.diaryId
+        drawerOpen = false
+        vm.unquote()
+        c.chat.secretDraft.compareAndSet(draft, null)
+        inputFocus.requestFocus()
+    }
     val keyboard = LocalSoftwareKeyboardController.current
     // The message a quote was tapped to find, lit up for a moment.
     var flashed by remember { mutableStateOf<Long?>(null) }
@@ -832,17 +844,18 @@ fun ChatTab(
                 backdrop = page,
                 type = chatType,
                 text = input,
-                onTextChange = { input = it },
+                onTextChange = { input = it; if (it.isBlank()) diaryRequestId = null },
                 attachments = vm.attachments,
                 attaching = vm.attaching,
                 onPick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onRemove = vm::detach,
-                quote = vm.quoting?.let { quoteLabel(it) },
-                onDropQuote = vm::unquote,
+                quote = if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
+                onDropQuote = { diaryRequestId = null; vm.unquote() },
                 focus = inputFocus,
                 busy = state.replying,
                 onSend = {
-                    if (vm.send(input)) {
+                    if (vm.send(input, diaryRequestId)) {
+                        diaryRequestId = null
                         input = ""
                         sentCount++
                     }
