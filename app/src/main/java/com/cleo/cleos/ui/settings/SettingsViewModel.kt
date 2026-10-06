@@ -668,6 +668,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(bubbleDecoration = value.normalized()) } }
     }
 
+    fun setBubbleBackground(mine: Boolean, theme: String, value: com.cleo.cleos.data.BubbleBackground?) {
+        val key = com.cleo.cleos.data.BubbleBackground.key(mine, companionId, theme)
+        viewModelScope.launch { c.settings.update { it.copy(bubbleBackgrounds = if (value == null) it.bubbleBackgrounds - key else it.bubbleBackgrounds + (key to value.normalized())) } }
+    }
+
     /** The TA's voice messages beside the ear on headphones (EarVoice). */
     fun setEarVoice(on: Boolean) {
         viewModelScope.launch { c.settings.update { it.copy(earVoice = on) } }

@@ -915,7 +915,9 @@ fun ChatTab(
         CompositionLocalProvider(LocalFaces provides faces, LocalStickers provides stickerBook, LocalChatType provides chatType, LocalPat provides patActions,
             LocalBubbleThemes provides (appSettings.myBubbleTheme to (appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass")),
             LocalBubblePadding provides (appSettings.bubblePaddingX to appSettings.bubblePaddingY),
-            LocalBubbleDecoration provides appSettings.bubbleDecoration) {
+            LocalBubbleDecoration provides appSettings.bubbleDecoration,
+            LocalBubbleBackgrounds provides (appSettings.bubbleBackgrounds[com.cleo.cleos.data.BubbleBackground.key(true, state.companionId, appSettings.myBubbleTheme)] to
+                appSettings.bubbleBackgrounds[com.cleo.cleos.data.BubbleBackground.key(false, state.companionId, appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass")])) {
             if (editingPat) {
                 PatDialog(
                     aiName = state.aiName,

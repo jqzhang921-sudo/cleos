@@ -24,6 +24,7 @@ import com.cleo.cleos.ui.common.GlassTopBar
 import com.cleo.cleos.ui.common.TopBarHeight
 import com.cleo.cleos.ui.common.appViewModel
 import kotlin.math.roundToInt
+import com.cleo.cleos.data.BubbleBackground
 
 /** Fixed specimen, independently scrolling controls: every drag remains visible. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -39,6 +40,9 @@ fun BubbleLabScreen(onBack: () -> Unit) {
     var y by remember(settings.bubblePaddingY) { mutableFloatStateOf(settings.bubblePaddingY.toFloat()) }
     var decor by remember(settings.bubbleDecoration) { mutableStateOf(settings.bubbleDecoration) }
     val chosen = BubbleThemes.valid(if (mine) settings.myBubbleTheme else settings.taBubbleThemes[vm.companionId.toString()] ?: "glass")
+    val backgroundKey = BubbleBackground.key(mine, vm.companionId, chosen)
+    val savedBackground = settings.bubbleBackgrounds[backgroundKey]
+    var background by remember(backgroundKey, savedBackground) { mutableStateOf(savedBackground) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     GlassPage(overlay = { backdrop ->
@@ -61,7 +65,7 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                 // Size is bounded on small/landscape screens; only the specimen scrolls if needed.
                 Box(Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 170.dp).verticalScroll(rememberScrollState()),
                     contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
-                    ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen, x.roundToInt(), y.roundToInt(), decor) { ink ->
+                    ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen, x.roundToInt(), y.roundToInt(), decor, background) { ink ->
                         if (sample == "voice") Text("▶  8 秒", color = ink, fontSize = 15.sp)
                         else Text(if (sample == "long") "刚刚想起一件小事，想慢慢讲给你听。你在的话，我会很开心。" else "你在呀。",
                             color = ink, style = type.body)
@@ -86,6 +90,11 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                     Slider(x, { x = it }, valueRange = 6f..24f, steps = 17, onValueChangeFinished = { vm.setBubblePadding(x.roundToInt(), y.roundToInt()) })
                     Text("上下留白：${y.roundToInt()}", color = palette.contentSecondary, fontSize = 12.sp)
                     Slider(y, { y = it }, valueRange = 4f..16f, steps = 11, onValueChangeFinished = { vm.setBubblePadding(x.roundToInt(), y.roundToInt()) })
+                }
+                Section("材质与背景") {
+                    BubbleBackgroundEditor(background ?: BubbleBackground.defaults(chosen), { background = it },
+                        { vm.setBubbleBackground(mine, chosen, it) }, { background = null; vm.setBubbleBackground(mine, chosen, null) })
+                    Text("按当前对象和主题分别保存，不会改动另一边的配色。", color = palette.contentSecondary, fontSize = 12.sp)
                 }
                 Section("装饰组件") { BubbleDecorationEditor(decor, { decor = it }, vm::setBubbleDecoration) }
                 if (mine && chosen == "glass") Section("玻璃底色") { MyBubbleColor(settings.myBubble, vm::setMyBubble) }

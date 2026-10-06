@@ -10,6 +10,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import com.cleo.cleos.R
 import com.cleo.cleos.data.BubbleDecoration
+import com.cleo.cleos.data.BubbleBackground
+import androidx.compose.ui.graphics.luminance
+import kotlin.math.pow
+import kotlin.math.min
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -33,6 +37,7 @@ object BubbleThemes {
 val LocalBubbleThemes = compositionLocalOf { "glass" to "glass" }
 val LocalBubblePadding = compositionLocalOf { 10 to 6 }
 val LocalBubbleDecoration = compositionLocalOf { BubbleDecoration() }
+val LocalBubbleBackgrounds = compositionLocalOf<Pair<BubbleBackground?, BubbleBackground?>> { null to null }
 
 /** Decorations occupy reserved space and are drawn in dp, never scaled with the message. */
 @Composable
@@ -43,6 +48,7 @@ fun ChatBubbleSurface(
     horizontalPadding: Int = LocalBubblePadding.current.first,
     verticalPadding: Int = LocalBubblePadding.current.second,
     decoration: BubbleDecoration = LocalBubbleDecoration.current,
+    background: BubbleBackground? = if (mine) LocalBubbleBackgrounds.current.first else LocalBubbleBackgrounds.current.second,
     content: @Composable (Color) -> Unit,
 ) {
     val palette = LocalGlassPalette.current
@@ -55,37 +61,49 @@ fun ChatBubbleSurface(
     val starCorner = if (decor.starCorner == "auto") (if (id == "blue") "bl" else "br") else decor.starCorner
     val faceShown = decor.faceEnabled && (id == "blue" || id == "peach")
     val raised = decor.faceSize * 0.85f
-    if (id == "glass") {
+    if (id == "glass" && background == null) {
         GlassSurface(modifier = modifier, style = style, shape = GlassShape.Rounded(16.dp),
             contentPadding = padding) { content(glassInk) }
         return
     }
-    val ink = if (id == "clear") glassInk else Color(0xFF424854)
-    Box(modifier.padding(top = if (faceShown && faceCorner.startsWith("t")) raised.dp else 4.dp,
-        bottom = if (faceShown && faceCorner.startsWith("b")) raised.dp else 7.dp, start = 6.dp, end = 6.dp)) {
-        if (id == "clear") {
-            GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
-                contentPadding = padding) { content(ink) }
-        } else {
+    val bg = (background ?: BubbleBackground.defaults(id)).normalized()
+    val first = Color(bg.startColor)
+    val last = if (bg.gradient) Color(bg.endColor) else first
+    val middle = Color((first.red + last.red) / 2, (first.green + last.green) / 2, (first.blue + last.blue) / 2)
+    val whiteInk = if (bg.opacity < 50) palette.content.luminance() > 0.5f else middle.luminance() < 0.35f
+    val ink = if (id == "clear" && background == null) glassInk else if (whiteInk) Color.White else Color(0xFF292D35)
+    fun contrast(c: Color) = if (whiteInk) 1.05f / (c.luminance() + 0.05f) else (c.luminance() + 0.05f) / 0.08f
+    val needsScrim = min(contrast(first), contrast(last)) < 4.5f
+    @Composable fun Fill() {
+        Box {
             Canvas(Modifier.matchParentSize()) {
-                val tint = if (id == "blue") Color(0xFFDBE7F2) else Color(0xFFF5E2E7)
-                // Several translucent strokes feather only the edge; text and ornaments stay sharp.
-                for (i in 6 downTo 1) drawRoundRect(tint.copy(alpha = 0.025f),
-                    topLeft = Offset(-i.dp.toPx() / 2, -i.dp.toPx() / 2),
-                    size = Size(size.width + i.dp.toPx(), size.height + i.dp.toPx()),
-                    cornerRadius = CornerRadius(16.dp.toPx()), style = Stroke(i.dp.toPx()))
-                val gradient = Brush.linearGradient(listOf(tint, Color(0xFFF9F8F4)),
-                    start = Offset.Zero, end = Offset(size.width, size.height))
-                // Nested translucent fills make the body fade at its boundary instead of a hard cut.
-                for (i in 0..6) {
+                val start = if (bg.direction == 3) Offset(size.width, 0f) else Offset.Zero
+                val end = when(bg.direction) { 0 -> Offset(size.width, 0f); 1 -> Offset(0f, size.height); 3 -> Offset(0f, size.height); else -> Offset(size.width, size.height) }
+                val gradient = Brush.linearGradient(listOf(first, last), start, end)
+                val targetAlpha = (bg.opacity / 100f * (if (bg.material == "glass") 0.45f else 1f)).coerceAtMost(0.995f)
+                val passes = bg.softness * 2 + 1
+                val alpha = 1f - (1f - targetAlpha).pow(1f / passes)
+                for (i in 0 until passes) {
                     val inset = (i * 0.5f).dp.toPx()
                     drawRoundRect(gradient, topLeft = Offset(inset, inset),
                         size = Size((size.width - 2 * inset).coerceAtLeast(0f), (size.height - 2 * inset).coerceAtLeast(0f)),
-                        cornerRadius = CornerRadius((16.dp.toPx() - inset).coerceAtLeast(0f)), alpha = 0.48f)
+                        cornerRadius = CornerRadius((16.dp.toPx() - inset).coerceAtLeast(0f)), alpha = alpha)
                 }
+                if (needsScrim) drawRoundRect(if (whiteInk) Color.Black else Color.White,
+                    cornerRadius = CornerRadius(16.dp.toPx()), alpha = 0.55f)
             }
             Box(Modifier.padding(padding)) { content(ink) }
         }
+    }
+    Box(modifier.padding(top = if (faceShown && faceCorner.startsWith("t")) raised.dp else 4.dp,
+        bottom = if (faceShown && faceCorner.startsWith("b")) raised.dp else 7.dp, start = 6.dp, end = 6.dp)) {
+        if (id == "clear" && background == null) {
+            GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
+                contentPadding = padding) { content(ink) }
+        } else if (bg.material == "glass") {
+            GlassSurface(style = style.copy(tint = middle.copy(alpha = (style.tint.alpha * bg.opacity / 100f).coerceAtLeast(0.28f))),
+                shape = GlassShape.Rounded(16.dp)) { Fill() }
+        } else Fill()
         Canvas(Modifier.matchParentSize()) {
             val line = if (id == "clear") ink.copy(alpha = 0.65f) else Color(0xFF838493)
             if (id == "clear" && decor.starsEnabled) {
@@ -93,7 +111,7 @@ fun ChatBubbleSurface(
                 drawCircle(line, 1.dp.toPx(), Offset(13.dp.toPx(), -2.dp.toPx()))
                 drawArc(line, 5f, 70f, false, Offset(size.width - 20.dp.toPx(), size.height - 18.dp.toPx()),
                     Size(20.dp.toPx(), 20.dp.toPx()), style = Stroke(1.dp.toPx()))
-            } else if (id != "clear" && decor.starsEnabled) {
+            } else if ((id == "blue" || id == "peach") && decor.starsEnabled) {
                 // Faces hang outside the body. The text padding also keeps long first/last lines clear.
                 val radius = (decor.starSize / 2f).dp.toPx()
                 val x = if (starCorner.endsWith("l")) (radius + 2.dp.toPx()) else size.width - radius - 2.dp.toPx()

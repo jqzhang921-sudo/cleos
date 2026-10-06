@@ -65,6 +65,7 @@ data class BackupSettings(
     val bubblePaddingX: Int = 10,
     val bubblePaddingY: Int = 6,
     val bubbleDecoration: BubbleDecoration = BubbleDecoration(),
+    val bubbleBackgrounds: Map<String, BubbleBackground> = emptyMap(),
     val taBubbleThemes: Map<String, String> = emptyMap(),
     val knownSince: Long? = null,
     /** Absent from backups made before these could be set: the defaults then. */
@@ -223,6 +224,7 @@ class BackupService(
                 bubblePaddingX = s.bubblePaddingX,
                 bubblePaddingY = s.bubblePaddingY,
                 bubbleDecoration = s.bubbleDecoration,
+                bubbleBackgrounds = s.bubbleBackgrounds,
                 taBubbleThemes = s.taBubbleThemes,
                 letterReply = s.letterReply.key,
                 letterEveryDays = s.letterEveryDays,
@@ -400,6 +402,7 @@ class BackupService(
                     bubblePaddingX = bs.bubblePaddingX.coerceIn(6, 24),
                     bubblePaddingY = bs.bubblePaddingY.coerceIn(4, 16),
                     bubbleDecoration = bs.bubbleDecoration.normalized(),
+                    bubbleBackgrounds = bs.bubbleBackgrounds.mapValues { it.value.normalized() },
                     taBubbleThemes = bs.taBubbleThemes.filterKeys { key -> companions.any { ta -> ta.id.toString() == key } },
                     letterReply = ReplyWhen.of(bs.letterReply),
                     letterEveryDays = bs.letterEveryDays,
