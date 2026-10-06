@@ -5,6 +5,11 @@ import android.net.Uri
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import com.cleo.cleos.data.BubbleBackgroundRemoval
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.Slider
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.ui.layout.onSizeChanged
@@ -38,6 +43,25 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
     val store = appContainer().images
     val source by produceState<Result<Bitmap>?>(null, uri) { value = runCatching { store.decode(uri, 2048) } }
     var preview by remember(uri) { mutableStateOf<Bitmap?>(null) }
+    var removalOpen by remember(uri) { mutableStateOf(false) }
+    var removalEnabled by remember(uri) { mutableStateOf(false) }
+    var backgroundSeed by remember(uri) { mutableStateOf<Int?>(null) }
+    var tolerance by remember(uri) { mutableFloatStateOf(24f) }
+    val processed by produceState<Result<Bitmap>?>(null, preview, backgroundSeed, tolerance.roundToInt(), removalEnabled) {
+        value = null
+        val original = preview
+        val seed = backgroundSeed
+        if (removalEnabled && original != null && seed != null) value = runCatching {
+            withContext(Dispatchers.Default) {
+                val pixels = IntArray(original.width * original.height)
+                original.getPixels(pixels, 0, original.width, 0, 0, original.width, original.height)
+                val result = BubbleBackgroundRemoval.remove(pixels, original.width, original.height, seed, tolerance.roundToInt())
+                Bitmap.createBitmap(result, original.width, original.height, Bitmap.Config.ARGB_8888)
+            }
+        }
+    }
+    val displayed = processed?.getOrNull() ?: preview
+    val processing = removalEnabled && backgroundSeed != null && processed == null
     var zoom by remember(uri) { mutableFloatStateOf(1f) }
     var pan by remember(uri) { mutableStateOf(Offset.Zero) }
     var frameWidth by remember(uri) { mutableFloatStateOf(0.5f) }
@@ -55,7 +79,31 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
             val bitmap = source?.getOrNull()
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 if (preview != null) {
-                    Image(preview!!.asImageBitmap(), null, Modifier.fillMaxWidth().heightIn(max = 280.dp), contentScale = ContentScale.Fit)
+                    val original = preview!!
+                    var previewSize by remember { mutableStateOf(IntSize.Zero) }
+                    Canvas(Modifier.fillMaxSize().onSizeChanged { previewSize = it }.pointerInput(original, removalOpen) {
+                        if (removalOpen) detectTapGestures { point ->
+                            val scale = min(previewSize.width.toFloat() / original.width, previewSize.height.toFloat() / original.height)
+                            val x = ((point.x - (previewSize.width - original.width * scale) / 2) / scale).toInt()
+                            val y = ((point.y - (previewSize.height - original.height * scale) / 2) / scale).toInt()
+                            if (x in 0 until original.width && y in 0 until original.height && original.getPixel(x, y) ushr 24 != 0) {
+                                backgroundSeed = y * original.width + x
+                                removalEnabled = true
+                            }
+                        }
+                    }) {
+                        val scale = min(this.size.width / original.width, this.size.height / original.height)
+                        val left = (this.size.width - original.width * scale) / 2
+                        val top = (this.size.height - original.height * scale) / 2
+                        val cell = 12.dp.toPx()
+                        clipRect(left, top, left + original.width * scale, top + original.height * scale) {
+                            for (row in 0..(this.size.height / cell).toInt()) for (col in 0..(this.size.width / cell).toInt())
+                                drawRect(if ((row + col) % 2 == 0) Color(0xFF757575) else Color(0xFF515151),
+                                    Offset(col * cell, row * cell), androidx.compose.ui.geometry.Size(cell, cell))
+                            drawImage(displayed!!.asImageBitmap(), dstOffset = IntOffset(left.roundToInt(), top.roundToInt()),
+                                dstSize = IntSize((original.width * scale).roundToInt().coerceAtLeast(1), (original.height * scale).roundToInt().coerceAtLeast(1)))
+                        }
+                    }
                 } else if (bitmap != null) {
                     val image = remember(bitmap) { bitmap.asImageBitmap() }
                     fun frame() = Rect((size.width * (1 - frameWidth)) / 2, (size.height * (1 - frameHeight)) / 2,
@@ -135,13 +183,25 @@ internal fun BubbleImageCrop(uri: Uri, onDismiss: () -> Unit, onApply: (Bitmap) 
                     }
                 }
             }
+            if (preview != null) {
+                Chip(if (removalOpen) "收起去底" else "可选：去相近底色", removalOpen) { removalOpen = !removalOpen }
+                if (removalOpen) {
+                    Text("点一下图片中要去掉的底色，只处理相连区域。复杂照片、浅色轮廓可能需要保留原图。", color = Color.LightGray)
+                    if (backgroundSeed != null) {
+                        Text(if (processing) "正在处理…" else "容差：${tolerance.roundToInt()} · 越大去除范围越广", color = Color.White)
+                        Slider(tolerance, { tolerance = it }, valueRange = 0f..100f)
+                        Chip("恢复原图", false) { removalEnabled = false; backgroundSeed = null }
+                    }
+                    if (processed?.isFailure == true) Text("处理失败，可恢复原图重试。", color = Color.White)
+                }
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Chip(if (preview == null) "取消" else "重新裁剪", false) {
-                    if (!submitting) { if (preview == null) onDismiss() else preview = null }
+                    if (!submitting) { if (preview == null) onDismiss() else { preview = null; backgroundSeed = null; removalEnabled = false } }
                 }
                 if (bitmap != null) Chip(if (preview == null) "预览选区" else "应用装饰", true) {
                     if (!submitting) {
-                        if (preview != null) { submitting = true; onApply(preview!!) }
+                        if (preview != null) { if (!processing && processed?.isFailure != true) { submitting = true; onApply(displayed!!) } }
                         else {
                             val r = selection
                             if (r.width > 0 && r.height > 0) {
