@@ -5,6 +5,7 @@ import kotlinx.serialization.Serializable
 /** Small local editor state, independent of assets and message content. */
 @Serializable
 data class BubbleDecoration(
+    val components: List<BubbleComponent> = emptyList(),
     val faceEmoji: String = "",
     val starEmoji: String = "",
     val faceImage: String? = null,
@@ -22,7 +23,7 @@ data class BubbleDecoration(
     val faceCorner: String = "auto",
     val starCorner: String = "auto",
 ) {
-    fun normalized() = copy(faceEmoji = cleanEmoji(faceEmoji), starEmoji = cleanEmoji(starEmoji), faceImage = safeFile(faceImage), starImage = safeFile(starImage),
+    fun normalized() = copy(components = components.filter { it.id.isNotBlank() && it.id != "face" && it.id != "star" }.distinctBy { it.id }.take(8).map { it.normalized() }, faceEmoji = cleanEmoji(faceEmoji), starEmoji = cleanEmoji(starEmoji), faceImage = safeFile(faceImage), starImage = safeFile(starImage),
         faceShape = faceShape.takeIf { it in shapes } ?: "original",
         starShape = starShape.takeIf { it in shapes } ?: "original",
         faceOffsetX = faceOffsetX.coerceIn(-64, 64), starOffsetX = starOffsetX.coerceIn(-64, 64),

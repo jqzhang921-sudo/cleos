@@ -1,5 +1,7 @@
 package com.cleo.cleos.ui.chat
 
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -64,6 +66,9 @@ fun ChatBubbleSurface(
     decoration: BubbleDecoration = LocalBubbleDecoration.current,
     background: BubbleBackground? = if (mine) LocalBubbleBackgrounds.current.first else LocalBubbleBackgrounds.current.second,
     onDecorationDrag: ((Boolean, Float, Float) -> Unit)? = null,
+    onComponentSelect: ((String) -> Unit)? = null,
+    onComponentDrag: ((String, Float, Float) -> Unit)? = null,
+    selectedComponent: String? = null,
     onDecorationDragEnd: (() -> Unit)? = null,
     content: @Composable (Color) -> Unit,
 ) {
@@ -78,11 +83,12 @@ fun ChatBubbleSurface(
     val images = appContainer().images
     val faceFile = decor.faceImage?.let { images.file(it) }?.takeIf { it.exists() }
     val starFile = decor.starImage?.let { images.file(it) }?.takeIf { it.exists() }
+    val extra = decor.components.filter { it.enabled && (it.emoji.isNotEmpty() || it.image?.let { name -> images.file(name).exists() } == true) }
     val customStar = decor.starsEnabled && (starFile != null || decor.starEmoji.isNotEmpty())
     val faceShown = decor.faceEnabled && (decor.faceEmoji.isNotEmpty() || faceFile != null || id == "blue" || id == "peach")
     val raised = (decor.faceSize * 0.85f + decor.faceDistance).coerceAtLeast((decor.faceSize - verticalPadding).toFloat())
     val starRaised = (decor.starSize / 2f + decor.starDistance).coerceAtLeast((decor.starSize - verticalPadding).toFloat())
-    if (id == "glass" && background == null && !faceShown && !customStar) {
+    if (id == "glass" && background == null && !faceShown && !customStar && extra.isEmpty()) {
         GlassSurface(modifier = modifier, style = style, shape = GlassShape.Rounded(16.dp),
             contentPadding = padding) { content(glassInk) }
         return
@@ -119,13 +125,42 @@ fun ChatBubbleSurface(
     var bodyWidth by remember { mutableFloatStateOf(0f) }
     val density = LocalDensity.current
     val drag by rememberUpdatedState(onDecorationDrag)
+    val extraDrag by rememberUpdatedState(onComponentDrag)
+    val select by rememberUpdatedState(onComponentSelect)
     val dragEnd by rememberUpdatedState(onDecorationDragEnd)
     fun draggable(face: Boolean): Modifier = if (onDecorationDrag == null) Modifier else Modifier.pointerInput(face) {
-        detectDragGestures(onDragEnd = { dragEnd?.invoke() }, onDragCancel = { dragEnd?.invoke() }) { change, delta ->
+        var remainderX = 0f
+        var remainderY = 0f
+        detectDragGestures(onDragStart = { select?.invoke(if (face) "face" else "star"); remainderX = 0f; remainderY = 0f },
+            onDragEnd = { dragEnd?.invoke() }, onDragCancel = { dragEnd?.invoke() }) { change, delta ->
             change.consume()
-            drag?.invoke(face, delta.x / density.density, delta.y / density.density)
+            remainderX += delta.x / density.density; remainderY += delta.y / density.density
+            val dx = kotlin.math.round(remainderX); val dy = kotlin.math.round(remainderY)
+            remainderX -= dx; remainderY -= dy
+            drag?.invoke(face, dx, dy)
         }
     }
+    fun selectable(id: String): Modifier {
+        var mod: Modifier = if (onComponentSelect != null) Modifier.clickable { select?.invoke(id) } else Modifier
+        if (selectedComponent == id) mod = mod.border(1.dp, Color(0xFF8C81C5), RoundedCornerShape(4.dp))
+        return mod
+    }
+    fun extraDraggable(id: String): Modifier = if (onComponentDrag == null) Modifier else Modifier.pointerInput(id) {
+        var remainderX = 0f
+        var remainderY = 0f
+        detectDragGestures(onDragStart = { select?.invoke(id); remainderX = 0f; remainderY = 0f },
+            onDragEnd = { dragEnd?.invoke() }, onDragCancel = { dragEnd?.invoke() }) { change, delta ->
+            change.consume()
+            remainderX += delta.x / density.density
+            remainderY += delta.y / density.density
+            val dx = kotlin.math.round(remainderX)
+            val dy = kotlin.math.round(remainderY)
+            remainderX -= dx; remainderY -= dy
+            extraDrag?.invoke(id, dx, dy)
+        }
+    }
+    fun extraCorner(corner: String) = if (corner == "auto") "tl" else corner
+    fun extraRaised(item: com.cleo.cleos.data.BubbleComponent) = (item.size * 0.85f + item.distance).coerceAtLeast((item.size - verticalPadding).toFloat())
     fun offsetX(value: Int, corner: String, size: Int): Float {
         val width = (bodyWidth - size).coerceAtLeast(0f)
         return if (corner.endsWith("l")) value.toFloat().coerceIn(-24f, width)
@@ -135,8 +170,12 @@ fun ChatBubbleSurface(
         if (customStar && starCorner.endsWith("l")) -decor.starOffsetX.coerceIn(-24, 0) else 0)
     val outerRight = maxOf(6, if (faceShown && faceCorner.endsWith("r")) decor.faceOffsetX.coerceIn(0, 24) else 0,
         if (customStar && starCorner.endsWith("r")) decor.starOffsetX.coerceIn(0, 24) else 0)
-    Box(modifier.padding(top = maxOf(if (faceShown && faceCorner.startsWith("t")) raised else 4f, if (customStar && starCorner.startsWith("t")) starRaised else 0f).dp,
-        bottom = maxOf(if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) starRaised else 0f).dp, start = outerLeft.dp, end = outerRight.dp).onSizeChanged { bodyWidth = it.width / density.density }) {
+    val extraTop = extra.filter { extraCorner(it.corner).startsWith("t") }.maxOfOrNull { extraRaised(it) } ?: 0f
+    val extraBottom = extra.filter { extraCorner(it.corner).startsWith("b") }.maxOfOrNull { extraRaised(it) } ?: 0f
+    val extraLeft = extra.filter { extraCorner(it.corner).endsWith("l") }.maxOfOrNull { -it.offsetX.coerceIn(-24, 0) } ?: 0
+    val extraRight = extra.filter { extraCorner(it.corner).endsWith("r") }.maxOfOrNull { it.offsetX.coerceIn(0, 24) } ?: 0
+    Box(modifier.padding(top = maxOf(extraTop, if (faceShown && faceCorner.startsWith("t")) raised else 4f, if (customStar && starCorner.startsWith("t")) starRaised else 0f).dp,
+        bottom = maxOf(extraBottom, if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) starRaised else 0f).dp, start = maxOf(outerLeft, extraLeft).dp, end = maxOf(outerRight, extraRight).dp).onSizeChanged { bodyWidth = it.width / density.density }) {
         if ((id == "clear" || id == "glass") && background == null) {
             GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
                 contentPadding = padding) { content(ink) }
@@ -178,7 +217,7 @@ fun ChatBubbleSurface(
         }
         if (faceShown) {
             val faceModifier = Modifier.align(corner(faceCorner))
-                .offset(x = offsetX(decor.faceOffsetX, faceCorner, decor.faceSize).dp, y = (if (faceCorner.startsWith("t")) -raised else raised).dp).size(decor.faceSize.dp).then(draggable(true))
+                .offset(x = offsetX(decor.faceOffsetX, faceCorner, decor.faceSize).dp, y = (if (faceCorner.startsWith("t")) -raised else raised).dp).size(decor.faceSize.dp).then(selectable("face")).then(draggable(true))
             if (decor.faceEmoji.isNotEmpty()) EmojiDecoration(decor.faceEmoji, decor.faceSize, faceModifier)
             else if (faceFile != null) AsyncImage(model = faceFile, contentDescription = null,
                 contentScale = ContentScale.Fit, modifier = shaped(faceModifier, decor.faceShape))
@@ -187,11 +226,22 @@ fun ChatBubbleSurface(
         }
         if (customStar) {
             val starModifier = Modifier.align(corner(starCorner)).offset(x = offsetX(decor.starOffsetX, starCorner, decor.starSize).dp, y =
-                (if (starCorner.startsWith("t")) -starRaised else starRaised).dp).size(decor.starSize.dp).then(draggable(false))
+                (if (starCorner.startsWith("t")) -starRaised else starRaised).dp).size(decor.starSize.dp).then(selectable("star")).then(draggable(false))
             if (decor.starEmoji.isNotEmpty()) EmojiDecoration(decor.starEmoji, decor.starSize, starModifier)
             else AsyncImage(model = starFile, contentDescription = null, contentScale = ContentScale.Fit,
                 modifier = shaped(starModifier, decor.starShape))
         }
+        extra.forEach { item -> key(item.id) {
+            val anchor = extraCorner(item.corner)
+            val rise = extraRaised(item)
+            val mod = Modifier.align(corner(anchor)).offset(x = offsetX(item.offsetX, anchor, item.size).dp,
+                y = (if (anchor.startsWith("t")) -rise else rise).dp).size(item.size.dp)
+                .then(selectable(item.id)).then(extraDraggable(item.id))
+            if (item.emoji.isNotEmpty()) EmojiDecoration(item.emoji, item.size, mod)
+            else AsyncImage(model = item.image?.let { images.file(it) }, contentDescription = null,
+                contentScale = ContentScale.Fit, modifier = shaped(mod, item.shape))
+        } }
+
     }
 }
 

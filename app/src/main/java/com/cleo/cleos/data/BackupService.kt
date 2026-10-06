@@ -261,7 +261,7 @@ class BackupService(
             data.messages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +
             companions.mapNotNull { it.avatar } +
             stickerFiles +
-            listOfNotNull(s.wallpaper, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
+            s.bubbleDecoration.components.mapNotNull { it.image } + listOfNotNull(s.wallpaper, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
 
         var written = 0
         var voices = 0
@@ -401,7 +401,7 @@ class BackupService(
                     myBubbleTheme = bs.myBubbleTheme,
                     bubblePaddingX = bs.bubblePaddingX.coerceIn(6, 24),
                     bubblePaddingY = bs.bubblePaddingY.coerceIn(4, 16),
-                    bubbleDecoration = bs.bubbleDecoration.normalized().let { it.copy(faceImage = picture(it.faceImage), starImage = picture(it.starImage)).normalized() },
+                    bubbleDecoration = bs.bubbleDecoration.normalized().let { it.copy(faceImage = picture(it.faceImage), starImage = picture(it.starImage), components = it.components.map { item -> item.copy(image = picture(item.image)) }).normalized() },
                     bubbleBackgrounds = bs.bubbleBackgrounds.mapValues { it.value.normalized() },
                     taBubbleThemes = bs.taBubbleThemes.filterKeys { key -> companions.any { ta -> ta.id.toString() == key } },
                     letterReply = ReplyWhen.of(bs.letterReply),

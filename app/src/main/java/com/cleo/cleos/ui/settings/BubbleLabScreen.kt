@@ -39,6 +39,7 @@ fun BubbleLabScreen(onBack: () -> Unit) {
     var paddingDetails by rememberSaveable { mutableStateOf(false) }
     var backgroundDetails by rememberSaveable { mutableStateOf(false) }
     var decorationDetails by rememberSaveable { mutableStateOf(false) }
+    var selectedComponent by rememberSaveable { mutableStateOf<String?>(null) }
     var sample by rememberSaveable { mutableStateOf("short") }
     var x by remember(settings.bubblePaddingX) { mutableFloatStateOf(settings.bubblePaddingX.toFloat()) }
     var y by remember(settings.bubblePaddingY) { mutableFloatStateOf(settings.bubblePaddingY.toFloat()) }
@@ -66,11 +67,20 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                     Chip("长消息", sample == "long") { sample = "long" }
                     Chip("语音", sample == "voice") { sample = "voice" }
                 }
-                Text("拖动小脸或自选星点微调位置，松手保存。", color = palette.contentSecondary, fontSize = 12.sp)
+                Text("点选装饰后单独编辑，也可拖动微调，松手保存。", color = palette.contentSecondary, fontSize = 12.sp)
                 // Size is bounded on small/landscape screens; only the specimen scrolls if needed.
                 Box(Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 170.dp).verticalScroll(rememberScrollState()),
                     contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
                     ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen, x.roundToInt(), y.roundToInt(), decor, background,
+                        selectedComponent = selectedComponent,
+                        onComponentSelect = { selectedComponent = it; decorationDetails = true },
+                        onComponentDrag = { id, dx, dy ->
+                            selectedComponent = id
+                            decor = decor.copy(components = decor.components.map { item ->
+                                if (item.id != id) item else item.copy(offsetX = item.offsetX + dx.roundToInt(),
+                                    distance = item.distance + (if (item.corner.startsWith("b")) dy else -dy).roundToInt()).normalized()
+                            })
+                        },
                         onDecorationDrag = { face, dx, dy ->
                             val corner = if (face) decor.faceCorner else decor.starCorner
                             val actual = if (corner == "auto") (if (chosen == "blue") (if (face) "tr" else "bl") else (if (face) "tl" else "br")) else corner
@@ -109,12 +119,12 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                 Section("换装饰") {
                     Text("选择内置装饰，或展开后使用 Emoji、自选图片。", color = palette.contentSecondary, fontSize = 12.sp)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Chip("跟随主题", decor.faceEnabled && decor.starsEnabled && decor.faceImage == null && decor.starImage == null && decor.faceEmoji.isEmpty() && decor.starEmoji.isEmpty()) { vm.setBubbleDecoration(com.cleo.cleos.data.BubbleDecoration()) }
-                        Chip("只留小脸", decor.faceEnabled && !decor.starsEnabled) { vm.setBubbleDecoration(decor.copy(faceEnabled = true, starsEnabled = false)) }
-                        Chip("干净气泡", !decor.faceEnabled && !decor.starsEnabled) { vm.setBubbleDecoration(decor.copy(faceEnabled = false, starsEnabled = false)) }
+                        Chip("跟随主题", decor.faceEnabled && decor.starsEnabled && decor.faceImage == null && decor.starImage == null && decor.faceEmoji.isEmpty() && decor.starEmoji.isEmpty() && decor.components.isEmpty()) { vm.setBubbleDecoration(com.cleo.cleos.data.BubbleDecoration()) }
+                        Chip("只留小脸", decor.faceEnabled && !decor.starsEnabled) { vm.setBubbleDecoration(decor.copy(faceEnabled = true, starsEnabled = false, components = decor.components.map { it.copy(enabled = false) })) }
+                        Chip("干净气泡", !decor.faceEnabled && !decor.starsEnabled && decor.components.none { it.enabled }) { vm.setBubbleDecoration(decor.copy(faceEnabled = false, starsEnabled = false, components = decor.components.map { it.copy(enabled = false) })) }
                     }
-                    Chip(if (decorationDetails) "收起装饰编辑" else "换图片 / 精细调整", decorationDetails) { decorationDetails = !decorationDetails }
-                    if (decorationDetails) BubbleDecorationEditor(decor, { decor = it }, vm::setBubbleDecoration, vm::importBubbleImage, vm.bubbleImageBusy, vm.bubbleImageError)
+                    Chip(if (decorationDetails) "收起装饰编辑" else "添加装饰 / 编辑", decorationDetails) { decorationDetails = !decorationDetails }
+                    if (decorationDetails) BubbleComponentsEditor(decor, selectedComponent, { selectedComponent = it }, { decor = it }, vm::setBubbleDecoration, vm::importBubbleComponent, vm.bubbleImageBusy, vm.bubbleImageError)
                 }
                 Section("更多设置") {
                     Chip(if (backgroundDetails) "收起材质与配色" else "材质与配色", backgroundDetails) { backgroundDetails = !backgroundDetails }

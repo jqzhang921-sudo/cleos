@@ -600,6 +600,21 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         private set
     var bubbleImageError by mutableStateOf<String?>(null)
         private set
+    fun importBubbleComponent(bitmap: android.graphics.Bitmap, target: String) {
+        if (target == "face" || target == "star") { importBubbleImage(bitmap, target == "face"); return }
+        if (bubbleImageBusy) return
+        bubbleImageBusy = true
+        bubbleImageError = null
+        viewModelScope.launch {
+            try {
+                val file = c.images.save(bitmap, prefix = "bubble-")
+                c.settings.update { settings -> settings.copy(bubbleDecoration = settings.bubbleDecoration.copy(
+                    components = settings.bubbleDecoration.components.map { if (it.id == target) it.copy(image = file, emoji = "", enabled = true, shape = "original") else it })) }
+            } catch (e: Exception) { bubbleImageError = "这张图读不出来，请换一张试试。" }
+            finally { bubbleImageBusy = false }
+        }
+    }
+
     fun importBubbleImage(bitmap: android.graphics.Bitmap, face: Boolean) {
         if (bubbleImageBusy) return
         bubbleImageBusy = true
