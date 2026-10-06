@@ -22,7 +22,7 @@ class FreeTopicRulesTest {
         assertTrue(FreeTopicRules.quiet(at(16), true, 480, 480))
     }
     @Test fun nextOpportunitySkipsQuietWithoutReplayingMissedIntervals() {
-        val next = FreeTopicRules.next(at(22), FreeTopicRules.level(2), true, 1380, 480, 0.0)
+        val next = FreeTopicRules.next(at(22, 55), FreeTopicRules.level(2), true, 1380, 480, 0.0)
         val resume = Instant.ofEpochMilli(next).atZone(ZoneId.of("Asia/Shanghai"))
         assertEquals(8, resume.hour)
         assertEquals(at(22).toLocalDate().plusDays(1), resume.toLocalDate())
@@ -43,8 +43,8 @@ class FreeTopicRulesTest {
     @Test fun allLevelsHaveBoundedIntervalsAndInvalidSettingsFallBack() {
         FreeTopicRules.LEVELS.forEach { l ->
             val start = at(8)
-            assertEquals(l.minHours * 3600000L, FreeTopicRules.next(start, l, false, 1380, 480, -1.0) - start.toInstant().toEpochMilli())
-            assertEquals(l.maxHours * 3600000L, FreeTopicRules.next(start, l, false, 1380, 480, 2.0) - start.toInstant().toEpochMilli())
+            assertEquals(l.minMinutes * 60_000L, FreeTopicRules.next(start, l, false, 1380, 480, -1.0) - start.toInstant().toEpochMilli())
+            assertEquals(l.maxMinutes * 60_000L, FreeTopicRules.next(start, l, false, 1380, 480, 2.0) - start.toInstant().toEpochMilli())
         }
         assertEquals(1, FreeTopicRules.level(999).id)
         assertEquals(1380, FreeTopicRules.minute(-1, 1380))

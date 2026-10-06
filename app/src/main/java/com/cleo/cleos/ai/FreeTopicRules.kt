@@ -5,9 +5,11 @@ import java.time.ZonedDateTime
 /** Frequency controls opportunities to think, not a quota of messages to send. */
 object FreeTopicRules {
     const val IDLE_MS = 15 * 60_000L
-    data class Level(val id: Int, val label: String, val minHours: Int, val maxHours: Int, val dailyMax: Int)
-    val LEVELS = listOf(Level(0, "偶尔", 4, 6, 3), Level(1, "自然", 2, 3, 6), Level(2, "比较主动", 1, 2, 10))
+    data class Level(val id: Int, val label: String, val minMinutes: Int, val maxMinutes: Int, val dailyMax: Int)
+    val LEVELS = listOf(Level(0, "偶尔", 240, 360, 3), Level(1, "自然", 30, 60, 24), Level(2, "比较主动", 10, 20, 60))
     fun level(id: Int) = LEVELS.firstOrNull { it.id == id } ?: LEVELS[1]
+    fun intervalText(level: Level) = if (level.minMinutes % 60 == 0 && level.maxMinutes % 60 == 0)
+        "${level.minMinutes / 60}–${level.maxMinutes / 60} 小时" else "${level.minMinutes}–${level.maxMinutes} 分钟"
     fun minute(value: Int, fallback: Int) = value.takeIf { it in 0..1439 } ?: fallback
     fun time(value: Int) = "%02d:%02d".format(value / 60, value % 60)
 
@@ -26,7 +28,7 @@ object FreeTopicRules {
     }
 
     fun next(now: ZonedDateTime, level: Level, on: Boolean, start: Int, end: Int, fraction: Double): Long {
-        val minutes = (level.minHours * 60 + (level.maxHours - level.minHours) * 60 * fraction.coerceIn(0.0, 1.0)).toLong()
+        val minutes = (level.minMinutes + (level.maxMinutes - level.minMinutes) * fraction.coerceIn(0.0, 1.0)).toLong()
         return outsideQuiet(now.plusMinutes(minutes), on, start, end).toInstant().toEpochMilli()
     }
 

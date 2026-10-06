@@ -68,7 +68,18 @@ class FreeTopics(
             onEnabled()
             val state = db.freeTopics().get(ta.id)
             if (state == null) configure(ta.id)
-            else enqueue(ta.id, state.nextAt, ExistingWorkPolicy.KEEP)
+            else {
+                val current = now()
+                val level = FreeTopicRules.level(ta.freeTopicLevel)
+                val available = state.attemptDay != current.toLocalDate().toEpochDay() || state.attempts < level.dailyMax
+                val earlier = next(ta, current)
+                // Upgrade old hour-long waits without resetting the day's count or waking immediately.
+                val shorten = available && !active.containsKey(ta.id) &&
+                    state.nextAt - current.toInstant().toEpochMilli() > level.maxMinutes * 60_000L && earlier < state.nextAt
+                if (shorten && db.freeTopics().move(ta.id, state.nextAt, earlier) == 1)
+                    enqueue(ta.id, earlier, ExistingWorkPolicy.REPLACE)
+                else enqueue(ta.id, state.nextAt, ExistingWorkPolicy.KEEP)
+            }
         }
     }
 
