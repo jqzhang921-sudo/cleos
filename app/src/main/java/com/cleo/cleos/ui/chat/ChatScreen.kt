@@ -1007,6 +1007,7 @@ fun ChatTab(
                                         onDelete = { vm.delete(m.id) },
                                         onOpenImage = onOpenImage,
                                         transcribing = m.id in state.transcribing,
+                                        expandVoiceText = appSettings.expandVoiceText,
                                         playingFile = playing,
                                         onPlay = { play(it, theirs = m.role == "assistant") },
                                         onRetryVoice = { vm.retryVoice(m.id) },
@@ -1251,6 +1252,7 @@ private fun MessageBubble(
     onDelete: () -> Unit,
     onOpenImage: (String) -> Unit,
     transcribing: Boolean = false,
+    expandVoiceText: Boolean = false,
     playingFile: String? = null,
     onPlay: (String) -> Unit = {},
     onRetryVoice: () -> Unit = {},
@@ -1310,6 +1312,8 @@ private fun MessageBubble(
                             playing = playingFile == audio.file,
                             transcript = message.content,
                             transcribing = transcribing,
+                            defaultExpanded = expandVoiceText,
+                            messageId = message.id,
                             onClick = { onPlay(audio.file) },
                             onLongClick = { menu = true },
                         )
@@ -1461,11 +1465,14 @@ private fun VoiceBubble(
     playing: Boolean,
     transcript: String,
     transcribing: Boolean,
+    defaultExpanded: Boolean,
+    messageId: Long,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     val palette = LocalGlassPalette.current
     val ink = if (mine) palette.mineContent else palette.content
+    var expanded by rememberSaveable(messageId, defaultExpanded) { mutableStateOf(defaultExpanded) }
     val length = 92.dp + 150.dp * (audio.ms.toFloat() / Voice.MAX_MS).coerceIn(0f, 1f)
     GlassSurface(
         modifier = Modifier
@@ -1487,7 +1494,20 @@ private fun VoiceBubble(
                 Text(Voice.duration(audio.ms), color = ink, fontSize = 15.sp)
             }
             when {
-                transcript.isNotBlank() -> Text(transcript, color = ink.copy(alpha = 0.85f), style = LocalChatType.current.small)
+                transcript.isNotBlank() -> {
+                    Row(
+                        Modifier.heightIn(min = 44.dp).combinedClickable(
+                            interactionSource = null, indication = null,
+                            onClick = { expanded = !expanded }, onLongClick = onLongClick,
+                        ),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(if (expanded) "收起文字" else "查看文字", color = ink.copy(alpha = 0.75f), fontSize = 13.sp)
+                        Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                            contentDescription = null, tint = ink.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
+                    }
+                    if (expanded) Text(transcript, color = ink.copy(alpha = 0.85f), style = LocalChatType.current.small)
+                }
                 transcribing -> Text("转文字中…", color = ink.copy(alpha = 0.7f), fontSize = 13.sp)
             }
         }

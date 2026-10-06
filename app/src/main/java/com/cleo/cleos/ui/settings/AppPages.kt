@@ -120,6 +120,7 @@ internal fun ChatPage(vm: SettingsViewModel) {
     // Moved here from the home page, where they sat among the TA's things.
     ListCard("头像") {
         ExplainedSwitch("聊天里显示头像", "消息旁边放上各自的头像", null, settings.chatAvatars) { vm.setChatAvatars(it) }
+        ExplainedSwitch("默认展开语音文字", "关闭时显示紧凑语音条，点“查看文字”展开；展开或收起都不影响播放", null, settings.expandVoiceText, vm::setExpandVoiceText)
         if (settings.chatAvatars) {
             RowDivider(inset = 0.dp)
             ExplainedSwitch(

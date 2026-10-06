@@ -656,6 +656,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(earVoice = on) } }
     }
 
+    fun setExpandVoiceText(on: Boolean) {
+        viewModelScope.launch { c.settings.update { it.copy(expandVoiceText = on) } }
+    }
+
     var backupBusy by mutableStateOf(false)
         private set
     var backupMessage by mutableStateOf<String?>(null)
