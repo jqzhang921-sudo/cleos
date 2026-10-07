@@ -292,6 +292,11 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
         conversationId.value?.let { c.chat.retry(it, messageId) }
     }
 
+    fun editMessage(message: MessageEntity, text: String, resend: Boolean, done: (String?) -> Unit) {
+        if (conversationId.value != message.conversationId) { done("已切换聊天，请重新打开编辑"); return }
+        c.chat.editMessage(message, text, resend) { problem -> viewModelScope.launch { done(problem) } }
+    }
+
     fun delete(messageId: Long) = c.chat.deleteMessage(messageId)
 
     /** Sends a recording, with the quote waiting if there is one. Without a conversation it is thrown away, and false. */

@@ -85,6 +85,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
+import com.cleo.cleos.data.MessageEdits
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -442,6 +443,7 @@ fun ChatTab(
     var readingCall by remember { mutableStateOf<Long?>(null) }
     // The "tool" row whose call is open: what was asked of the tool, and what it answered.
     var readingTool by remember { mutableStateOf<Long?>(null) }
+    var editingMessage by remember(state.conversationId) { mutableStateOf<MessageEntity?>(null) }
     val askMicForCall = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.call() else voiceHint = "要给 Cleos 用话筒的权限，才能打电话"
     }
@@ -1010,6 +1012,7 @@ fun ChatTab(
                                         canRetry = row.isLast && !state.replying,
                                         onRetry = { vm.retry(m.id) },
                                         onDelete = { vm.delete(m.id) },
+                                        onEdit = if (!state.replying && MessageEdits.eligible(m)) ({ editingMessage = m }) else null,
                                         onOpenImage = onOpenImage,
                                         transcribing = m.id in state.transcribing,
                                         expandVoiceText = appSettings.expandVoiceText,
@@ -1063,6 +1066,12 @@ fun ChatTab(
                 )
             }
         }
+    }
+
+    editingMessage?.let { original ->
+        EditMessageDialog(original, state.replying, state.hasApiKey,
+            onDismiss = { editingMessage = null },
+            onSave = { text, resend, result -> vm.editMessage(original, text, resend, result) })
     }
 
     if (askVoiceSetup) {
@@ -1269,6 +1278,7 @@ private fun MessageBubble(
     onRead: (String) -> Unit = {},
     onFavorite: () -> Unit = {},
     onSelect: () -> Unit = {},
+    onEdit: (() -> Unit)? = null,
 ) {
     val palette = LocalGlassPalette.current
     val mine = message.role == "user"
@@ -1365,6 +1375,7 @@ private fun MessageBubble(
                             scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", words))) }
                         })
                     }
+                    if (onEdit != null) DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; onEdit() })
                     // The TA's words, read aloud in its voice; a voice message is already a sound.
                     if (!mine && message.error == null && audio == null && words.isNotBlank()) {
                         DropdownMenuItem(

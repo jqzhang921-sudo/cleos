@@ -1,6 +1,7 @@
 package com.cleo.cleos.ai
 
 import android.util.Log
+import androidx.room.withTransaction
 import com.cleo.cleos.data.CallRecords
 import com.cleo.cleos.data.MessageImages
 import com.cleo.cleos.data.MessageQuotes
@@ -207,7 +208,12 @@ class Recaps(
             val recap = Recap.clean(text.toString()) ?: return
             val last = batch.last()
             // Kept only if the recap wasn't edited meanwhile; if it was, the next round folds on top of the edit.
-            db.conversations().foldRecap(conversationId, recap, last.createdAt, last.id, was = conversation.recap)
+            db.withTransaction {
+                // A message edit or deletion during the request also invalidates this summary.
+                if (batch.all { db.messages().get(it.id) == it }) {
+                    db.conversations().foldRecap(conversationId, recap, last.createdAt, last.id, was = conversation.recap)
+                }
+            }
         }
     }
 

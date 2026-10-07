@@ -6,6 +6,9 @@ import com.cleo.cleos.data.CallRecords
 import com.cleo.cleos.data.Companions
 import com.cleo.cleos.data.ImageStore
 import com.cleo.cleos.data.MessageAudio
+import com.cleo.cleos.data.MessageEdits
+import com.cleo.cleos.data.MessageImageCopies
+import androidx.room.withTransaction
 import com.cleo.cleos.data.MessageAudios
 import com.cleo.cleos.data.MessageImage
 import com.cleo.cleos.data.MessageImages
@@ -504,6 +507,50 @@ class ChatRepository(
             if (secrets.key(ta.modelFor(heard = false).baseUrl).isNullOrBlank()) return@launch
             start(conversationId) { reply(conversationId) }
         }
+    }
+
+    /** Edit in place, optionally sending a new copy; later history and original media stay intact. */
+    fun editMessage(original: MessageEntity, text: String, resend: Boolean, done: (String?) -> Unit) {
+        val content = text.trim()
+        val accepted = start(original.conversationId) {
+            val before = sends[original.conversationId]
+            var copied = emptyList<MessageImage>()
+            var committed = false
+            try {
+                val problem = db.withTransaction {
+                    val current = db.messages().get(original.id)
+                    val problem = MessageEdits.problem(current, original, content)
+                    if (problem != null) return@withTransaction problem
+                    current!!
+                    db.messages().setContent(current.id, content)
+                    db.conversations().get(current.conversationId)?.let { conversation ->
+                        val recap = MessageEdits.correctedRecap(conversation, current, content)
+                        if (recap != conversation.recap) db.conversations().editRecap(conversation.id, recap)
+                    }
+                    if (resend) {
+                        val at = stamp()
+                        copied = MessageImageCopies.copy(images.dir, MessageImages.decode(current.images))
+                        db.messages().insert(current.copy(id = 0, content = content, createdAt = at, error = null,
+                            images = MessageImages.encode(copied)))
+                        db.conversations().touch(current.conversationId, at)
+                    }
+                    null
+                }
+                committed = true
+                done(problem)
+                if (problem == null && resend) answerSoon(original.conversationId)
+            } catch (e: CancellationException) {
+                if (!committed) images.delete(copied.map { it.file })
+                done("编辑已取消，请重新打开查看")
+                throw e
+            } catch (e: Exception) {
+                if (!committed) images.delete(copied.map { it.file })
+                done("保存失败，请重试")
+            }
+            // Ordinary messages sent while this short edit job held the conversation still get answered.
+            if (sends[original.conversationId] != before) answerUntilQuiet(original.conversationId)
+        }
+        if (!accepted) done("正在回复或通话，稍后再编辑")
     }
 
     /** Throw away [assistantMessageId] (a failed or unwanted reply) and ask again. */
