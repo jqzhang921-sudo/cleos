@@ -82,8 +82,7 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                             })
                         },
                         onDecorationDrag = { face, dx, dy ->
-                            val corner = if (face) decor.faceCorner else decor.starCorner
-                            val actual = if (corner == "auto") (if (chosen == "blue") (if (face) "tr" else "bl") else (if (face) "tl" else "br")) else corner
+                            val actual = decor.resolvedCorner(face, chosen)
                             val outward = if (actual.startsWith("t")) -dy else dy
                             decor = (if (face) decor.copy(faceOffsetX = decor.faceOffsetX + dx.roundToInt(), faceDistance = decor.faceDistance + outward.roundToInt())
                                 else decor.copy(starOffsetX = decor.starOffsetX + dx.roundToInt(), starDistance = decor.starDistance + outward.roundToInt())).normalized()

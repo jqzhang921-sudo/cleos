@@ -23,6 +23,16 @@ data class BubbleDecoration(
     val faceCorner: String = "auto",
     val starCorner: String = "auto",
 ) {
+    /** Custom stickers share one anchor across both owners and all themes. */
+    fun resolvedCorner(face: Boolean, theme: String): String {
+        val chosen = if (face) faceCorner else starCorner
+        if (chosen != "auto") return chosen
+        val custom = if (face) faceImage != null || faceEmoji.isNotEmpty()
+            else starImage != null || starEmoji.isNotEmpty()
+        return if (custom || theme != "blue") (if (face) "tl" else "br")
+            else (if (face) "tr" else "bl")
+    }
+
     fun normalized() = copy(components = components.filter { it.id.isNotBlank() && it.id != "face" && it.id != "star" }.distinctBy { it.id }.take(8).map { it.normalized() }, faceEmoji = cleanEmoji(faceEmoji), starEmoji = cleanEmoji(starEmoji), faceImage = safeFile(faceImage), starImage = safeFile(starImage),
         faceShape = faceShape.takeIf { it in shapes } ?: "original",
         starShape = starShape.takeIf { it in shapes } ?: "original",

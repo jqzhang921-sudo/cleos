@@ -78,8 +78,8 @@ fun ChatBubbleSurface(
     val glassInk = if (mine) palette.mineContent else palette.content
     val padding = PaddingValues(horizontal = horizontalPadding.coerceIn(6, 24).dp, vertical = verticalPadding.coerceIn(4, 16).dp)
     val decor = decoration.normalized()
-    val faceCorner = if (decor.faceCorner == "auto") (if (id == "blue") "tr" else "tl") else decor.faceCorner
-    val starCorner = if (decor.starCorner == "auto") (if (id == "blue") "bl" else "br") else decor.starCorner
+    val faceCorner = decor.resolvedCorner(true, id)
+    val starCorner = decor.resolvedCorner(false, id)
     val images = appContainer().images
     val faceFile = decor.faceImage?.let { images.file(it) }?.takeIf { it.exists() }
     val starFile = decor.starImage?.let { images.file(it) }?.takeIf { it.exists() }
