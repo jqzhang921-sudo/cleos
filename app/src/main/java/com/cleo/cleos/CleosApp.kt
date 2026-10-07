@@ -86,6 +86,7 @@ class AppContainer(context: Context) {
     val settings = SettingsRepository(context)
     val feed = com.cleo.cleos.data.FeedRepository(db)
     val secrets = SecretStore(context)
+    val modelProfiles = com.cleo.cleos.data.ModelProfiles(secrets)
     val images = ImageStore(context)
 
     private val http = OkHttpClient.Builder()

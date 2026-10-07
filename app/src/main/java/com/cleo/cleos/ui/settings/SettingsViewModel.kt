@@ -858,6 +858,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     override fun onCleared() {
+        if (!deleted) {
+            chat.rememberCurrent()
+            if (spokenOn) spoken.rememberCurrent()
+        }
         speechPlayer?.release()
         speechPlayer = null
         val pending = listOfNotNull(chat.pendingKey(), spoken.pendingKey())

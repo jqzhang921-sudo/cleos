@@ -141,6 +141,8 @@ internal fun ProfilePage(vm: SettingsViewModel, onOpenPersona: () -> Unit, onLea
 internal fun ModelPage(vm: SettingsViewModel) {
     val palette = LocalGlassPalette.current
 
+    Section("已保存的配置") { ModelProfilesEditor(vm.chat) }
+
     Section("用谁家的") { ServiceChips(vm.chat) }
 
     Section("连接") {
@@ -165,6 +167,7 @@ internal fun ModelPage(vm: SettingsViewModel) {
 
     if (vm.spokenOn) {
         Section("电话和语音用的模型") {
+            ModelProfilesEditor(vm.spoken)
             ServiceChips(vm.spoken)
             ConnectionFields(vm.spoken)
             if (vm.spoken.baseUrl.isBlank() || vm.spoken.model.isBlank()) {
