@@ -117,7 +117,7 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit
     val servers by vm.mcpServers.collectAsStateWithLifecycle()
     val companions by vm.companions.collectAsStateWithLifecycle()
     val lore by vm.lore.collectAsStateWithLifecycle()
-    val hasKey by vm.chat.hasKey.collectAsStateWithLifecycle()
+    val hasKey by vm.chat.activeHasKey.collectAsStateWithLifecycle()
     val ta = companions.firstOrNull { it.id == vm.companionId }
     val name = vm.aiName.trim().ifEmpty { "TA" }
     var switching by remember { mutableStateOf(false) }
@@ -150,11 +150,11 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit
             else -> "$books 本书 ${lore.size} 条 · TA 想用时自己查"
         }) { onOpenLore(vm.companionId) }
         RowDivider()
-        val service = ApiPresets.all.firstOrNull { it.baseUrl == vm.chat.baseUrl.trim().trimEnd('/') }?.name ?: host(vm.chat.baseUrl)
-        val heard = vm.spoken.model.trim().takeIf { vm.spokenOn && vm.spoken.baseUrl.isNotBlank() }
-        val model = listOfNotNull(service, vm.chat.model.trim(), heard?.let { "电话和语音用 $it" }).filter { it.isNotEmpty() }.joinToString(" · ")
+        val service = ApiPresets.all.firstOrNull { it.baseUrl == vm.chat.activeUrl.trim().trimEnd('/') }?.name ?: host(vm.chat.activeUrl)
+        val heard = vm.spoken.activeModel.trim().takeIf { vm.spokenOn && vm.spoken.activeUrl.isNotBlank() }
+        val model = listOfNotNull(service, vm.chat.activeModel.trim(), heard?.let { "电话和语音用 $it" }).filter { it.isNotEmpty() }.joinToString(" · ")
         when {
-            vm.chat.baseUrl.isBlank() -> Entry(Icons.Rounded.Memory, "模型", "还没接上模型", palette.error) { onOpen(SettingsPage.Model) }
+            vm.chat.activeUrl.isBlank() -> Entry(Icons.Rounded.Memory, "模型", "还没接上模型", palette.error) { onOpen(SettingsPage.Model) }
             !hasKey -> Entry(Icons.Rounded.Memory, "模型", "$model · 还没填 Key", palette.error) { onOpen(SettingsPage.Model) }
             else -> Entry(Icons.Rounded.Memory, "模型", model) { onOpen(SettingsPage.Model) }
         }

@@ -13,7 +13,12 @@ import java.util.UUID
 /** Keys continue to live in SecretStore by address; profiles never duplicate credentials. */
 @Serializable
 data class ModelProfile(val id: String = UUID.randomUUID().toString(), val name: String,
-                        val baseUrl: String, val model: String, val forgotten: Boolean = false)
+                        val baseUrl: String, val model: String, val forgotten: Boolean = false,
+                        val userSaved: Boolean? = null) {
+    // The old release did not mark explicit saves. Preserve named entries and retain other
+    // records in a separate recoverable list instead of guessing and deleting them.
+    val isUserSaved: Boolean get() = userSaved ?: (name != model)
+}
 
 internal object ModelProfileRules {
     private val json = Json { ignoreUnknownKeys = true }
@@ -33,7 +38,8 @@ internal object ModelProfileRules {
         // Saving by name deliberately restores that connection to the list.
         if (existing?.forgotten == true && name == null) return profiles
         val label = name?.trim()?.take(64)?.takeIf { it.isNotEmpty() } ?: existing?.name ?: model.trim().take(64)
-        val profile = ModelProfile(existing?.id ?: UUID.randomUUID().toString(), label, url.trim(), model.trim())
+        val profile = ModelProfile(existing?.id ?: UUID.randomUUID().toString(), label, url.trim(), model.trim(),
+            userSaved = name != null || existing?.isUserSaved == true)
         return listOf(profile) + profiles.filterNot { it.id == profile.id }
     }
 }
@@ -41,13 +47,14 @@ internal object ModelProfileRules {
 class ModelProfiles(private val read: () -> Flow<String?>, private val write: suspend (String) -> Unit) {
     constructor(secrets: SecretStore) : this({ secrets.secret("model_profiles") }, { secrets.setSecret("model_profiles", it) })
     private val mutex = Mutex()
-    val profiles: Flow<List<ModelProfile>> = read().map { ModelProfileRules.decode(it).filterNot { p -> p.forgotten } }
+    val profiles: Flow<List<ModelProfile>> = read().map { ModelProfileRules.decode(it).filter { p -> !p.forgotten && p.isUserSaved } }
+    val legacy: Flow<List<ModelProfile>> = read().map { ModelProfileRules.decode(it).filter { p -> !p.forgotten && !p.isUserSaved } }
     suspend fun save(url: String, model: String, name: String? = null) = change {
         ModelProfileRules.saved(it, url, model, name)
     }
     suspend fun rename(id: String, name: String) {
         require(name.isNotBlank()) { "名称不能为空" }
-        change { profiles -> profiles.map { if (it.id == id) it.copy(name = name.trim().take(64)) else it } }
+        change { profiles -> profiles.map { if (it.id == id) it.copy(name = name.trim().take(64), userSaved = true) else it } }
     }
     suspend fun delete(id: String) = change { profiles -> profiles.map { if (it.id == id) it.copy(forgotten = true) else it } }
     private suspend fun change(transform: (List<ModelProfile>) -> List<ModelProfile>) = mutex.withLock {

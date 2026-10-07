@@ -140,8 +140,11 @@ internal fun ProfilePage(vm: SettingsViewModel, onOpenPersona: () -> Unit, onLea
 @Composable
 internal fun ModelPage(vm: SettingsViewModel) {
     val palette = LocalGlassPalette.current
+    androidx.compose.runtime.DisposableEffect(vm) {
+        onDispose { vm.chat.discardDraft(); vm.spoken.discardDraft() }
+    }
 
-    Section("已保存的配置") { ModelProfilesEditor(vm.chat) }
+    Section("${vm.aiName.ifBlank { "TA" }}的配置") { ModelProfilesEditor(vm.chat) }
 
     Section("用谁家的") { ServiceChips(vm.chat) }
 
@@ -206,17 +209,18 @@ private fun ConnectionFields(fields: EndpointFields) {
         modifier = Modifier.fillMaxWidth(),
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (fields.keyInput.isNotBlank()) Chip("保存 Key", selected = true) { fields.saveKey() }
+        if (fields.keyInput.isNotBlank()) Text("Key 将随当前配置一起保存", color = palette.contentSecondary, fontSize = 13.sp)
         if (hasKey && fields.keyInput.isBlank()) {
             Text("Key 已加密保存在这台手机上", color = palette.contentSecondary, fontSize = 13.sp, modifier = Modifier.weight(1f))
-            Chip("清除", selected = false) { fields.clearKey() }
         }
     }
     Field("模型", fields.model, { fields.model = it })
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Chip(if (fields.checking) "正在连接…" else "测试并列出模型", selected = false) { if (!fields.checking) fields.check() }
         if (!fields.models.isNullOrEmpty()) Chip("从列表里选", selected = false) { pickingModel = true }
+        Chip(if (fields.profileBusy) "正在保存…" else "保存当前配置", selected = fields.hasDraftChanges) { if (!fields.profileBusy) fields.savingProfile = true }
     }
+    if (fields.hasDraftChanges) Text("有未保存的修改，当前 TA 仍使用上面的配置。", color = palette.contentSecondary, fontSize = 12.sp)
     fields.checkResult?.let { Text(it, color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 19.sp) }
 
     if (pickingModel) {

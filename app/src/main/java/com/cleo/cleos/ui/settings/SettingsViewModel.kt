@@ -70,7 +70,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     val chat = EndpointFields(c, viewModelScope)
 
     /** The model the TA has for words that are heard (CompanionEntity.spokenModelOn), and whether it is on. */
-    val spoken = EndpointFields(c, viewModelScope)
+    val spoken = EndpointFields(c, viewModelScope, spoken = true)
     var spokenOn by mutableStateOf(false)
     var aiName by mutableStateOf("")
     var userName by mutableStateOf("")
@@ -217,7 +217,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     private suspend fun watch() {
         snapshotFlow {
             listOf(
-                chat.baseUrl, chat.model, spokenOn, spoken.baseUrl, spoken.model,
+                spokenOn,
                 aiName, userName, historySize, weatherCity, voiceBaseUrl, voiceModel,
                 voiceService, speechVoices.toMap(), minimaxGlobal, speechBaseUrl, speechModel, speechVoice, elevenVoice, elevenModel,
             )
@@ -230,9 +230,9 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     /** Which TA the fields edit. Everything is set in one go, with nothing in between. */
     private fun load(ta: CompanionEntity) {
         companionId = ta.id
-        chat.load(ta.apiBaseUrl, ta.apiModel)
+        chat.load(ta.apiBaseUrl, ta.apiModel, ta.id)
         spokenOn = ta.spokenModelOn
-        spoken.load(ta.spokenApiBaseUrl, ta.spokenApiModel)
+        spoken.load(ta.spokenApiBaseUrl, ta.spokenApiModel, ta.id)
         aiName = ta.name
         persona = ta.persona
         replyWaitSeconds = com.cleo.cleos.ai.ReplyWaitRules.seconds(ta.replyWaitSeconds)
@@ -252,11 +252,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         // Read before suspending: the fields can be loaded with another TA meanwhile (an
         // import), and the old TA must not get the new one's values.
         val id = companionId
-        val url = chat.baseUrl.trim()
-        val m = chat.model.trim()
         val heardOn = spokenOn
-        val heardUrl = spoken.baseUrl.trim()
-        val heardModel = spoken.model.trim()
         val name = aiName.trim()
         val user = userName.trim()
         val history = historySize
@@ -265,7 +261,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         val voiceM = voiceModel.trim()
         // Not the persona: written on its own page, it must not be put back as it was when this one opened.
         c.companions.update(id) {
-            it.copy(apiBaseUrl = url, apiModel = m, name = name, spokenModelOn = heardOn, spokenApiBaseUrl = heardUrl, spokenApiModel = heardModel)
+            it.copy(name = name, spokenModelOn = heardOn)
         }
         val speech = speechSettings()
         c.settings.update {
@@ -279,10 +275,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
      */
     fun switchCompanion(id: Long) {
         if (id == companionId) return
-        val pending = listOfNotNull(chat.pendingKey(), spoken.pendingKey())
         viewModelScope.launch {
             persist()
-            for ((address, key) in pending) c.secrets.setKey(address, key)
             c.companions.select(id)
             load(c.companions.current())
         }
@@ -858,16 +852,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     override fun onCleared() {
-        if (!deleted) {
-            chat.rememberCurrent()
-            if (spokenOn) spoken.rememberCurrent()
-        }
         speechPlayer?.release()
         speechPlayer = null
-        val pending = listOfNotNull(chat.pendingKey(), spoken.pendingKey())
         c.appScope.launch {
             persist()
-            if (!deleted) for ((address, key) in pending) c.secrets.setKey(address, key)
         }
     }
 }

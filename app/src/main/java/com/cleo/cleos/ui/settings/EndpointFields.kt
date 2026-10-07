@@ -13,6 +13,7 @@ import com.cleo.cleos.data.ApiPresets
 import com.cleo.cleos.data.ModelProfile
 import com.cleo.cleos.data.ModelProfileRules
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,7 +29,7 @@ import kotlinx.coroutines.launch
  * ever written, encrypted and filed by address, never read back into the field.
  */
 @Stable
-class EndpointFields(private val c: AppContainer, private val scope: CoroutineScope) {
+class EndpointFields(private val c: AppContainer, private val scope: CoroutineScope, private val spoken: Boolean = false) {
     var baseUrl by mutableStateOf("")
     var model by mutableStateOf("")
     var keyInput by mutableStateOf("")
@@ -38,67 +39,61 @@ class EndpointFields(private val c: AppContainer, private val scope: CoroutineSc
     var checkResult by mutableStateOf<String?>(null)
         private set
     val profiles = c.modelProfiles.profiles.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    val legacyProfiles = c.modelProfiles.legacy.stateIn(scope, SharingStarted.Eagerly, emptyList())
+    var activeUrl by mutableStateOf("")
+        private set
+    var activeModel by mutableStateOf("")
+        private set
+    private var companionId: Long = 0
+    var savingProfile by mutableStateOf(false)
+    val hasDraftChanges get() = baseUrl.trim() != activeUrl || model.trim() != activeModel || keyInput.isNotBlank()
     var profileMessage by mutableStateOf<String?>(null)
         private set
     var profileBusy by mutableStateOf(false)
         private set
-    private var forgotten: Pair<String, String>? = null
-
-    /** Capture before launching: changing providers must never save the old key under the new address. */
-    fun rememberCurrent() {
-        val url = baseUrl.trim()
-        val m = model.trim()
-        val key = keyInput.trim()
-        if (forgotten == (url to m)) return
-        if (!ModelProfileRules.valid(url, m)) return
-        c.appScope.launch {
-            if (key.isNotEmpty()) c.secrets.setKey(url, key)
-            c.modelProfiles.save(url, m)
-        }
-    }
 
     fun saveProfile(name: String) {
         val url = baseUrl.trim()
         val m = model.trim()
         val key = keyInput.trim()
+        val id = companionId
         profileAction {
             require(ModelProfileRules.valid(url, m)) { "先填好接口地址和模型名称" }
             require(name.isNotBlank()) { "名称不能为空" }
+            require(key.isNotEmpty() || !c.secrets.key(url).isNullOrBlank()) { "先填 API Key，再保存配置" }
+            require(id > 0 && id == companionId) { "TA 已切换，请重新保存" }
             if (key.isNotEmpty()) c.secrets.setKey(url, key)
             c.modelProfiles.save(url, m, name)
-            forgotten = null
-            if (baseUrl.trim() == url && keyInput.trim() == key) keyInput = ""
-            profileMessage = "配置已保存"
+            activate(id, url, m)
+            profileMessage = "已保存并启用「${name.trim()}」"
         }
     }
 
     fun useProfile(profile: ModelProfile) {
-        val url = baseUrl
-        val m = model
-        val key = keyInput.trim()
+        val id = companionId
         profileAction {
-            if (ModelProfileRules.valid(url, m) && forgotten != (url.trim() to m.trim())) {
-                if (key.isNotEmpty()) c.secrets.setKey(url, key)
-                c.modelProfiles.save(url, m)
-            }
-            if (baseUrl != url || model != m || keyInput.trim() != key) {
-                profileMessage = "内容已改变，请重新选择配置"
-                return@profileAction
-            }
-            load(profile.baseUrl, profile.model, rememberOld = false)
+            require(!c.secrets.key(profile.baseUrl).isNullOrBlank()) { "这个配置还没有 Key，填好后保存即可使用" }
+            require(id > 0 && id == companionId) { "TA 已切换，请重新选择" }
+            if (!profile.isUserSaved) c.modelProfiles.save(profile.baseUrl, profile.model, profile.name)
+            activate(id, profile.baseUrl, profile.model)
             profileMessage = "已使用「${profile.name}」"
         }
     }
+    private suspend fun activate(id: Long, url: String, m: String) {
+        c.companions.update(id) { if (spoken) it.copy(spokenApiBaseUrl = url, spokenApiModel = m)
+            else it.copy(apiBaseUrl = url, apiModel = m) }
+        if (id == companionId) load(url, m, id)
+    }
+    fun discardDraft() { load(activeUrl, activeModel, companionId) }
     fun renameProfile(id: String, name: String) = profileAction { c.modelProfiles.rename(id, name); profileMessage = "名称已修改" }
     fun deleteProfile(profile: ModelProfile) = profileAction {
         c.modelProfiles.delete(profile.id)
-        if (ModelProfileRules.matches(profile, baseUrl, model)) forgotten = baseUrl.trim() to model.trim()
         profileMessage = "配置已删除，当前连接和 Key 保留"
     }
     private fun profileAction(action: suspend () -> Unit) {
         if (profileBusy) return
         profileBusy = true
-        scope.launch {
+        c.appScope.launch(Dispatchers.Main.immediate) {
             try { action() }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { profileMessage = e.message ?: "配置保存失败" }
@@ -111,40 +106,32 @@ class EndpointFields(private val c: AppContainer, private val scope: CoroutineSc
     val hasKey: StateFlow<Boolean> = snapshotFlow { baseUrl }
         .flatMapLatest { c.secrets.hasKey(it) }
         .stateIn(scope, SharingStarted.Eagerly, false)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val activeHasKey: StateFlow<Boolean> = snapshotFlow { activeUrl }
+        .flatMapLatest { c.secrets.hasKey(it) }
+        .stateIn(scope, SharingStarted.Eagerly, false)
 
     /** Another TA's, or the same one's afresh: what was typed or listed for the last one goes. */
-    fun load(url: String, m: String, rememberOld: Boolean = true) {
-        if (rememberOld && (baseUrl != url || model != m)) rememberCurrent()
+    fun load(url: String, m: String, id: Long = companionId) {
+        companionId = id
+        activeUrl = url.trim()
+        activeModel = m.trim()
         baseUrl = url
         model = m
         keyInput = ""
         models = null
         checkResult = null
-        // Preserve the TA's existing connection before the person starts overwriting fields.
-        if (rememberOld) rememberCurrent()
+        savingProfile = false
     }
 
-    /** A key typed and not saved yet, with the address it goes with, to save on the way out. */
-    fun pendingKey(): Pair<String, String>? = keyInput.trim().takeIf { it.isNotEmpty() }?.let { baseUrl to it }
-
     fun applyPreset(p: ApiPreset) {
-        load(p.baseUrl, p.defaultModel)
+        baseUrl = p.baseUrl
+        model = p.defaultModel
+        keyInput = ""
+        profileMessage = null
         // A service that lists no models: the ones it is known to have, to pick from at once.
         models = p.models.ifEmpty { null }
         checkResult = null
-    }
-
-    fun saveKey() {
-        val k = keyInput.trim()
-        if (k.isEmpty()) return
-        scope.launch {
-            c.secrets.setKey(baseUrl, k)
-            keyInput = ""
-        }
-    }
-
-    fun clearKey() {
-        scope.launch { c.secrets.setKey(baseUrl, null) }
     }
 
     /**

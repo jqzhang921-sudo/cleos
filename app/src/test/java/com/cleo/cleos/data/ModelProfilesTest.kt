@@ -57,4 +57,21 @@ class ModelProfilesTest {
         restarted.save("https://one.example/v1", "a", "重新保存")
         assertEquals("重新保存", restarted.profiles.first().single().name)
     }
+    @Test fun onlyExplicitlySavedProfilesAppearInMainListIncludingDefaultModelNames() = runBlocking {
+        val raw = MutableStateFlow<String?>(null)
+        val store = ModelProfiles({ raw }, { raw.value = it })
+        store.save("https://one.example/v1", "auto-default")
+        store.save("https://two.example/v1", "my-model", "my-model")
+        assertEquals(listOf("my-model"), store.profiles.first().map { it.model })
+        assertEquals(listOf("auto-default"), store.legacy.first().map { it.model })
+    }
+    @Test fun oldNamedProfilesArePreservedAndAutomaticRecordsRemainRecoverable() = runBlocking {
+        val raw = MutableStateFlow<String?>("""[{"id":"a","name":"自动模型","baseUrl":"https://one.example/v1","model":"自动模型"},{"id":"b","name":"小颂的 Claude","baseUrl":"https://two.example/v1","model":"claude"}]""")
+        val store = ModelProfiles({ raw }, { raw.value = it })
+        assertEquals(listOf("b"), store.profiles.first().map { it.id })
+        assertEquals(listOf("a"), store.legacy.first().map { it.id })
+        store.rename("a", "我保存的配置")
+        assertEquals(2, store.profiles.first().size)
+        assertTrue(store.legacy.first().isEmpty())
+    }
 }
