@@ -13,6 +13,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -72,6 +74,10 @@ fun FeedScreen(onBack: () -> Unit) {
     var previewCover by rememberSaveable { mutableStateOf(false) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
+    val coverHeight = top + 300.dp
+    val frostTop = if (listState.firstVisibleItemIndex == 0) (coverHeight - with(density) { listState.firstVisibleItemScrollOffset.toDp() }).coerceAtLeast(0.dp) else 0.dp
     fun act(action: suspend () -> Unit) {
         if (busy) return
         busy = true
@@ -94,7 +100,8 @@ fun FeedScreen(onBack: () -> Unit) {
             trailing = { GlassIconButton(Icons.Rounded.MoreHoriz, "动态选项", { options = true }, page); GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy) })
     }) {
         Box(Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(),
+        GlassSurface(Modifier.fillMaxSize().padding(top = frostTop), shape = GlassShape.Rounded(0.dp)) {}
+        LazyColumn(Modifier.fillMaxSize(), state = listState,
             contentPadding = PaddingValues(bottom = bottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -106,10 +113,15 @@ fun FeedScreen(onBack: () -> Unit) {
                             AsyncImage(c.images.file(cover), "主页封面", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         }
                     }
+                }
+            }
+            item {
+                val ownName = settings.userName.ifBlank { "我" }
+                Column {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp).offset(y = (-28).dp), verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.End) {
-                        Text(ownName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp, bottom = 8.dp))
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                         Avatar(settings.userAvatar, avatarLetter(ownName, "我"), 64.dp)
+                        Text(ownName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
                     }
                     if (settings.feedBio.isNotBlank()) Text(settings.feedBio, color = palette.content.copy(alpha = .7f), fontSize = 13.sp,
                         modifier = Modifier.padding(horizontal = 24.dp).clickable { bio = settings.feedBio; editingBio = true })
@@ -119,7 +131,7 @@ fun FeedScreen(onBack: () -> Unit) {
             problem?.let { item { Text(it, color = palette.content, fontSize = 13.sp) } }
             val visible = posts.filter { it.isTopic == topics && (!onlyCurrent || it.authorId == 0L || it.authorId == current?.id) }
             if (visible.isEmpty()) item {
-                GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
+                Box(Modifier.fillMaxWidth().padding(20.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Icon(Icons.Rounded.DynamicFeed, null, tint = palette.accent, modifier = Modifier.size(30.dp))
                         Text(if (topics) "有什么新发现？" else "今天想说点什么？", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -133,7 +145,7 @@ fun FeedScreen(onBack: () -> Unit) {
                 val name = if (post.authorId == 0L) settings.userName.ifBlank { "我" } else author?.name?.ifBlank { "TA" } ?: "TA"
                 val comments = remember(post.comments) { FeedComments.decode(post.comments) }
                 var expanded by remember(post.id) { mutableStateOf(false) }
-                GlassSurface(Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentPadding = PaddingValues(16.dp)) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
                 Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
