@@ -96,6 +96,9 @@ interface ConversationDao {
     @Query("UPDATE conversations SET recap = :recap WHERE id = :id")
     suspend fun editRecap(id: Long, recap: String?)
 
+    @Query("UPDATE conversations SET recap = NULL, recapUntilAt = NULL, recapUntilId = NULL, followUpMessageId = NULL, followUpAt = NULL WHERE id = :id")
+    suspend fun invalidateDeletedHistory(id: Long)
+
     @Query("DELETE FROM conversations WHERE id = :id")
     suspend fun delete(id: Long)
 
@@ -111,6 +114,9 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
+    @Query("UPDATE messages SET toolCalls = NULL, reasoning = NULL WHERE id IN (:ids)")
+    suspend fun clearToolCalls(ids: List<Long>)
+
     @Query("SELECT MAX(m.createdAt) FROM messages m JOIN conversations c ON c.id = m.conversationId WHERE c.companionId = :companionId AND m.role = 'user' AND m.note IS NULL")
     suspend fun lastUserFor(companionId: Long): Long?
 

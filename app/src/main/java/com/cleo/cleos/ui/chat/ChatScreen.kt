@@ -66,6 +66,7 @@ import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.rounded.DynamicFeed
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowUpward
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Check
@@ -415,6 +416,8 @@ fun ChatTab(
     var selecting by remember(state.conversationId) { mutableStateOf(false) }
     var selected by remember(state.conversationId) { mutableStateOf(setOf<Long>()) }
     var savingFavorite by remember { mutableStateOf(false) }
+    var deletingSelected by remember { mutableStateOf<Set<Long>?>(null) }
+    var deletingMessages by remember { mutableStateOf(false) }
     BackHandler(enabled = selecting && pageShown) { selecting = false; selected = emptySet() }
     fun toggleFavorite(id: Long) { selected = if (id in selected) selected - id else selected + id }
     fun saveFavorite(ids: Set<Long>) {
@@ -875,9 +878,13 @@ fun ChatTab(
                         .fillMaxWidth().onSizeChanged { inputHeight = it.height },
                     shape = GlassShape.Rounded(24.dp), contentPadding = PaddingValues(8.dp),
                 ) {
-                    TextButton(onClick = { saveFavorite(selected) }, enabled = selected.isNotEmpty() && !savingFavorite,
-                        modifier = Modifier.fillMaxWidth()) {
+                    Row {
+                    TextButton(onClick = { saveFavorite(selected) }, enabled = selected.isNotEmpty() && !savingFavorite && !deletingMessages,
+                        modifier = Modifier.weight(1f)) {
                         Text(if (savingFavorite) "正在保存…" else "收藏这 ${selected.size} 条")
+                    }
+                    TextButton(onClick = { deletingSelected = selected.toSet() }, enabled = selected.isNotEmpty() && !savingFavorite && !deletingMessages,
+                        modifier = Modifier.weight(1f)) { Text("删除这 ${selected.size} 条", color = LocalGlassPalette.current.error) }
                     }
                 }
             } else ChatInputBar(
@@ -941,6 +948,12 @@ fun ChatTab(
                     .padding(bottom = inputBottom)
                     .onSizeChanged { inputHeight = it.height },
             )
+            if (!selecting && !recording && !drawerOpen && (listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 80)) {
+                GlassIconButton(Icons.Rounded.ArrowDownward, "回到最新消息", {
+                    scope.launch { listState.scrollToItem(0) }
+                }, page, modifier = Modifier.align(Alignment.BottomCenter)
+                    .padding(bottom = inputBottom + with(density) { inputHeight.toDp() } + 12.dp))
+            }
             if (recording || voiceHint != null) {
                 RecordingPill(
                     backdrop = page,
@@ -1001,7 +1014,21 @@ fun ChatTab(
                         is ChatRow.Stamp -> TimeStamp(row.at)
                         ChatRow.RecapMark -> RecapMark(state.aiName) { readingRecap = true }
                         is ChatRow.Woke -> ToolNote("${state.aiName.ifBlank { "TA" }}自己想起来的", Icons.Rounded.Lightbulb)
-                        is ChatRow.ToolGroup -> ToolGroupNote(row.key, row.lines, row.kinds) { readingTool = it }
+                        is ChatRow.ToolGroup -> Box(Modifier.fillMaxWidth().combinedClickable(
+                            onClick = { if (selecting) {
+                                val ids = row.lines.map { it.id }.toSet()
+                                selected = if (selected.containsAll(ids)) selected - ids else selected + ids
+                            } else readingTool = row.lines.first().id },
+                            onLongClick = { selected = row.lines.map { it.id }.toSet(); selecting = true })) {
+                            ToolGroupNote(row.key, row.lines, row.kinds) { readingTool = it }
+                            if (selecting) {
+                                Box(Modifier.matchParentSize().clickable {
+                                    val ids = row.lines.map { it.id }.toSet()
+                                    selected = if (selected.containsAll(ids)) selected - ids else selected + ids
+                                })
+                                Checkbox(row.lines.all { it.id in selected }, null, modifier = Modifier.align(Alignment.CenterStart))
+                            }
+                        }
                         is ChatRow.Message -> {
                             val m = row.message
                             val note = m.note
@@ -1026,13 +1053,17 @@ fun ChatTab(
                                         Text("查看这篇小秘密  ›", color = LocalGlassPalette.current.accentContent, fontSize = 16.sp)
                                     }
                                 }
-                                m.role == "tool" || m.role == "note" ->
+                                m.role == "tool" || m.role == "note" -> Box(Modifier.fillMaxWidth().combinedClickable(
+                                    onClick = { if (selecting) toggleFavorite(m.id) else if (m.role == "tool") readingTool = m.id },
+                                    onLongClick = { selected = setOf(m.id); selecting = true })) {
                                     ToolNote(
                                         note.orEmpty(),
                                         if (m.role == "note") Icons.Rounded.Info else (row.tool ?: ToolKind.Other).icon(),
                                         failed = m.role == "tool" && ToolRuns.failed(note.orEmpty()),
-                                        onClick = if (m.role == "tool") ({ readingTool = m.id }) else null,
+                                        onClick = null,
                                     )
+                                    if (selecting) Checkbox(m.id in selected, null, modifier = Modifier.align(Alignment.CenterStart))
+                                }
                                 m.role == "request" -> RequestCard(m, state.aiName, enabled = !state.replying) { grant ->
                                     vm.answerSecret(m.id, grant)
                                 }
@@ -1195,10 +1226,27 @@ fun ChatTab(
     readingTool?.let { id ->
         state.messages.firstOrNull { it.id == id && it.role == "tool" }?.let { row ->
             val detail = remember(id, state.messages) { ToolDetails.find(state.messages, row) }
-            ToolDetailDialog(detail, onDismiss = { readingTool = null })
+            ToolDetailDialog(detail, onDismiss = { readingTool = null }, onDelete = {
+                readingTool = null; deletingSelected = setOf(id)
+            }, onSelect = { readingTool = null; selected = setOf(id); selecting = true })
         }
     }
 
+    deletingSelected?.let { ids ->
+        AlertDialog(onDismissRequest = { if (!deletingMessages) deletingSelected = null },
+            title = { Text("删除这 ${ids.size} 条记录？") },
+            text = { Text("相关工具请求和结果会一并清理，后续聊天保留。只删除聊天记录，不撤销工具已经完成的操作。") },
+            confirmButton = { TextButton(enabled = !deletingMessages, onClick = {
+                deletingMessages = true
+                scope.launch {
+                    try { c.chat.deleteMessages(ids); selected = emptySet(); selecting = false; deletingSelected = null }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) { voiceHint = e.message ?: "删除失败，请重试" }
+                    finally { deletingMessages = false }
+                }
+            }) { Text(if (deletingMessages) "正在删除…" else "删除") } },
+            dismissButton = { TextButton(enabled = !deletingMessages, onClick = { deletingSelected = null }) { Text("取消") } })
+    }
     if (readingRecap) {
         RecapDialog(
             aiName = state.aiName,
@@ -1997,7 +2045,7 @@ private const val TOOL_STACK_MAX = 3
 
 /** A tool call opened from its line in the chat: what was asked of the tool, and what it answered, to read and copy. */
 @Composable
-private fun ToolDetailDialog(detail: ToolDetail, onDismiss: () -> Unit) {
+private fun ToolDetailDialog(detail: ToolDetail, onDismiss: () -> Unit, onDelete: () -> Unit, onSelect: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("调用工具: ${detail.name}") },
@@ -2019,6 +2067,7 @@ private fun ToolDetailDialog(detail: ToolDetail, onDismiss: () -> Unit) {
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关上") } },
+        dismissButton = { Row { TextButton(onClick = onSelect) { Text("多选") }; TextButton(onClick = onDelete) { Text("删除") } } },
     )
 }
 

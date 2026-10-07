@@ -604,15 +604,21 @@ class ChatRepository(
 
     /** The row and the pictures sent with it: nothing else points at those files. A call goes with all that was said in it. */
     fun deleteMessage(id: Long) {
-        scope.launch {
-            val m = db.messages().get(id)
-            if (m?.role == "call") {
-                db.messages().deleteCall(id)
-                return@launch
-            }
-            db.messages().delete(id)
-            images.delete(MessageImages.decode(m?.images).map { it.file } + listOfNotNull(MessageAudios.decode(m?.audio)?.file))
+        scope.launch { deleteMessages(setOf(id)) }
+    }
+
+    suspend fun deleteMessages(ids: Set<Long>) {
+        val conversations = db.messages().byIds(ids.toList()).map { it.conversationId }.distinct()
+        stopReplies(conversations)
+        val removed = db.withTransaction {
+            val rows = conversations.flatMap { db.messages().forFavorite(it) }
+            val plan = com.cleo.cleos.data.MessageDeletion.plan(rows, ids)
+            plan.deleted.forEach { db.messages().delete(it) }
+            if (plan.clearTools.isNotEmpty()) db.messages().clearToolCalls(plan.clearTools.toList())
+            conversations.forEach { db.conversations().invalidateDeletedHistory(it) }
+            rows.filter { it.id in plan.deleted }
         }
+        images.delete(removed.flatMap { MessageImages.decode(it.images).map { image -> image.file } + listOfNotNull(MessageAudios.decode(it.audio)?.file) })
     }
 
     // Phone calls (ai/Call.kt). What the two say goes into the conversation as messages marked as
