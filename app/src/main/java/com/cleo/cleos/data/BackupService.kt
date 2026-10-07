@@ -64,6 +64,7 @@ data class BackupSettings(
     val myBubbleTheme: String = "glass",
     val bubblePaddingX: Int = 10,
     val bubblePaddingY: Int = 6,
+    val bubblePresets: List<BubblePreset> = emptyList(),
     val bubbleDecoration: BubbleDecoration = BubbleDecoration(),
     val bubbleBackgrounds: Map<String, BubbleBackground> = emptyMap(),
     val taBubbleThemes: Map<String, String> = emptyMap(),
@@ -223,6 +224,7 @@ class BackupService(
                 myBubbleTheme = s.myBubbleTheme,
                 bubblePaddingX = s.bubblePaddingX,
                 bubblePaddingY = s.bubblePaddingY,
+                bubblePresets = s.bubblePresets,
                 bubbleDecoration = s.bubbleDecoration,
                 bubbleBackgrounds = s.bubbleBackgrounds,
                 taBubbleThemes = s.taBubbleThemes,
@@ -261,7 +263,7 @@ class BackupService(
             data.messages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +
             companions.mapNotNull { it.avatar } +
             stickerFiles +
-            s.bubbleDecoration.components.mapNotNull { it.image } + listOfNotNull(s.wallpaper, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
+            s.bubblePresets.flatMap { it.decoration.imageFiles() } + s.bubbleDecoration.components.mapNotNull { it.image } + listOfNotNull(s.wallpaper, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
 
         var written = 0
         var voices = 0
@@ -401,6 +403,7 @@ class BackupService(
                     myBubbleTheme = bs.myBubbleTheme,
                     bubblePaddingX = bs.bubblePaddingX.coerceIn(6, 24),
                     bubblePaddingY = bs.bubblePaddingY.coerceIn(4, 16),
+                    bubblePresets = bs.bubblePresets.distinctBy { it.id }.take(50).map { it.normalized().let { p -> p.copy(decoration = p.decoration.mapImages(::picture)) } },
                     bubbleDecoration = bs.bubbleDecoration.normalized().let { it.copy(faceImage = picture(it.faceImage), starImage = picture(it.starImage), components = it.components.map { item -> item.copy(image = picture(item.image)) }).normalized() },
                     bubbleBackgrounds = bs.bubbleBackgrounds.mapValues { it.value.normalized() },
                     taBubbleThemes = bs.taBubbleThemes.filterKeys { key -> companions.any { ta -> ta.id.toString() == key } },

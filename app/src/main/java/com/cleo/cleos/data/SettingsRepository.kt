@@ -81,6 +81,7 @@ data class AppSettings(
     val myBubbleTheme: String = "glass",
     val bubblePaddingX: Int = 10,
     val bubblePaddingY: Int = 6,
+    val bubblePresets: List<BubblePreset> = emptyList(),
     val bubbleDecoration: BubbleDecoration = BubbleDecoration(),
     val bubbleBackgrounds: Map<String, BubbleBackground> = emptyMap(),
     /** Each TA can use a different theme; keys are companion ids, preserved by backups. */
@@ -190,6 +191,7 @@ class SettingsRepository(private val context: Context) {
         val myBubbleTheme = stringPreferencesKey("my_bubble_theme")
         val bubblePaddingX = intPreferencesKey("bubble_padding_x")
         val bubblePaddingY = intPreferencesKey("bubble_padding_y")
+        val bubblePresets = stringPreferencesKey("bubble_presets")
         val bubbleDecoration = stringPreferencesKey("bubble_decoration")
         val bubbleBackgrounds = stringPreferencesKey("bubble_backgrounds")
         val taBubbleThemes = stringPreferencesKey("ta_bubble_themes")
@@ -251,6 +253,7 @@ class SettingsRepository(private val context: Context) {
             myBubbleTheme = this[Keys.myBubbleTheme] ?: "glass",
             bubblePaddingX = (this[Keys.bubblePaddingX] ?: 10).coerceIn(6, 24),
             bubblePaddingY = (this[Keys.bubblePaddingY] ?: 6).coerceIn(4, 16),
+            bubblePresets = runCatching { tuningJson.decodeFromString<List<BubblePreset>>(this[Keys.bubblePresets] ?: "[]").distinctBy { it.id }.take(50).map { it.normalized() } }.getOrDefault(emptyList()),
             bubbleDecoration = runCatching { tuningJson.decodeFromString<BubbleDecoration>(this[Keys.bubbleDecoration] ?: "{}").normalized() }.getOrDefault(BubbleDecoration()),
             bubbleBackgrounds = runCatching { tuningJson.decodeFromString<Map<String, BubbleBackground>>(this[Keys.bubbleBackgrounds] ?: "{}").mapValues { it.value.normalized() } }.getOrDefault(emptyMap()),
             taBubbleThemes = decodeVoices(this[Keys.taBubbleThemes]),
@@ -294,6 +297,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.myBubbleTheme] = next.myBubbleTheme
             prefs[Keys.bubblePaddingX] = next.bubblePaddingX.coerceIn(6, 24)
             prefs[Keys.bubblePaddingY] = next.bubblePaddingY.coerceIn(4, 16)
+            prefs[Keys.bubblePresets] = tuningJson.encodeToString(next.bubblePresets.distinctBy { it.id }.take(50).map { it.normalized() })
             prefs[Keys.bubbleDecoration] = tuningJson.encodeToString(next.bubbleDecoration.normalized())
             prefs[Keys.bubbleBackgrounds] = tuningJson.encodeToString(next.bubbleBackgrounds.mapValues { it.value.normalized() })
             prefs[Keys.taBubbleThemes] = encodeVoices(next.taBubbleThemes)

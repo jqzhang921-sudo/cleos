@@ -126,6 +126,7 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                     Chip(if (decorationDetails) "收起装饰编辑" else "添加装饰 / 编辑", decorationDetails) { decorationDetails = !decorationDetails }
                     if (decorationDetails) BubbleComponentsEditor(decor, selectedComponent, { selectedComponent = it }, { decor = it }, vm::setBubbleDecoration, vm::importBubbleComponent, vm.bubbleImageBusy, vm.bubbleImageError)
                 }
+                Section("保存与分享") { BubblePresetsEditor(settings.bubblePresets, vm) }
                 Section("更多设置") {
                     Chip(if (backgroundDetails) "收起材质与配色" else "材质与配色", backgroundDetails) { backgroundDetails = !backgroundDetails }
                     if (backgroundDetails) {

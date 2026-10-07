@@ -687,6 +687,66 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(myBubble = argb) } }
     }
 
+    var bubblePresetBusy by mutableStateOf(false)
+        private set
+    var bubblePresetMessage by mutableStateOf<String?>(null)
+        private set
+    private var previousBubblePreset: Pair<Long, com.cleo.cleos.data.BubblePreset>? = null
+
+    fun saveBubblePreset(name: String) {
+        val id = companionId
+        viewModelScope.launch {
+            c.settings.update {
+                if (it.bubblePresets.size >= 50) { bubblePresetMessage = "最多保存 50 套方案，请先删除不用的方案。"; it }
+                else { bubblePresetMessage = "已保存方案。"; it.copy(bubblePresets = it.bubblePresets + com.cleo.cleos.data.BubblePreset.capture(it, id, name)) }
+            }
+        }
+    }
+    fun applyBubblePreset(preset: com.cleo.cleos.data.BubblePreset) {
+        val id = companionId
+        viewModelScope.launch { c.settings.update {
+            previousBubblePreset = id to com.cleo.cleos.data.BubblePreset.capture(it, id, "切换前")
+            bubblePresetMessage = "已使用「${preset.name}」，可撤回这次切换。"
+            preset.apply(it, id)
+        } }
+    }
+    fun undoBubblePreset() {
+        val previous = previousBubblePreset ?: return
+        viewModelScope.launch { c.settings.update { previous.second.apply(it, previous.first) } }
+        previousBubblePreset = null
+        bubblePresetMessage = "已恢复切换前的气泡。"
+    }
+    fun deleteBubblePreset(id: String) {
+        viewModelScope.launch { c.settings.update { it.copy(bubblePresets = it.bubblePresets.filter { preset -> preset.id != id }) } }
+    }
+    fun exportBubblePreset(id: String, open: () -> java.io.OutputStream?) {
+        if (bubblePresetBusy) return
+        bubblePresetBusy = true; bubblePresetMessage = null
+        viewModelScope.launch {
+            try {
+                val preset = settings.value.bubblePresets.find { it.id == id } ?: error("方案已删除。")
+                withContext(Dispatchers.IO) { val stream = open() ?: error("无法创建文件。")
+                    stream.use { com.cleo.cleos.data.BubblePackage(c.images).export(preset, it) } }
+                bubblePresetMessage = "气泡包已导出。"
+            } catch (e: Exception) { bubblePresetMessage = "导出失败：${e.message ?: "请重试"}" }
+            finally { bubblePresetBusy = false }
+        }
+    }
+    fun importBubblePreset(open: () -> java.io.InputStream?) {
+        if (bubblePresetBusy) return
+        if (settings.value.bubblePresets.size >= 50) { bubblePresetMessage = "最多保存 50 套方案，请先删除不用的方案。"; return }
+        bubblePresetBusy = true; bubblePresetMessage = null
+        viewModelScope.launch {
+            try {
+                val preset = withContext(Dispatchers.IO) { val stream = open() ?: error("无法打开文件。")
+                    stream.use { com.cleo.cleos.data.BubblePackage(c.images).import(it) } }
+                c.settings.update { it.copy(bubblePresets = it.bubblePresets + preset) }
+                bubblePresetMessage = "已导入「${preset.name}」，点使用即可切换。"
+            } catch (e: Exception) { bubblePresetMessage = "导入失败：${e.message ?: "文件无法读取"}" }
+            finally { bubblePresetBusy = false }
+        }
+    }
+
     fun setBubbleTheme(mine: Boolean, theme: String) {
         val id = companionId.toString()
         val chosen = com.cleo.cleos.ui.chat.BubbleThemes.valid(theme)
