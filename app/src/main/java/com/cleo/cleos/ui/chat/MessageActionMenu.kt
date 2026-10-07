@@ -1,6 +1,7 @@
 package com.cleo.cleos.ui.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,12 +16,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cleo.cleos.data.MessageReactions
-import com.cleo.cleos.glass.GlassShape
-import com.cleo.cleos.glass.GlassSurface
 import com.cleo.cleos.glass.LocalGlassPalette
 
 internal data class MessageMenuAction(val label: String, val run: () -> Unit)
@@ -32,7 +34,12 @@ internal fun MessageActionMenu(expanded: Boolean, onDismiss: () -> Unit, actions
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.width(272.dp),
         containerColor = Color.Transparent, tonalElevation = 0.dp, shadowElevation = 0.dp,
         shape = RoundedCornerShape(20.dp)) {
-        GlassSurface(shape = GlassShape.Rounded(20.dp), contentPadding = PaddingValues(8.dp)) {
+        // Popup is a separate layout root: never sample the page's Backdrop from this window.
+        val base = if (palette.content.luminance() < .5f) Color(0xFFFAF8F5) else Color(0xFF25272D)
+        val tint = palette.card.tint.copy(alpha = .22f).compositeOver(base)
+        Box(Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+            .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = .12f).compositeOver(tint), tint)))
+            .border(1.dp, palette.content.copy(alpha = .10f), RoundedCornerShape(20.dp)).padding(8.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 if (reactions != null) Row(Modifier.fillMaxWidth().padding(bottom = 3.dp)) {
                     MessageReactions.OFFERED.forEach { emoji ->
