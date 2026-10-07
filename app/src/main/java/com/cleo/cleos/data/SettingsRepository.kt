@@ -27,6 +27,8 @@ enum class GlassMode { Auto, Light, Dark }
  * avatar) lives in their CompanionEntity.
  */
 data class AppSettings(
+    val feedInterests: String = "",
+    val feedRssUrl: String = "",
     val userName: String = "",
     /** How many recent messages go to the model with each turn. */
     val historySize: Int = 40,
@@ -187,6 +189,8 @@ class SettingsRepository(private val context: Context) {
         val patVerb = stringPreferencesKey("pat_verb")
         val patSuffix = stringPreferencesKey("pat_suffix")
         val patBuzz = booleanPreferencesKey("pat_buzz")
+        val feedInterests = stringPreferencesKey("feed_interests")
+        val feedRssUrl = stringPreferencesKey("feed_rss_url")
         val myBubble = intPreferencesKey("my_bubble")
         val myBubbleTheme = stringPreferencesKey("my_bubble_theme")
         val bubblePaddingX = intPreferencesKey("bubble_padding_x")
@@ -229,6 +233,8 @@ class SettingsRepository(private val context: Context) {
             decodeVoices(this[Keys.speechVoices]),
         )
         return AppSettings(
+            feedInterests = this[Keys.feedInterests].orEmpty(),
+            feedRssUrl = this[Keys.feedRssUrl].orEmpty(),
             userName = this[Keys.userName] ?: d.userName,
             historySize = this[Keys.historySize] ?: d.historySize,
             wallpaper = this[Keys.wallpaper],
@@ -305,6 +311,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.patVerb] = next.patVerb
             prefs[Keys.patSuffix] = next.patSuffix
             prefs[Keys.patBuzz] = next.patBuzz
+            prefs[Keys.feedInterests] = next.feedInterests.take(300)
+            prefs[Keys.feedRssUrl] = next.feedRssUrl.take(2000)
             if (next.myBubble != null) prefs[Keys.myBubble] = next.myBubble else prefs.remove(Keys.myBubble)
             prefs[Keys.notificationsAsked] = next.notificationsAsked
             prefs[Keys.letterReply] = next.letterReply.key

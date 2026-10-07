@@ -1,6 +1,8 @@
 package com.cleo.cleos.ui.feed
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,13 +46,19 @@ fun FeedScreen(onBack: () -> Unit) {
     var deleting by remember { mutableStateOf<FeedPostEntity?>(null) }
     var draft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var running by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
+    var browsing by rememberSaveable { mutableStateOf(false) }
+    var chosenTa by rememberSaveable { mutableStateOf<Long?>(null) }
+    var withNews by rememberSaveable { mutableStateOf(false) }
+    var interests by rememberSaveable { mutableStateOf("") }
+    var rss by rememberSaveable { mutableStateOf("") }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     fun act(action: suspend () -> Unit) {
         if (busy) return
         busy = true
-        scope.launch {
+        running = scope.launch {
             try { action(); problem = null }
             catch (e: CancellationException) { throw e }
             catch (e: Exception) { problem = e.message ?: "操作没完成，请重试" }
@@ -69,6 +77,11 @@ fun FeedScreen(onBack: () -> Unit) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(!onlyCurrent, { onlyCurrent = false }, label = { Text("全部") })
                     FilterChip(onlyCurrent, { onlyCurrent = true }, label = { Text(current?.name?.ifBlank { "当前 TA" } ?: "当前 TA") })
+                }
+                TextButton({ chosenTa = current?.id; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true }, enabled = !busy && current != null) {
+                    Icon(Icons.Rounded.Explore, null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accent)
                 }
             }
             problem?.let { item { Text(it, color = palette.content, fontSize = 13.sp) } }
@@ -97,7 +110,7 @@ fun FeedScreen(onBack: () -> Unit) {
                                 Text(name, color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                                 Text(SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(Date(post.createdAt)), color = palette.content.copy(alpha = .55f), fontSize = 11.sp)
                             }
-                            if (post.authorId == 0L) IconButton({ deleting = post }, enabled = !busy, modifier = Modifier.size(32.dp)) {
+                            IconButton({ deleting = post }, enabled = !busy, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Rounded.DeleteOutline, "删除动态", tint = palette.content.copy(alpha = .5f), modifier = Modifier.size(18.dp))
                             }
                         }
@@ -115,6 +128,9 @@ fun FeedScreen(onBack: () -> Unit) {
                                 Icon(Icons.Rounded.ChatBubbleOutline, null, tint = palette.content, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(5.dp)); Text(if (comments.isEmpty()) "回复" else "回复 ${comments.size}", color = palette.content, fontSize = 13.sp)
                             }
+                            TextButton({ current?.let { ta -> act { c.feedAi.reply(post.id, ta.id) } } }, enabled = !busy && current != null) {
+                                Text("请 TA 回复", color = palette.accent, fontSize = 13.sp)
+                            }
                         }
                         if (comments.isNotEmpty()) {
                             HorizontalDivider(color = palette.content.copy(alpha = .1f))
@@ -126,6 +142,49 @@ fun FeedScreen(onBack: () -> Unit) {
                             if (comments.size > 3) TextButton({ expanded = !expanded }) { Text(if (expanded) "收起回复" else "查看全部回复", color = palette.accent) }
                         }
                     }
+                }
+            }
+        }
+    }
+    if (browsing) Dialog(onDismissRequest = { if (!busy) browsing = false }) {
+        GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
+            Column(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("让 TA 逛逛", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text("选一位 TA，分享一条自己的想法。每次会使用 TA 的模型。", color = palette.content.copy(alpha = .7f), fontSize = 13.sp)
+                Column {
+                    companions.forEach { ta ->
+                        Row(Modifier.fillMaxWidth().clickable(enabled = !busy) { chosenTa = ta.id }, verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(chosenTa == ta.id, { chosenTa = ta.id }, enabled = !busy)
+                            Text(ta.name.ifBlank { "TA" }, color = palette.content)
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    FilterChip(!withNews, { withNews = false }, label = { Text("日常灵感") }, enabled = !busy)
+                    Spacer(Modifier.width(8.dp))
+                    FilterChip(withNews, { withNews = true }, label = { Text("看看资讯") }, enabled = !busy)
+                }
+                OutlinedTextField(interests, { interests = it.take(300) }, label = { Text("兴趣提示（可留空）") },
+                    placeholder = { Text("例如科技、电影、猫；留空跟随角色设定") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
+                if (withNews) {
+                    Text("默认看 NASA 科学与太空资讯；也可以使用自己的 RSS 订阅。", color = palette.content.copy(alpha = .7f), fontSize = 13.sp)
+                    OutlinedTextField(rss, { rss = it.take(2000) }, label = { Text("RSS 地址（可留空）") }, placeholder = { Text("https://…") },
+                        enabled = !busy, modifier = Modifier.fillMaxWidth(), maxLines = 3)
+                }
+                problem?.let { Text(it, color = palette.content, fontSize = 12.sp) }
+                }
+                Row(Modifier.align(Alignment.End)) {
+                    TextButton({ running?.cancel(); browsing = false }, enabled = true) { Text(if (busy) "取消生成" else "取消", color = palette.content) }
+                    TextButton({
+                        val id = chosenTa; val news = withNews; val topic = interests.trim(); val address = rss.trim()
+                        if (id != null) act {
+                            require(!news || address.isBlank() || address.startsWith("https://")) { "RSS 地址请使用 https://" }
+                            c.settings.update { it.copy(feedInterests = topic, feedRssUrl = address) }
+                            c.feedAi.browse(id, news)
+                            browsing = false
+                        }
+                    }, enabled = !busy && chosenTa != null) { Text(if (busy) "TA 正在写…" else "去逛逛", color = palette.accent) }
                 }
             }
         }

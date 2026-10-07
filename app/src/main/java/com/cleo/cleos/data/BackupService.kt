@@ -36,6 +36,8 @@ import java.util.zip.ZipOutputStream
  */
 @Serializable
 data class BackupSettings(
+    val feedInterests: String = "",
+    val feedRssUrl: String = "",
     val apiBaseUrl: String,
     val apiModel: String,
     val aiName: String,
@@ -206,6 +208,8 @@ class BackupService(
                 apiModel = lead?.apiModel ?: ApiPresets.DeepSeek.defaultModel,
                 aiName = lead?.name.orEmpty(),
                 userName = s.userName,
+                feedInterests = s.feedInterests,
+                feedRssUrl = s.feedRssUrl,
                 persona = lead?.persona.orEmpty(),
                 historySize = s.historySize,
                 wallpaper = s.wallpaper,
@@ -391,6 +395,8 @@ class BackupService(
             settings.update {
                 it.copy(
                     userName = bs.userName,
+                    feedInterests = bs.feedInterests,
+                    feedRssUrl = bs.feedRssUrl,
                     historySize = bs.historySize,
                     wallpaper = bs.wallpaper?.takeIf { name -> images.file(name).exists() },
                     glassMode = runCatching { GlassMode.valueOf(bs.glassMode) }.getOrDefault(GlassMode.Auto),

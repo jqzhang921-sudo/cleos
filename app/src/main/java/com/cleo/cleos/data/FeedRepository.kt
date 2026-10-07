@@ -23,10 +23,10 @@ class FeedRepository(private val db: AppDatabase) {
     suspend fun like(id: Long) = db.withTransaction {
         db.feed().get(id)?.let { db.feed().update(it.copy(liked = !it.liked)) }
     }
-    suspend fun comment(id: Long, text: String) = db.withTransaction {
+    suspend fun comment(id: Long, text: String, authorId: Long = 0) = db.withTransaction {
         val content = FeedComments.text(text)
         val post = db.feed().get(id) ?: error("这条动态已删除")
-        val comments = FeedComments.decode(post.comments) + FeedComment(java.util.UUID.randomUUID().toString(), content = content, createdAt = System.currentTimeMillis())
+        val comments = FeedComments.decode(post.comments) + FeedComment(java.util.UUID.randomUUID().toString(), authorId = authorId, content = content, createdAt = System.currentTimeMillis())
         db.feed().update(post.copy(comments = FeedComments.encode(comments)))
     }
     suspend fun delete(id: Long) = db.feed().delete(id)
