@@ -669,6 +669,20 @@ fun ChatTab(
     val haptics = LocalHapticFeedback.current
     var editingPat by remember { mutableStateOf(false) }
     val buzz = state.patBuzz
+    // Baseline each conversation first: opening history must never buzz for old reactions.
+    var seenReactions by remember(state.conversationId) { mutableStateOf<Set<Pair<Long, String>>?>(null) }
+    LaunchedEffect(state.conversationId, state.messages, buzz, pageShown) {
+        val reactions = state.messages.filter { it.role == "user" }.flatMap { message ->
+            MessageReactions.decode(message.reactions).map { reaction ->
+                Triple(message.id, reaction.emoji, reaction.at)
+            }
+        }
+        val previous = seenReactions
+        if (previous != null && buzz && pageShown && reactions.any { (id, emoji, at) ->
+            (id to emoji) !in previous && System.currentTimeMillis() - at in 0L..5_000L
+        }) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        seenReactions = reactions.map { it.first to it.second }.toSet()
+    }
     // The TA patting back (pat_user): the phone buzzes once when its line has just come in. One from before
     // (the chat opened later) doesn't.
     val lastPat = state.messages.lastOrNull { it.role == "pat" }
