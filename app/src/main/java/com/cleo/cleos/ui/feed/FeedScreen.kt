@@ -1,6 +1,15 @@
 package com.cleo.cleos.ui.feed
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -57,6 +66,8 @@ fun FeedScreen(onBack: () -> Unit) {
     var withNews by rememberSaveable { mutableStateOf(false) }
     var interests by rememberSaveable { mutableStateOf("") }
     var rss by rememberSaveable { mutableStateOf("") }
+    var editingBio by rememberSaveable { mutableStateOf(false) }
+    var bio by rememberSaveable { mutableStateOf("") }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     fun act(action: suspend () -> Unit) {
@@ -69,14 +80,47 @@ fun FeedScreen(onBack: () -> Unit) {
             finally { busy = false }
         }
     }
+    val coverPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { picked ->
+        if (picked != null) act {
+            val image = c.images.import(picked, prefix = "feed_cover_")
+            c.settings.update { it.copy(feedCover = image.file) }
+        }
+    }
     GlassPage(overlay = { page ->
         GlassTopBar(title = if (topics) "话题" else "朋友圈", subtitle = if (topics) "发现与讨论" else "你和 TA 们的日常", backdrop = page,
             leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
             trailing = { GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy) })
     }) {
-        LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top + TopBarHeight),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = top + TopBarHeight + 12.dp, bottom = bottom + 24.dp),
+        GlassSurface(Modifier.fillMaxSize().padding(top = top + TopBarHeight + 12.dp), shape = GlassShape.Rounded(24.dp)) {
+        LazyColumn(Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item {
+                val ownName = settings.userName.ifBlank { "我" }
+                Column {
+                    Box(Modifier.fillMaxWidth().height(if (topics) 140.dp else 190.dp).clip(RoundedCornerShape(18.dp))
+                        .background(Brush.linearGradient(listOf(palette.accent.copy(alpha = .35f), palette.content.copy(alpha = .08f))))) {
+                        (settings.feedCover ?: settings.wallpaper)?.let { cover ->
+                            AsyncImage(c.images.file(cover), "主页封面", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                        }
+                        GlassButton({ coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                            LocalWallpaperBackdrop.current, modifier = Modifier.align(Alignment.TopEnd).padding(10.dp), enabled = !busy,
+                            contentPadding = PaddingValues(10.dp)) { Icon(Icons.Rounded.AddPhotoAlternate, "更换封面", modifier = Modifier.size(20.dp)) }
+                    }
+                    Row(Modifier.padding(start = 10.dp).offset(y = (-24).dp), verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Avatar(settings.userAvatar, avatarLetter(ownName, "我"), 64.dp)
+                        Text(ownName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(settings.feedBio.ifBlank { if (topics) "记录发现，交换想法。" else "一点日常，一些碎碎念。" },
+                            color = palette.content.copy(alpha = .7f), fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        IconButton({ bio = settings.feedBio; editingBio = true }, enabled = !busy) {
+                            Icon(Icons.Rounded.EditNote, "编辑简介", tint = palette.accent, modifier = Modifier.size(22.dp))
+                        }
+                    }
+                }
+            }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FeedChoice("朋友圈", !topics, !busy) { topics = false }
@@ -110,14 +154,12 @@ fun FeedScreen(onBack: () -> Unit) {
                 val name = if (post.authorId == 0L) settings.userName.ifBlank { "我" } else author?.name?.ifBlank { "TA" } ?: "TA"
                 val comments = remember(post.comments) { FeedComments.decode(post.comments) }
                 var expanded by remember(post.id) { mutableStateOf(false) }
-                GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (!topics) Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
+                    Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
                         if (post.authorId == 0L) avatarLetter(name, "我") else author?.avatarEmoji ?: avatarLetter(name, "TA"), 36.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (topics) 12.dp else 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (topics) Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
-                                if (post.authorId == 0L) avatarLetter(name, "我") else author?.avatarEmoji ?: avatarLetter(name, "TA"), 34.dp)
                             Column(Modifier.weight(1f)) {
                                 Text(name, color = if (topics) palette.content else palette.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                                 Text(SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(Date(post.createdAt)), color = palette.content.copy(alpha = .55f), fontSize = 11.sp)
@@ -155,6 +197,20 @@ fun FeedScreen(onBack: () -> Unit) {
                         }
                     }
                     }
+                    HorizontalDivider(Modifier.padding(top = 12.dp), color = palette.content.copy(alpha = .1f))
+                }
+            }
+        }
+        }
+    }
+    if (editingBio) Dialog(onDismissRequest = { if (!busy) editingBio = false }) {
+        GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("主页简介", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                OutlinedTextField(bio, { bio = it.take(120) }, modifier = Modifier.fillMaxWidth(), enabled = !busy, placeholder = { Text("写一点关于自己的话…") })
+                Row(Modifier.align(Alignment.End)) {
+                    TextButton({ editingBio = false }, enabled = !busy) { Text("取消") }
+                    TextButton({ val text = bio.trim(); act { c.settings.update { it.copy(feedBio = text) }; editingBio = false } }, enabled = !busy) { Text("保存") }
                 }
             }
         }

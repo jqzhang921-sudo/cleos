@@ -38,6 +38,8 @@ import java.util.zip.ZipOutputStream
 data class BackupSettings(
     val feedInterests: String = "",
     val feedRssUrl: String = "",
+    val feedCover: String? = null,
+    val feedBio: String = "",
     val apiBaseUrl: String,
     val apiModel: String,
     val aiName: String,
@@ -210,6 +212,8 @@ class BackupService(
                 userName = s.userName,
                 feedInterests = s.feedInterests,
                 feedRssUrl = s.feedRssUrl,
+                feedCover = s.feedCover,
+                feedBio = s.feedBio,
                 persona = lead?.persona.orEmpty(),
                 historySize = s.historySize,
                 wallpaper = s.wallpaper,
@@ -271,7 +275,7 @@ class BackupService(
             data.messages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +
             companions.mapNotNull { it.avatar } +
             stickerFiles +
-            s.bubblePresets.flatMap { it.decoration.imageFiles() } + s.bubbleDecoration.components.mapNotNull { it.image } + listOfNotNull(s.wallpaper, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
+            s.bubblePresets.flatMap { it.decoration.imageFiles() } + s.bubbleDecoration.components.mapNotNull { it.image } + listOfNotNull(s.wallpaper, s.feedCover, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
 
         var written = 0
         var voices = 0
@@ -397,6 +401,8 @@ class BackupService(
                     userName = bs.userName,
                     feedInterests = bs.feedInterests,
                     feedRssUrl = bs.feedRssUrl,
+                    feedCover = bs.feedCover?.takeIf { images.file(it).exists() },
+                    feedBio = bs.feedBio.take(120),
                     historySize = bs.historySize,
                     wallpaper = bs.wallpaper?.takeIf { name -> images.file(name).exists() },
                     glassMode = runCatching { GlassMode.valueOf(bs.glassMode) }.getOrDefault(GlassMode.Auto),
