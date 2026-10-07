@@ -17,6 +17,12 @@ object MessageReactions {
     /** What the long-press menu offers: faces phones have drawn for years, so none shows as a box. */
     val OFFERED = listOf("❤️", "😘", "😂", "🥺", "😭", "👍", "🤗")
 
+    val ALL = (OFFERED + listOf("😼", "😻", "😹", "🐱", "🐰", "🐶", "👀", "🙈", "🙉", "🙊",
+        "😊", "🥰", "😍", "😎", "🤔", "😮", "😱", "🤯", "😴", "🤤", "🥲", "😅", "🤣", "🙃",
+        "😏", "😤", "😡", "🤡", "👻", "💀", "👎", "👏", "🙌", "🙏", "👌", "✌️", "🤝", "💪",
+        "💋", "💔", "💕", "💖", "💯", "🔥", "✨", "🎉", "🎂", "🌹", "🌸", "🍀", "🌙", "☀️",
+        "🌈", "⭐", "☕", "🍵", "🍓", "🍰", "🫶", "🫂", "🫡", "🫠")).distinct()
+
     fun encode(list: List<MessageReaction>): String? = if (list.isEmpty()) null else json.encodeToString(list)
 
     fun decode(raw: String?): List<MessageReaction> =

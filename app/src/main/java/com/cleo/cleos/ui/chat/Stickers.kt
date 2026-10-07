@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -38,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import com.cleo.cleos.ui.common.Avatar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.RememberObserver
 import androidx.compose.runtime.compositionLocalOf
@@ -214,15 +216,21 @@ private class MovingPainter(private val drawable: AnimatedImageDrawable) : Paint
 
 /** The emoji on a TA's message, under it; a tap opens the menu they are changed in. */
 @Composable
-fun ReactionChips(reactions: List<MessageReaction>, onClick: () -> Unit) {
+fun ReactionChips(reactions: List<MessageReaction>, avatar: String?, letter: String, onClick: () -> Unit) {
     val palette = LocalGlassPalette.current
-    GlassSurface(
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    reactions.forEach { reaction -> GlassSurface(
         modifier = Modifier.clickable(interactionSource = null, indication = null, onClick = onClick),
         style = palette.notice,
         shape = GlassShape.Capsule,
-        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 3.dp),
+        contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp),
     ) {
-        Text(reactions.joinToString(" ") { it.emoji }, fontSize = 15.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(reaction.emoji, fontSize = 18.sp)
+            Avatar(avatar, letter, 20.dp)
+        }
+    }
+    }
     }
 }
 

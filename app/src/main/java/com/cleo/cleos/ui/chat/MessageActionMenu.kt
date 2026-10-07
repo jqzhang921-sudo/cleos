@@ -11,6 +11,12 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +35,7 @@ internal data class MessageMenuAction(val label: String, val run: () -> Unit)
 internal fun MessageActionMenu(expanded: Boolean, onDismiss: () -> Unit, actions: List<MessageMenuAction>,
     reactions: Set<String>?, onReact: (String) -> Unit) {
     val palette = LocalGlassPalette.current
+    var more by remember(expanded) { mutableStateOf(false) }
     DropdownMenu(expanded = expanded, onDismissRequest = onDismiss, modifier = Modifier.width(272.dp),
         containerColor = Color.Transparent, tonalElevation = 0.dp, shadowElevation = 0.dp,
         shape = RoundedCornerShape(20.dp)) {
@@ -36,12 +43,33 @@ internal fun MessageActionMenu(expanded: Boolean, onDismiss: () -> Unit, actions
             contentPadding = PaddingValues(8.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 if (reactions != null) Row(Modifier.fillMaxWidth().padding(bottom = 3.dp)) {
-                    MessageReactions.OFFERED.forEach { emoji ->
+                    MessageReactions.OFFERED.take(6).forEach { emoji ->
                         Box(Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(12.dp))
                             .background(if (emoji in reactions) palette.accent.copy(alpha = .18f) else Color.Transparent)
                             .clickable { onDismiss(); onReact(emoji) }, contentAlignment = Alignment.Center) {
                             Text(emoji, fontSize = 21.sp)
                         }
+                    }
+                    Box(Modifier.weight(1f).height(38.dp).clip(RoundedCornerShape(12.dp))
+                        .clickable { more = !more }, contentAlignment = Alignment.Center) {
+                        Icon(if (more) Icons.Rounded.ExpandLess else Icons.Rounded.Add,
+                            if (more) "收起表情" else "更多表情", tint = palette.content, modifier = Modifier.size(22.dp))
+                    }
+                }
+                if (more && reactions != null) {
+                    Text("点选回应 · 再点取消", color = palette.content.copy(alpha = .65f), fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp))
+                    Column(Modifier.fillMaxWidth().height(200.dp).verticalScroll(rememberScrollState())) {
+                        MessageReactions.ALL.chunked(6).forEach { emojis -> Row {
+                        emojis.forEach { emoji ->
+                            Box(Modifier.weight(1f).height(42.dp).clip(RoundedCornerShape(12.dp))
+                                .background(if (emoji in reactions) palette.accent.copy(alpha = .18f) else Color.Transparent)
+                                .clickable { onDismiss(); onReact(emoji) }, contentAlignment = Alignment.Center) {
+                                Text(emoji, fontSize = 24.sp)
+                            }
+                        }
+                        repeat(6 - emojis.size) { Spacer(Modifier.weight(1f)) }
+                        } }
                     }
                 }
                 actions.chunked(2).forEach { pair ->

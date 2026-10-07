@@ -1036,6 +1036,8 @@ fun ChatTab(
                                         Box(Modifier.weight(1f)) {
                                     MessageBubble(
                                         message = m,
+                                        reactionAvatar = state.userAvatar,
+                                        reactionLetter = avatarLetter(state.userName, "我"),
                                         showFace = row.showFace,
                                         canRetry = row.isLast && !state.replying,
                                         onRetry = { vm.retry(m.id) },
@@ -1285,6 +1287,8 @@ private fun RecapDialog(aiName: String, recap: String?, onSave: (String) -> Unit
 @Composable
 private fun MessageBubble(
     message: MessageEntity,
+    reactionAvatar: String?,
+    reactionLetter: String,
     showFace: Boolean,
     canRetry: Boolean,
     onRetry: () -> Unit,
@@ -1384,7 +1388,7 @@ private fun MessageBubble(
                     }
                     // The message this one answers, under it like in WeChat; a tap finds it.
                     if (quote != null) QuoteBox(quote, onOpenQuote)
-                    if (reactions.isNotEmpty()) ReactionChips(reactions) { menu = true }
+                    if (reactions.isNotEmpty()) ReactionChips(reactions, reactionAvatar, reactionLetter) { menu = true }
                 }
                 val actions = buildList {
                     if (words.isNotBlank()) add(MessageMenuAction("复制") {
