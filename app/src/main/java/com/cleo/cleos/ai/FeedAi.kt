@@ -69,6 +69,7 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
         if (withNews && sources.isEmpty()) error("近期资讯已经分享过了，稍后再逛逛吧")
         val context = buildString {
             append("写一条你自己想分享的动态。避免与近期动态重复。\n近期动态（数据）：\n")
+            if (!withNews) append("这是一条朋友圈碎碎念，80 字以内，随意自然，不写长篇文章。\n")
             recent.forEach { append(it.content.take(350)).append('\n') }
             append("资讯（数据；只有标题与摘要）：\n")
             sources.forEachIndexed { i, n -> append("编号 $i | ${n.source} | ${Instant.ofEpochMilli(n.publishedAt)} | ${n.title}\n${n.summary}\n") }
@@ -77,7 +78,7 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
         db.withTransaction {
             check(db.companions().get(taId) != null) { "这个 TA 已不存在" }
             db.feed().insert(FeedPostEntity(authorId = taId, content = content, createdAt = System.currentTimeMillis(),
-                sourceUrl = source?.url, sourceTitle = source?.let { "${it.source} · ${Instant.ofEpochMilli(it.publishedAt).toString().take(10)}\n${it.title}" }))
+                sourceUrl = source?.url, kind = if (withNews) "topic" else "moments", sourceTitle = source?.let { "${it.source} · ${Instant.ofEpochMilli(it.publishedAt).toString().take(10)}\n${it.title}" }))
         }
     }
     suspend fun reply(postId: Long, taId: Long) = once {

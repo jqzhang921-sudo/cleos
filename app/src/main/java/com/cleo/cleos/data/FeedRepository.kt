@@ -19,7 +19,7 @@ object FeedComments {
 
 class FeedRepository(private val db: AppDatabase) {
     val posts = db.feed().observe()
-    suspend fun publish(text: String): Long = db.feed().insert(FeedPostEntity(content = FeedComments.text(text), createdAt = System.currentTimeMillis()))
+    suspend fun publish(text: String, topic: Boolean = false): Long = db.feed().insert(FeedPostEntity(content = FeedComments.text(text), createdAt = System.currentTimeMillis(), kind = if (topic) "topic" else "moments"))
     suspend fun like(id: Long) = db.withTransaction {
         db.feed().get(id)?.let { db.feed().update(it.copy(liked = !it.liked)) }
     }

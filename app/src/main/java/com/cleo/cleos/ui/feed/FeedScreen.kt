@@ -22,6 +22,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cleo.cleos.data.*
 import com.cleo.cleos.data.db.FeedPostEntity
+import com.cleo.cleos.data.db.isTopic
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.*
 import kotlinx.coroutines.launch
@@ -29,8 +30,10 @@ import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun FeedScreen(onBack: () -> Unit) {
     val c = appContainer()
     val palette = LocalGlassPalette.current
@@ -41,6 +44,7 @@ fun FeedScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
     var onlyCurrent by rememberSaveable { mutableStateOf(false) }
+    var topics by rememberSaveable { mutableStateOf(false) }
     var composing by rememberSaveable { mutableStateOf(false) }
     var commenting by rememberSaveable { mutableStateOf<Long?>(null) }
     var deleting by remember { mutableStateOf<FeedPostEntity?>(null) }
@@ -66,7 +70,7 @@ fun FeedScreen(onBack: () -> Unit) {
         }
     }
     GlassPage(overlay = { page ->
-        GlassTopBar(title = "动态", subtitle = "你和 TA 们的小广场", backdrop = page,
+        GlassTopBar(title = if (topics) "话题" else "朋友圈", subtitle = if (topics) "发现与讨论" else "你和 TA 们的日常", backdrop = page,
             leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
             trailing = { GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy) })
     }) {
@@ -75,23 +79,28 @@ fun FeedScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(!onlyCurrent, { onlyCurrent = false }, label = { Text("全部") })
-                    FilterChip(onlyCurrent, { onlyCurrent = true }, label = { Text(current?.name?.ifBlank { "当前 TA" } ?: "当前 TA") })
+                    FeedChoice("朋友圈", !topics, !busy) { topics = false }
+                    FeedChoice("话题", topics, !busy) { topics = true }
                 }
-                TextButton({ chosenTa = current?.id; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true }, enabled = !busy && current != null) {
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FeedChoice("全部", !onlyCurrent) { onlyCurrent = false }
+                    FeedChoice(current?.name?.ifBlank { "当前 TA" } ?: "当前 TA", onlyCurrent) { onlyCurrent = true }
+                }
+                TextButton({ chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true }, enabled = !busy && current != null) {
                     Icon(Icons.Rounded.Explore, null, tint = palette.accent, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accent)
                 }
             }
             problem?.let { item { Text(it, color = palette.content, fontSize = 13.sp) } }
-            val visible = posts.filter { !onlyCurrent || it.authorId == 0L || it.authorId == current?.id }
+            val visible = posts.filter { it.isTopic == topics && (!onlyCurrent || it.authorId == 0L || it.authorId == current?.id) }
             if (visible.isEmpty()) item {
                 GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Icon(Icons.Rounded.DynamicFeed, null, tint = palette.accent, modifier = Modifier.size(30.dp))
-                        Text("今天想分享什么？", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                        Text("一个发现、一句想法，或者想一起聊的话题。", color = palette.content.copy(alpha = .7f), fontSize = 14.sp)
+                        Text(if (topics) "有什么新发现？" else "今天想说点什么？", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                        Text(if (topics) "分享资讯与观点，留下一起讨论的话题。" else "随手记一句，让彼此的日常在这里碰面。", color = palette.content.copy(alpha = .7f), fontSize = 14.sp)
                         TextButton({ draft = ""; composing = true }) { Text("发第一条动态", color = palette.accent) }
                     }
                 }
@@ -102,12 +111,15 @@ fun FeedScreen(onBack: () -> Unit) {
                 val comments = remember(post.comments) { FeedComments.decode(post.comments) }
                 var expanded by remember(post.id) { mutableStateOf(false) }
                 GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (!topics) Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
+                        if (post.authorId == 0L) avatarLetter(name, "我") else author?.avatarEmoji ?: avatarLetter(name, "TA"), 36.dp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (topics) 12.dp else 8.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
+                            if (topics) Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
                                 if (post.authorId == 0L) avatarLetter(name, "我") else author?.avatarEmoji ?: avatarLetter(name, "TA"), 34.dp)
                             Column(Modifier.weight(1f)) {
-                                Text(name, color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                                Text(name, color = if (topics) palette.content else palette.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                                 Text(SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(Date(post.createdAt)), color = palette.content.copy(alpha = .55f), fontSize = 11.sp)
                             }
                             IconButton({ deleting = post }, enabled = !busy, modifier = Modifier.size(32.dp)) {
@@ -119,7 +131,7 @@ fun FeedScreen(onBack: () -> Unit) {
                             Text(post.sourceTitle ?: "查看来源", color = palette.accent, fontSize = 12.sp,
                                 modifier = Modifier.clickable { runCatching { uri.openUri(link) }.onFailure { problem = "无法打开来源" } })
                         }
-                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                             TextButton({ act { c.feed.like(post.id) } }, enabled = !busy) {
                                 Icon(if (post.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null, tint = palette.accent, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(5.dp)); Text(if (post.liked) "已喜欢" else "喜欢", color = palette.content, fontSize = 13.sp)
@@ -129,7 +141,7 @@ fun FeedScreen(onBack: () -> Unit) {
                                 Spacer(Modifier.width(5.dp)); Text(if (comments.isEmpty()) "回复" else "回复 ${comments.size}", color = palette.content, fontSize = 13.sp)
                             }
                             TextButton({ current?.let { ta -> act { c.feedAi.reply(post.id, ta.id) } } }, enabled = !busy && current != null) {
-                                Text("请 TA 回复", color = palette.accent, fontSize = 13.sp)
+                                Text("请${current?.name?.ifBlank { "TA" } ?: "TA"}回复", color = palette.accent, fontSize = 13.sp)
                             }
                         }
                         if (comments.isNotEmpty()) {
@@ -142,6 +154,7 @@ fun FeedScreen(onBack: () -> Unit) {
                             if (comments.size > 3) TextButton({ expanded = !expanded }) { Text(if (expanded) "收起回复" else "查看全部回复", color = palette.accent) }
                         }
                     }
+                    }
                 }
             }
         }
@@ -150,7 +163,7 @@ fun FeedScreen(onBack: () -> Unit) {
         GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
             Column(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("让 TA 逛逛", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (withNews) "让 TA 看看资讯" else "让 TA 说点日常", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Text("选一位 TA，分享一条自己的想法。每次会使用 TA 的模型。", color = palette.content.copy(alpha = .7f), fontSize = 13.sp)
                 Column {
                     companions.forEach { ta ->
@@ -159,11 +172,6 @@ fun FeedScreen(onBack: () -> Unit) {
                             Text(ta.name.ifBlank { "TA" }, color = palette.content)
                         }
                     }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    FilterChip(!withNews, { withNews = false }, label = { Text("日常灵感") }, enabled = !busy)
-                    Spacer(Modifier.width(8.dp))
-                    FilterChip(withNews, { withNews = true }, label = { Text("看看资讯") }, enabled = !busy)
                 }
                 OutlinedTextField(interests, { interests = it.take(300) }, label = { Text("兴趣提示（可留空）") },
                     placeholder = { Text("例如科技、电影、猫；留空跟随角色设定") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
@@ -192,7 +200,7 @@ fun FeedScreen(onBack: () -> Unit) {
     if (composing || commenting != null) Dialog(onDismissRequest = { if (!busy) { composing = false; commenting = null } }) {
         GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Text(if (composing) "发动态" else "回复动态", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (composing) { if (topics) "发话题" else "发朋友圈" } else "回复动态", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 OutlinedTextField(draft, { draft = it.take(4000) }, modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp, max = 260.dp), enabled = !busy,
                     placeholder = { Text("分享你的想法…") })
                 problem?.let { Text(it, color = palette.content, fontSize = 12.sp) }
@@ -201,7 +209,7 @@ fun FeedScreen(onBack: () -> Unit) {
                     TextButton({
                         val id = commenting; val text = draft
                         act {
-                            if (id == null) c.feed.publish(text) else c.feed.comment(id, text)
+                            if (id == null) c.feed.publish(text, topics) else c.feed.comment(id, text)
                             composing = false; commenting = null; draft = ""
                         }
                     }, enabled = !busy && draft.isNotBlank()) { Text(if (busy) "保存中…" else "发布", color = palette.accent) }
@@ -213,4 +221,17 @@ fun FeedScreen(onBack: () -> Unit) {
         text = { Text("这条动态和下面的回复会一起删除。") },
         confirmButton = { TextButton({ act { c.feed.delete(post.id); deleting = null } }, enabled = !busy) { Text("删除") } },
         dismissButton = { TextButton({ deleting = null }) { Text("取消") } }) }
+}
+
+@Composable
+private fun FeedChoice(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    val palette = LocalGlassPalette.current
+    GlassButton(onClick, LocalWallpaperBackdrop.current, style = palette.chrome,
+        enabled = enabled, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+            if (selected) Icon(Icons.Rounded.Check, null, modifier = Modifier.size(16.dp), tint = palette.accent)
+            Text(label, color = if (selected) palette.accent else palette.content, fontSize = 14.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }

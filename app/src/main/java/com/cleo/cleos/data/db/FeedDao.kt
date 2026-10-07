@@ -15,7 +15,11 @@ data class FeedPostEntity(
     val comments: String? = null,
     val sourceUrl: String? = null,
     val sourceTitle: String? = null,
+    @ColumnInfo(defaultValue = "'moments'") val kind: String = "moments",
 )
+
+/** Older sourced posts belong to topics even before the explicit category existed. */
+val FeedPostEntity.isTopic: Boolean get() = kind == "topic" || sourceUrl != null
 
 @Dao
 interface FeedDao {
