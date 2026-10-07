@@ -97,6 +97,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -443,7 +444,9 @@ fun ChatTab(
     var readingCall by remember { mutableStateOf<Long?>(null) }
     // The "tool" row whose call is open: what was asked of the tool, and what it answered.
     var readingTool by remember { mutableStateOf<Long?>(null) }
-    var editingMessage by remember(state.conversationId) { mutableStateOf<MessageEntity?>(null) }
+    var editingMessage by remember { mutableStateOf<MessageEntity?>(null) }
+    var editSaving by remember { mutableStateOf(false) }
+    var editProblem by remember { mutableStateOf<String?>(null) }
     val askMicForCall = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.call() else voiceHint = "要给 Cleos 用话筒的权限，才能打电话"
     }
@@ -623,6 +626,15 @@ fun ChatTab(
     val density = LocalDensity.current
     val listState = rememberLazyListState()
     var input by rememberSaveable { mutableStateOf("") }
+    var beforeEditInput by rememberSaveable { mutableStateOf("") }
+    fun cancelEditing() {
+        input = beforeEditInput
+        editingMessage = null
+        editProblem = null
+    }
+    LaunchedEffect(state.conversationId) {
+        if (!editSaving && editingMessage?.conversationId?.let { it != state.conversationId } == true) cancelEditing()
+    }
     var diaryRequestId by rememberSaveable(state.conversationId) { mutableStateOf<Long?>(null) }
     val secretDraft by c.chat.secretDraft.collectAsStateWithLifecycle()
     var inputHeight by remember { mutableIntStateOf(0) }
@@ -713,9 +725,14 @@ fun ChatTab(
 
     val scope = rememberCoroutineScope()
     val inputFocus = remember { FocusRequester() }
-    LaunchedEffect(secretDraft, state.conversationId, pageShown) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(editingMessage?.id) {
+        if (editingMessage != null) { withFrameNanos { }; inputFocus.requestFocus(); keyboard?.show() }
+    }
+    BackHandler(enabled = editingMessage != null && !editSaving && pageShown) { cancelEditing() }
+    LaunchedEffect(secretDraft, state.conversationId, pageShown, editingMessage?.id) {
         val draft = secretDraft ?: return@LaunchedEffect
-        if (!pageShown || state.conversationId != draft.conversationId) return@LaunchedEffect
+        if (!pageShown || editingMessage != null || state.conversationId != draft.conversationId) return@LaunchedEffect
         input = if (input.isBlank()) draft.text else input.trimEnd() + "\n" + draft.text
         diaryRequestId = draft.diaryId
         drawerOpen = false
@@ -723,7 +740,6 @@ fun ChatTab(
         c.chat.secretDraft.compareAndSet(draft, null)
         inputFocus.requestFocus()
     }
-    val keyboard = LocalSoftwareKeyboardController.current
     // The message a quote was tapped to find, lit up for a moment.
     var flashed by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(flashed) {
@@ -853,17 +869,29 @@ fun ChatTab(
                 backdrop = page,
                 type = chatType,
                 text = input,
-                onTextChange = { input = it; if (it.isBlank()) diaryRequestId = null },
-                attachments = vm.attachments,
-                attaching = vm.attaching,
+                onTextChange = { input = it; editProblem = null; if (it.isBlank() && editingMessage == null) diaryRequestId = null },
+                attachments = editingMessage?.let { MessageImages.decode(it.images) } ?: vm.attachments,
+                attaching = editingMessage == null && vm.attaching,
                 onPick = { pickingAttachment = true; vm.typing(true, processingMedia = true); picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onRemove = vm::detach,
-                quote = if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
+                quote = if (editingMessage != null) MessageQuotes.decode(editingMessage?.quote)?.let { quoteLabel(it) }
+                    else if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
                 onDropQuote = { diaryRequestId = null; vm.unquote() },
                 focus = inputFocus,
-                busy = state.replying,
+                busy = state.replying || editSaving,
+                editing = editingMessage != null,
+                editHint = editProblem ?: if (editSaving) "正在修改…" else "正在编辑 · 发送后从这里重新回答",
+                onCancelEdit = { if (!editSaving) cancelEditing() },
+                sendEnabled = !editSaving && (editingMessage?.let { input.isNotBlank() && input.trim() != it.content && !state.replying && state.hasApiKey } ?: true),
                 onSend = {
-                    if (vm.send(input, diaryRequestId)) {
+                    val original = editingMessage
+                    if (original != null) {
+                        editSaving = true
+                        vm.editMessage(original, input) { problem ->
+                            editSaving = false
+                            if (problem == null) { cancelEditing(); sentCount++ } else editProblem = problem
+                        }
+                    } else if (vm.send(input, diaryRequestId)) {
                         diaryRequestId = null
                         input = ""
                         sentCount++
@@ -1012,7 +1040,10 @@ fun ChatTab(
                                         canRetry = row.isLast && !state.replying,
                                         onRetry = { vm.retry(m.id) },
                                         onDelete = { vm.delete(m.id) },
-                                        onEdit = if (!state.replying && MessageEdits.eligible(m)) ({ editingMessage = m }) else null,
+                                        onEdit = if (!state.replying && !editSaving && MessageEdits.eligible(m)) ({
+                                            if (editingMessage == null) beforeEditInput = input
+                                            editingMessage = m; input = m.content; editProblem = null; drawerOpen = false
+                                        }) else null,
                                         onOpenImage = onOpenImage,
                                         transcribing = m.id in state.transcribing,
                                         expandVoiceText = appSettings.expandVoiceText,
@@ -1066,12 +1097,6 @@ fun ChatTab(
                 )
             }
         }
-    }
-
-    editingMessage?.let { original ->
-        EditMessageDialog(original, state.replying, state.hasApiKey,
-            onDismiss = { editingMessage = null },
-            onSave = { text, result -> vm.editMessage(original, text, result) })
     }
 
     if (askVoiceSetup) {
@@ -1361,58 +1386,23 @@ private fun MessageBubble(
                     if (quote != null) QuoteBox(quote, onOpenQuote)
                     if (reactions.isNotEmpty()) ReactionChips(reactions) { menu = true }
                 }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    // Only on what the TA said: the person reacts to it, and the TA hears of it.
-                    if (!mine && message.error == null) {
-                        ReactionPicker(on = remember(reactions) { reactions.map { it.emoji }.toSet() }) { emoji ->
-                            menu = false
-                            onReact(emoji)
-                        }
-                    }
-                    if (words.isNotBlank()) {
-                        DropdownMenuItem(text = { Text("复制") }, onClick = {
-                            menu = false
-                            scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", words))) }
-                        })
-                    }
-                    if (onEdit != null) DropdownMenuItem(text = { Text("编辑") }, onClick = { menu = false; onEdit() })
-                    // The TA's words, read aloud in its voice; a voice message is already a sound.
-                    if (!mine && message.error == null && audio == null && words.isNotBlank()) {
-                        DropdownMenuItem(
-                            text = { Text(if (playingFile == readingMark(message.id)) "停止朗读" else "朗读") },
-                            onClick = {
-                                menu = false
-                                onRead(words)
-                            },
-                        )
-                    }
-                    if (message.error == null && MessageQuotes.of(message) != null) {
-                        DropdownMenuItem(text = { Text("引用") }, onClick = {
-                            menu = false
-                            onQuote()
-                        })
-                    }
-                    if (audio != null && message.content.isBlank() && !transcribing) {
-                        DropdownMenuItem(text = { Text("重新转文字") }, onClick = {
-                            menu = false
-                            onRetryVoice()
-                        })
-                    }
-                    if (!mine && canRetry) {
-                        DropdownMenuItem(text = { Text("重新回答") }, onClick = {
-                            menu = false
-                            onRetry()
-                        })
-                    }
-                    if (FavoriteContent.eligible(message)) {
-                        DropdownMenuItem(text = { Text("收藏") }, onClick = { menu = false; onFavorite() })
-                        DropdownMenuItem(text = { Text("多选") }, onClick = { menu = false; onSelect() })
-                    }
-                    DropdownMenuItem(text = { Text("删除") }, onClick = {
-                        menu = false
-                        onDelete()
+                val actions = buildList {
+                    if (words.isNotBlank()) add(MessageMenuAction("复制") {
+                        scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", words))) }
                     })
+                    onEdit?.let { add(MessageMenuAction("编辑", it)) }
+                    if (!mine && message.error == null && audio == null && words.isNotBlank())
+                        add(MessageMenuAction(if (playingFile == readingMark(message.id)) "停止朗读" else "朗读") { onRead(words) })
+                    if (message.error == null && MessageQuotes.of(message) != null) add(MessageMenuAction("引用", onQuote))
+                    if (audio != null && message.content.isBlank() && !transcribing) add(MessageMenuAction("重新转文字", onRetryVoice))
+                    if (!mine && canRetry) add(MessageMenuAction("重新回答", onRetry))
+                    if (FavoriteContent.eligible(message)) {
+                        add(MessageMenuAction("收藏", onFavorite)); add(MessageMenuAction("多选", onSelect))
+                    }
+                    add(MessageMenuAction("删除", onDelete))
                 }
+                MessageActionMenu(menu, { menu = false }, actions,
+                    if (!mine && message.error == null) reactions.map { it.emoji }.toSet() else null, onReact)
             }
             val error = message.error
             if (error != null) {
@@ -2253,6 +2243,10 @@ private fun ChatInputBar(
     busy: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    editing: Boolean = false,
+    editHint: String = "",
+    onCancelEdit: () -> Unit = {},
+    sendEnabled: Boolean = true,
     recording: Boolean = false,
     onVoiceStart: () -> Boolean = { false },
     onVoiceMove: (Boolean) -> Unit = {},
@@ -2273,6 +2267,14 @@ private fun ChatInputBar(
             .heightIn(min = BarHeight)
             .liquidGlass(backdrop, palette.input, GlassShape.Rounded(BarHeight / 2)),
     ) {
+        if (editing) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(editHint, color = palette.contentSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 2)
+                Box(Modifier.size(36.dp).clip(CircleShape).clickable(onClick = onCancelEdit), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.Close, "取消编辑", tint = palette.contentSecondary, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
         // The stickers, in the same glass as the rest, where the keyboard would otherwise be.
         if (drawerOpen) drawer()
         if (quote != null) {
@@ -2296,7 +2298,7 @@ private fun ChatInputBar(
                     Modifier
                         .size(28.dp)
                         .clip(CircleShape)
-                        .clickable(onClick = onDropQuote),
+                        .clickable(enabled = !editing, onClick = onDropQuote),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "不引用了", tint = palette.contentSecondary, modifier = Modifier.size(16.dp))
@@ -2310,7 +2312,7 @@ private fun ChatInputBar(
                     .padding(start = 10.dp, end = 10.dp, top = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                attachments.forEach { img -> AttachmentThumb(c.images.file(img.file)) { onRemove(img) } }
+                attachments.forEach { img -> AttachmentThumb(c.images.file(img.file), if (editing) null else ({ onRemove(img) })) }
                 if (attaching) {
                     Box(Modifier.size(64.dp).background(palette.content.copy(alpha = 0.08f), RoundedCornerShape(14.dp)))
                 }
@@ -2326,7 +2328,7 @@ private fun ChatInputBar(
                     Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .clickable(enabled = attachments.size < MAX_ATTACHMENTS, onClick = onPick),
+                        .clickable(enabled = !editing && attachments.size < MAX_ATTACHMENTS, onClick = onPick),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = "发图片", tint = palette.contentSecondary, modifier = Modifier.size(24.dp))
@@ -2344,6 +2346,7 @@ private fun ChatInputBar(
                 }
                 BasicTextField(
                     value = text,
+                    readOnly = editing && busy,
                     onValueChange = onTextChange,
                     textStyle = type.body.copy(color = palette.content),
                     cursorBrush = SolidColor(palette.accentContent),
@@ -2364,7 +2367,7 @@ private fun ChatInputBar(
                         .size(36.dp)
                         .clip(CircleShape)
                         .background(if (drawerOpen) palette.content.copy(alpha = 0.1f) else Color.Transparent)
-                        .clickable(onClick = onDrawer),
+                        .clickable(enabled = !editing, onClick = onDrawer),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -2378,24 +2381,24 @@ private fun ChatInputBar(
             Box(Modifier.size(BarHeight), contentAlignment = Alignment.Center) {
                 // Plain fills inside the glass, like the chips on a card: glass in glass reads as a hole.
                 val button = Modifier.size(38.dp).clip(CircleShape)
-                if (busy && !canSend) {
+                if (busy && !canSend && !editing) {
                     Box(
                         button.background(palette.content.copy(alpha = 0.1f)).clickable(onClick = onStop),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = palette.content, modifier = Modifier.size(20.dp))
                     }
-                } else if (!canSend) {
+                } else if (!canSend && !editing) {
                     // Nothing typed: the button is for talking instead.
                     MicButton(button, recording, onVoiceStart, onVoiceMove, onVoiceEnd)
                 } else {
                     Box(
                         button
-                            .background(palette.accent)
-                            .clickable(onClick = onSend),
+                            .background(palette.accent.copy(alpha = if (sendEnabled && canSend) 1f else 0.35f))
+                            .clickable(enabled = sendEnabled && canSend, onClick = onSend),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Rounded.ArrowUpward, contentDescription = "发送", tint = Color.White, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Rounded.ArrowUpward, contentDescription = if (editing) "修改并重新回答" else "发送", tint = Color.White, modifier = Modifier.size(22.dp))
                     }
                 }
             }
@@ -2404,7 +2407,7 @@ private fun ChatInputBar(
 }
 
 @Composable
-private fun AttachmentThumb(file: File, onRemove: () -> Unit) {
+private fun AttachmentThumb(file: File, onRemove: (() -> Unit)?) {
     Box(Modifier.size(64.dp)) {
         AsyncImage(
             model = file,
@@ -2412,7 +2415,7 @@ private fun AttachmentThumb(file: File, onRemove: () -> Unit) {
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)),
         )
-        Box(
+        if (onRemove != null) Box(
             Modifier
                 .align(Alignment.TopEnd)
                 .padding(3.dp)
