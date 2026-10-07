@@ -63,7 +63,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Warning
-import androidx.compose.material.icons.rounded.AddComment
+import androidx.compose.material.icons.rounded.DynamicFeed
 import androidx.compose.material.icons.rounded.AddPhotoAlternate
 import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AutoAwesome
@@ -353,6 +353,7 @@ fun ChatTab(
     onOpenSettings: () -> Unit,
     onOpenSettingsPage: (SettingsPage) -> Unit,
     onOpenConversations: () -> Unit,
+    onOpenFeed: () -> Unit,
     onOpenImage: (String) -> Unit,
 ) {
     val vm = appViewModel { ChatViewModel(it) }
@@ -820,7 +821,7 @@ fun ChatTab(
                 },
                 trailing = {
                     if (!selecting) GlassIconButton(Icons.Rounded.Call, "打电话", { startCall() }, page)
-                    if (!selecting) GlassIconButton(Icons.Rounded.AddComment, "新对话", vm::newConversation, page)
+                    if (!selecting) GlassIconButton(Icons.Rounded.DynamicFeed, "动态", onOpenFeed, page)
                 },
                 onTitleClick = { if (!selecting) switching = true },
                 titleMenu = {

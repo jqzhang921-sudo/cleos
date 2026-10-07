@@ -38,6 +38,9 @@ import kotlinx.serialization.Serializable
 @Serializable
 object MainRoute
 
+@Serializable
+object FeedRoute
+
 /** [page]: a SettingsPage's name to open straight on, null for the list of them. */
 @Serializable
 data class SettingsRoute(val page: String? = null)
@@ -156,6 +159,7 @@ fun CleosNavHost() {
                 onOpenSettings = { nav.go(SettingsRoute()) },
                 onOpenSettingsPage = { nav.go(SettingsRoute(it.name)) },
                 onOpenConversations = { nav.go(ConversationsRoute) },
+                onOpenFeed = { nav.go(FeedRoute) },
                 onOpenDiaryEntry = { id, secret -> nav.go(DiaryRoute(id, secret)) },
                 onOpenImage = { nav.go(ImageRoute(it)) },
                 onOpenLetters = { nav.go(LettersRoute) },
@@ -163,6 +167,7 @@ fun CleosNavHost() {
                 onOpenFavorites = { nav.go(FavoritesRoute) },
             )
         }
+        composable<FeedRoute> { com.cleo.cleos.ui.feed.FeedScreen(onBack = nav::back) }
         composable<LettersRoute> { LettersScreen(onBack = nav::back, onOpen = { nav.go(LetterRoute(it)) }) }
         composable<LetterRoute> { entry -> LetterScreen(entry.toRoute<LetterRoute>().id, onBack = nav::back) }
         composable<FavoritesRoute> {

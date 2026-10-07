@@ -86,6 +86,7 @@ fun MainScreen(
     onOpenSettings: () -> Unit,
     onOpenSettingsPage: (SettingsPage) -> Unit,
     onOpenConversations: () -> Unit,
+    onOpenFeed: () -> Unit,
     onOpenDiaryEntry: (id: Long, secret: Boolean) -> Unit,
     onOpenImage: (String) -> Unit,
     onOpenLetters: () -> Unit,
@@ -195,7 +196,7 @@ fun MainScreen(
                 ) {
                     holder.SaveableStateProvider(index) {
                         when (index) {
-                            0 -> ChatTab(bottomInset, onOpenSettings, onOpenSettingsPage, onOpenConversations, onOpenImage)
+                            0 -> ChatTab(bottomInset, onOpenSettings, onOpenSettingsPage, onOpenConversations, onOpenFeed, onOpenImage)
                             1 -> DiaryTab(bottomInset, onOpenDiaryEntry)
                             2 -> TodoTab(bottomInset)
                             else -> HomeTab(bottomInset, onOpenSettings, onOpenLetters, onOpenMemory, onOpenFavorites)

@@ -84,6 +84,7 @@ class AppContainer(context: Context) {
 
     val db: AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "cleos.db").build()
     val settings = SettingsRepository(context)
+    val feed = com.cleo.cleos.data.FeedRepository(db)
     val secrets = SecretStore(context)
     val images = ImageStore(context)
 

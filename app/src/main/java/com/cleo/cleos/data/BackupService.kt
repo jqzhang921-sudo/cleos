@@ -110,6 +110,7 @@ data class BackupFile(
     val favorites: List<FavoriteEntity> = emptyList(),
     /** Absent in backups from before a TA had 设定 (a world book brought over from elsewhere). */
     val lore: List<LoreEntity> = emptyList(),
+    val feedPosts: List<com.cleo.cleos.data.db.FeedPostEntity> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "cleos-backup"
@@ -129,13 +130,15 @@ data class BackupSummary(
     val stickers: Int = 0,
     val favorites: Int = 0,
     val lore: Int = 0,
+    val feedPosts: Int = 0,
 ) {
     override fun toString() =
         "$tas 个 TA、$conversations 段对话（$messages 条消息）、$diary 篇日记、$letters 封信、$todos 条待办、$images 张图" +
             (if (voices > 0) "、$voices 段语音" else "") +
             (if (stickers > 0) "、$stickers 个表情包" else "") +
             (if (favorites > 0) "、$favorites 条收藏" else "") +
-            (if (lore > 0) "、$lore 条设定" else "")
+            (if (lore > 0) "、$lore 条设定" else "") +
+            (if (feedPosts > 0) "、$feedPosts 条动态" else "")
 }
 
 /** Recordings are named voice_…, among the pictures (VoiceRecorder). */
@@ -254,6 +257,7 @@ class BackupService(
             stickers = db.stickers().all(),
             favorites = db.favorites().all(),
             lore = db.lore().all(),
+            feedPosts = db.feed().all(),
         )
         val stickerFiles = data.stickers.map { it.file }.toSet()
         val favoriteFiles = data.favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) }
@@ -287,7 +291,7 @@ class BackupService(
         }
         return BackupSummary(
             companions.size, data.conversations.size, data.messages.size, data.diary.size, data.letters.size, data.todos.size,
-            written, voices, stickers, data.favorites.size, data.lore.size,
+            written, voices, stickers, data.favorites.size, data.lore.size, data.feedPosts.size,
         )
     }
 
@@ -367,6 +371,7 @@ class BackupService(
                 db.letters().clear()
                 db.memories().clear()
                 db.lore().clear()
+                db.feed().clear()
                 db.stickers().clear()
                 db.companions().clear()
                 db.companions().insertAll(companions)
@@ -377,6 +382,7 @@ class BackupService(
                 db.letters().insertAll(d.letters)
                 db.memories().insertAll(d.memories)
                 db.lore().insertAll(d.lore)
+                db.feed().insertAll(d.feedPosts)
                 db.stickers().insertAll(stickers)
                 db.favorites().insertAll(d.favorites)
             }
@@ -429,7 +435,7 @@ class BackupService(
                 companions.size, d.conversations.size, d.messages.size, d.diary.size, d.letters.size, d.todos.size,
                 pictures.count { !it.name.startsWith(VOICE_PREFIX) && it.name !in stickers.map { s -> s.file }.toSet() },
                 voices = pictures.count { it.name.startsWith(VOICE_PREFIX) },
-                stickers = stickers.size, favorites = d.favorites.size, lore = d.lore.size,
+                stickers = stickers.size, favorites = d.favorites.size, lore = d.lore.size, feedPosts = d.feedPosts.size,
             )
         } finally {
             staging.deleteRecursively()

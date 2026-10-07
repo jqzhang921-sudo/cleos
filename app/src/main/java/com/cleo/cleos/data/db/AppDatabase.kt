@@ -27,8 +27,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteEntity::class,
         LoreEntity::class,
         FreeTopicStateEntity::class,
+        FeedPostEntity::class,
     ],
-    version = 25,
+    version = 26,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -75,9 +76,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 22, to = 23),
         AutoMigration(from = 23, to = 24),
         AutoMigration(from = 24, to = 25),
+        AutoMigration(from = 25, to = 26),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun feed(): FeedDao
     abstract fun freeTopics(): FreeTopicDao
     abstract fun companions(): CompanionDao
     abstract fun conversations(): ConversationDao
