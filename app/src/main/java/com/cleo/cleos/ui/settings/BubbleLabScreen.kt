@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import com.cleo.cleos.data.BubbleDecoration
+import com.cleo.cleos.data.moveBubbleAnchor
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,6 +45,7 @@ fun BubbleLabScreen(onBack: () -> Unit) {
     var x by remember(settings.bubblePaddingX) { mutableFloatStateOf(settings.bubblePaddingX.toFloat()) }
     var y by remember(settings.bubblePaddingY) { mutableFloatStateOf(settings.bubblePaddingY.toFloat()) }
     var decor by remember(settings.bubbleDecoration) { mutableStateOf(settings.bubbleDecoration) }
+    var bodyWidth by remember { mutableFloatStateOf(0f) }
     val chosen = BubbleThemes.valid(if (mine) settings.myBubbleTheme else settings.taBubbleThemes[vm.companionId.toString()] ?: "glass")
     val backgroundKey = BubbleBackground.key(mine, vm.companionId, chosen)
     val savedBackground = settings.bubbleBackgrounds[backgroundKey]
@@ -73,19 +75,25 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                     contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
                     ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen, x.roundToInt(), y.roundToInt(), decor, background,
                         selectedComponent = selectedComponent,
+                        onBodyWidth = { bodyWidth = it },
                         onComponentSelect = { selectedComponent = it; decorationDetails = true },
                         onComponentDrag = { id, dx, dy ->
                             selectedComponent = id
                             decor = decor.copy(components = decor.components.map { item ->
-                                if (item.id != id) item else item.copy(offsetX = item.offsetX + dx.roundToInt(),
-                                    distance = item.distance + (if (item.corner.startsWith("b")) dy else -dy).roundToInt()).normalized()
+                                if (item.id != id) item else {
+                                    val anchor = moveBubbleAnchor(if (item.corner == "auto") "tl" else item.corner, item.offsetX, bodyWidth, item.size, dx)
+                                    item.copy(corner = anchor.first, offsetX = anchor.second,
+                                        distance = item.distance + (if (item.corner.startsWith("b")) dy else -dy).roundToInt()).normalized()
+                                }
                             })
                         },
                         onDecorationDrag = { face, dx, dy ->
                             val actual = decor.resolvedCorner(face, chosen)
                             val outward = if (actual.startsWith("t")) -dy else dy
-                            decor = (if (face) decor.copy(faceOffsetX = decor.faceOffsetX + dx.roundToInt(), faceDistance = decor.faceDistance + outward.roundToInt())
-                                else decor.copy(starOffsetX = decor.starOffsetX + dx.roundToInt(), starDistance = decor.starDistance + outward.roundToInt())).normalized()
+                            val anchor = moveBubbleAnchor(actual, if (face) decor.faceOffsetX else decor.starOffsetX,
+                                bodyWidth, if (face) decor.faceSize else decor.starSize, dx)
+                            decor = (if (face) decor.copy(faceCorner = anchor.first, faceOffsetX = anchor.second, faceDistance = decor.faceDistance + outward.roundToInt())
+                                else decor.copy(starCorner = anchor.first, starOffsetX = anchor.second, starDistance = decor.starDistance + outward.roundToInt())).normalized()
                         }, onDecorationDragEnd = { vm.setBubbleDecoration(decor) }) { ink ->
                         if (sample == "voice") Text("▶  8 秒", color = ink, fontSize = 15.sp)
                         else Text(if (sample == "long") "刚刚想起一件小事，想慢慢讲给你听。你在的话，我会很开心。" else "你在呀。",

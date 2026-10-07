@@ -103,7 +103,7 @@ internal fun BubbleComponentsEditor(value: BubbleDecoration, selected: String?, 
         Slider(item.size.toFloat().coerceIn(minSize, maxSize), { onChange(updated(item.copy(size = it.roundToInt()))) }, valueRange = minSize..maxSize,
             onValueChangeFinished = { onSave(value) })
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("auto" to "跟随主题", "tl" to "左上", "tr" to "右上", "bl" to "左下", "br" to "右下").forEach { (id, name) -> Chip(name, item.corner == id) { commit(item.copy(corner = id)) } }
+            listOf("auto" to "跟随主题", "tl" to "左上", "tr" to "右上", "bl" to "左下", "br" to "右下").forEach { (id, name) -> Chip(name, item.corner == id) { commit(item.copy(corner = id, offsetX = 0)) } }
         }
         Chip(if (fine) "收起精细调整" else "精细调整", fine) { fine = !fine }
         if (fine) {

@@ -70,6 +70,7 @@ fun ChatBubbleSurface(
     onComponentDrag: ((String, Float, Float) -> Unit)? = null,
     selectedComponent: String? = null,
     onDecorationDragEnd: (() -> Unit)? = null,
+    onBodyWidth: ((Float) -> Unit)? = null,
     content: @Composable (Color) -> Unit,
 ) {
     val palette = LocalGlassPalette.current
@@ -175,7 +176,7 @@ fun ChatBubbleSurface(
     val extraLeft = extra.filter { extraCorner(it.corner).endsWith("l") }.maxOfOrNull { -it.offsetX.coerceIn(-24, 0) } ?: 0
     val extraRight = extra.filter { extraCorner(it.corner).endsWith("r") }.maxOfOrNull { it.offsetX.coerceIn(0, 24) } ?: 0
     Box(modifier.padding(top = maxOf(extraTop, if (faceShown && faceCorner.startsWith("t")) raised else 4f, if (customStar && starCorner.startsWith("t")) starRaised else 0f).dp,
-        bottom = maxOf(extraBottom, if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) starRaised else 0f).dp, start = maxOf(outerLeft, extraLeft).dp, end = maxOf(outerRight, extraRight).dp).onSizeChanged { bodyWidth = it.width / density.density }) {
+        bottom = maxOf(extraBottom, if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) starRaised else 0f).dp, start = maxOf(outerLeft, extraLeft).dp, end = maxOf(outerRight, extraRight).dp).onSizeChanged { bodyWidth = it.width / density.density; onBodyWidth?.invoke(bodyWidth) }) {
         if ((id == "clear" || id == "glass") && background == null) {
             GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
                 contentPadding = padding) { content(ink) }
