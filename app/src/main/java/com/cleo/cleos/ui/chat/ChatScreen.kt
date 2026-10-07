@@ -2046,31 +2046,38 @@ private const val TOOL_STACK_MAX = 3
 /** A tool call opened from its line in the chat: what was asked of the tool, and what it answered, to read and copy. */
 @Composable
 private fun ToolDetailDialog(detail: ToolDetail, onDismiss: () -> Unit, onDelete: () -> Unit, onSelect: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("调用工具: ${detail.name}") },
-        text = {
-            Column(
-                Modifier
-                    .heightIn(max = 460.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                val privateDiary = (detail.name == "write_diary" &&
-                    com.cleo.cleos.ai.ToolArgs.parse(detail.arguments)?.let { com.cleo.cleos.ai.ToolArgs.bool(it, "secret") } == true) ||
-                    (detail.name == "read_diary" && detail.result.contains("【私密日记 #"))
-                if (privateDiary) Text("这里包含 TA 留给自己的小秘密，请在日记页询问 TA 是否愿意分享。")
-                else {
-                    if (detail.arguments.isNotBlank()) ToolDetailBlock("参数", detail.arguments)
-                    ToolDetailBlock("结果", detail.result.ifBlank { "（空）" })
+    val palette = LocalGlassPalette.current
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        GlassSurface(
+            modifier = Modifier.fillMaxWidth(),
+            style = palette.card,
+            shape = GlassShape.Rounded(28.dp),
+            contentPadding = PaddingValues(20.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("调用工具: ${detail.name}", color = palette.content, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                Column(
+                    Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    val privateDiary = (detail.name == "write_diary" &&
+                        com.cleo.cleos.ai.ToolArgs.parse(detail.arguments)?.let { com.cleo.cleos.ai.ToolArgs.bool(it, "secret") } == true) ||
+                        (detail.name == "read_diary" && detail.result.contains("【私密日记 #"))
+                    if (privateDiary) Text("这里包含 TA 留给自己的小秘密，请在日记页询问 TA 是否愿意分享。", color = palette.contentSecondary)
+                    else {
+                        if (detail.arguments.isNotBlank()) ToolDetailBlock("参数", detail.arguments)
+                        ToolDetailBlock("结果", detail.result.ifBlank { "（空）" })
+                    }
+                }
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onSelect) { Text("多选") }
+                    TextButton(onClick = onDelete) { Text("删除") }
+                    TextButton(onClick = onDismiss) { Text("关上") }
                 }
             }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关上") } },
-        dismissButton = { Row { TextButton(onClick = onSelect) { Text("多选") }; TextButton(onClick = onDelete) { Text("删除") } } },
-    )
+        }
+    }
 }
-
 /** One labelled piece of text with a copy button; long ones are cut on screen, and copied whole. */
 @Composable
 private fun ToolDetailBlock(label: String, text: String) {
@@ -2085,6 +2092,7 @@ private fun ToolDetailBlock(label: String, text: String) {
     SelectionContainer {
         Text(
             shown,
+            color = palette.content,
             fontSize = 12.sp,
             lineHeight = 18.sp,
             fontFamily = FontFamily.Monospace,
