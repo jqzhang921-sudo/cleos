@@ -446,6 +446,20 @@ class ChatRepository(
         }
     }
 
+    suspend fun reactBack(conversationId: Long, messageId: Long, emoji: String, remove: Boolean) {
+        reacting.withLock {
+            db.withTransaction {
+                val message = db.messages().get(messageId)
+                    ?.takeIf { it.conversationId == conversationId && it.role == "user" }
+                    ?: throw ToolFailure("只能回应当前聊天中对方的消息，请检查编号。", "")
+                val old = MessageReactions.decode(message.reactions)
+                val next = if (remove) old.filterNot { it.emoji == emoji }
+                    else if (old.any { it.emoji == emoji }) old else old + com.cleo.cleos.data.MessageReaction(emoji, stamp())
+                db.messages().setReactions(messageId, MessageReactions.encode(next))
+            }
+        }
+    }
+
     private val patting = Mutex()
 
     /**
@@ -1118,7 +1132,12 @@ class ChatRepository(
                         val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, outside, ta.name)
                         // Only messages sent: that was the whole reply. Asking again would bring
                         // nothing new, or a "发好了".
-                        if (step.message.toolCalls.all { it.name in ToolSpecs.speaking }) {
+                        val reactionOnly = step.message.toolCalls.all { call ->
+                            call.name == ToolSpecs.reactMessage.name &&
+                                ToolArgs.parse(call.arguments)?.let { ToolArgs.bool(it, "finish") } == true &&
+                                results.any { it.toolCallId == call.id && it.content == "表情回应已完成。" }
+                        }
+                        if (step.message.toolCalls.all { it.name in ToolSpecs.speaking } || reactionOnly) {
                             done()
                             hide(conversationId)
                             return

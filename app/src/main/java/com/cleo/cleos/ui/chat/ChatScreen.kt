@@ -1036,8 +1036,8 @@ fun ChatTab(
                                         Box(Modifier.weight(1f)) {
                                     MessageBubble(
                                         message = m,
-                                        reactionAvatar = state.userAvatar,
-                                        reactionLetter = avatarLetter(state.userName, "我"),
+                                        reactionAvatar = if (m.role == "user") state.aiAvatar else state.userAvatar,
+                                        reactionLetter = if (m.role == "user") state.aiAvatarEmoji ?: avatarLetter(state.aiName, "TA") else avatarLetter(state.userName, "我"),
                                         showFace = row.showFace,
                                         canRetry = row.isLast && !state.replying,
                                         onRetry = { vm.retry(m.id) },

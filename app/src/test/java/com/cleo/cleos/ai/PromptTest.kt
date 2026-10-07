@@ -83,7 +83,7 @@ class PromptTest {
             now,
         )
         assertEquals(listOf("system", "user", "assistant", "user"), out.map { it.role })
-        assertEquals("早", out[1].content)
+        assertEquals("（消息编号 #1）\n早", out[1].content)
         assertTrue(out[3].content.startsWith("（现在是2026年9月22日 星期二 21:05）"))
         assertTrue(out[3].content.endsWith("今天好累"))
     }
@@ -118,7 +118,7 @@ class PromptTest {
             setOf(ToolGroup.Music),
             listening = song,
         )
-        assertEquals("（现在是2026年9月22日 星期二 21:05）\n$song\n这首好好听", out.last().content)
+        assertEquals("（现在是2026年9月22日 星期二 21:05）\n$song\n（消息编号 #1）\n这首好好听", out.last().content)
         // Not in the system prompt, which stays the same from turn to turn; the rule is.
         assertFalse(out.first().content.contains("晴天"))
         assertTrue(out.first().content.contains("music_control"))

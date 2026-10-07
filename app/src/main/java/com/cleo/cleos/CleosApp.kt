@@ -121,6 +121,7 @@ class AppContainer(context: Context) {
         calendar = calendar,
         music = music,
         patBack = { id, suffix -> chat.patBack(id, suffix) },
+        reactBack = { conversation, message, emoji, remove -> chat.reactBack(conversation, message, emoji, remove) },
     )
     val recaps = Recaps(db, settings, secrets, chatClient, appScope)
     val mcp = McpHub(

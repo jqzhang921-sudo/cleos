@@ -65,7 +65,7 @@ class ImagesTest {
         val users = out.filter { it.role == "user" }
         // 6 + 4,5 fit in MAX_IMAGES (4); the three older ones would not, so they are named only.
         assertEquals(emptyList<String>(), users[0].images)
-        assertTrue(users[0].content.startsWith("（早先发的 3 张图"))
+        assertTrue(users[0].content.startsWith("（消息编号 #1）\n（早先发的 3 张图"))
         assertEquals(listOf("4.jpg", "5.jpg"), users[1].images)
         assertEquals(listOf("6.jpg"), users[2].images)
     }

@@ -98,9 +98,9 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
 
     ListCard("聊天时") {
         ExplainedSwitch(
-            "分几条发",
-            "想分开说时，一条一条地发",
-            "想分开说的时候，TA 会一条一条地发，每条一个气泡。模型没这么做时，照常是一个气泡。",
+            "分条消息与表情回应",
+            "分开发消息，也能给你的消息贴表情",
+            "TA 可以分成几条消息说，也能偶尔给你的消息贴表情，或者只用一个表情回应。关掉后这两项能力都停用。",
             on(ToolGroup.Messages),
         ) { vm.setTool(ToolGroup.Messages, it) }
         RowDivider(inset = 0.dp)

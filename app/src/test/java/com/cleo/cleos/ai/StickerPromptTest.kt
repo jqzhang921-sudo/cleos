@@ -59,7 +59,7 @@ class StickerPromptTest {
             msg(3, "user", "好看吗"),
         )
         val out = Prompt.messages(AppSettings(), ta, history, now)
-        assertEquals("在吗", out[1].content)
+        assertEquals("（消息编号 #1）\n在吗", out[1].content)
         assertTrue(out[3].content.endsWith("（对方给你说的「在呀，今天去看海了，风好大」贴了 ❤️ 😂）\n好看吗"))
     }
 

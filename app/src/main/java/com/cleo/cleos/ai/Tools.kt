@@ -375,7 +375,14 @@ object ToolSpecs {
     )
 
     /** Tools that leave no trace in the chat, neither a line nor "在…" while they run. */
-    val quiet = setOf(noteForLater.name, patUser.name)
+    val reactMessage = ToolSpec(
+        name = "react_message", groups = setOf(ToolGroup.Messages), action = "贴表情",
+        description = "给对方消息贴一个表情。message_id 来自对方消息前的编号，只能回应当前聊天的用户消息。自然地偶尔使用，别每条都贴。贴完可继续说话；只用表情回应设 finish=true。重复贴不会取消，取消用 remove=true。",
+        parameters = schema(required = listOf("message_id", "emoji"),
+            "message_id" to prop("integer", "对方消息编号"), "emoji" to prop("string", "一个 emoji 表情"),
+            "remove" to prop("boolean", "取消，默认 false"), "finish" to prop("boolean", "只用表情回应，默认 false")),
+    )
+    val quiet = setOf(noteForLater.name, patUser.name, reactMessage.name)
 
     val setAlarm = ToolSpec(
         name = "set_alarm",
@@ -493,6 +500,7 @@ object ToolSpecs {
         deleteEvent,
         musicControl,
         patUser,
+        reactMessage,
     )
     val byName = all.associateBy { it.name }
 
@@ -572,6 +580,7 @@ class ToolBox(
     private val music: MusicSource? = null,
     /** Leaves a pat from the TA in a conversation (pat_user); the chat shows it, so the tool has no line of its own. */
     private val patBack: suspend (conversationId: Long, suffix: String) -> Unit = { _, _ -> },
+    private val reactBack: suspend (Long, Long, String, Boolean) -> Unit = { _, _, _, _ -> error("表情回应不可用") },
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
 ) {
@@ -626,6 +635,14 @@ class ToolBox(
                 ToolSpecs.deleteEvent.name -> deleteEvent(args, today)
                 ToolSpecs.musicControl.name -> musicControl(args)
                 ToolSpecs.patUser.name -> patUser(args, conversationId)
+                ToolSpecs.reactMessage.name -> {
+                    val id = (args["message_id"] as? JsonPrimitive)?.longOrNull ?: throw ToolFailure("需要合法消息编号。", "")
+                    val emoji = ToolArgs.text(args, "emoji").orEmpty().trim()
+                    if (emoji !in com.cleo.cleos.data.MessageReactions.ALL)
+                        throw ToolFailure("支持的表情：" + com.cleo.cleos.data.MessageReactions.ALL.joinToString(" "), "")
+                    reactBack(conversationId, id, emoji, ToolArgs.bool(args, "remove") == true)
+                    ToolOutcome("表情回应已完成。", "")
+                }
                 else -> getWeather(args, settings)
             }
         } catch (f: ToolFailure) {
