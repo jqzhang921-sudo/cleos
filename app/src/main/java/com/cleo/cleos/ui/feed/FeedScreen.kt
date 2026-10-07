@@ -68,6 +68,8 @@ fun FeedScreen(onBack: () -> Unit) {
     var rss by rememberSaveable { mutableStateOf("") }
     var editingBio by rememberSaveable { mutableStateOf(false) }
     var bio by rememberSaveable { mutableStateOf("") }
+    var options by rememberSaveable { mutableStateOf(false) }
+    var previewCover by rememberSaveable { mutableStateOf(false) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     fun act(action: suspend () -> Unit) {
@@ -87,54 +89,31 @@ fun FeedScreen(onBack: () -> Unit) {
         }
     }
     GlassPage(overlay = { page ->
-        GlassTopBar(title = if (topics) "话题" else "朋友圈", subtitle = if (topics) "发现与讨论" else "你和 TA 们的日常", backdrop = page,
+        GlassTopBar(title = if (topics) "话题" else "朋友圈", backdrop = page,
             leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
-            trailing = { GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy) })
+            trailing = { GlassIconButton(Icons.Rounded.MoreHoriz, "动态选项", { options = true }, page); GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy) })
     }) {
-        GlassSurface(Modifier.fillMaxSize().padding(top = top + TopBarHeight + 12.dp), shape = GlassShape.Rounded(24.dp)) {
+        Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = bottom + 24.dp),
+            contentPadding = PaddingValues(bottom = bottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 val ownName = settings.userName.ifBlank { "我" }
                 Column {
-                    Box(Modifier.fillMaxWidth().height(if (topics) 140.dp else 190.dp).clip(RoundedCornerShape(18.dp))
-                        .background(Brush.linearGradient(listOf(palette.accent.copy(alpha = .35f), palette.content.copy(alpha = .08f))))) {
+                    Box(Modifier.fillMaxWidth().height(top + 300.dp)
+                        .background(Brush.linearGradient(listOf(palette.accent.copy(alpha = .35f), palette.content.copy(alpha = .08f)))).clickable(enabled = !busy) { previewCover = true }) {
                         (settings.feedCover ?: settings.wallpaper)?.let { cover ->
                             AsyncImage(c.images.file(cover), "主页封面", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         }
-                        GlassButton({ coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                            LocalWallpaperBackdrop.current, modifier = Modifier.align(Alignment.TopEnd).padding(10.dp), enabled = !busy,
-                            contentPadding = PaddingValues(10.dp)) { Icon(Icons.Rounded.AddPhotoAlternate, "更换封面", modifier = Modifier.size(20.dp)) }
                     }
-                    Row(Modifier.padding(start = 10.dp).offset(y = (-24).dp), verticalAlignment = Alignment.Bottom,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp).offset(y = (-28).dp), verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.End) {
+                        Text(ownName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 14.dp, bottom = 8.dp))
                         Avatar(settings.userAvatar, avatarLetter(ownName, "我"), 64.dp)
-                        Text(ownName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
                     }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(settings.feedBio.ifBlank { if (topics) "记录发现，交换想法。" else "一点日常，一些碎碎念。" },
-                            color = palette.content.copy(alpha = .7f), fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        IconButton({ bio = settings.feedBio; editingBio = true }, enabled = !busy) {
-                            Icon(Icons.Rounded.EditNote, "编辑简介", tint = palette.accent, modifier = Modifier.size(22.dp))
-                        }
-                    }
-                }
-            }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FeedChoice("朋友圈", !topics, !busy) { topics = false }
-                    FeedChoice("话题", topics, !busy) { topics = true }
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FeedChoice("全部", !onlyCurrent) { onlyCurrent = false }
-                    FeedChoice(current?.name?.ifBlank { "当前 TA" } ?: "当前 TA", onlyCurrent) { onlyCurrent = true }
-                }
-                TextButton({ chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true }, enabled = !busy && current != null) {
-                    Icon(Icons.Rounded.Explore, null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accent)
+                    if (settings.feedBio.isNotBlank()) Text(settings.feedBio, color = palette.content.copy(alpha = .7f), fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 24.dp).clickable { bio = settings.feedBio; editingBio = true })
+                    if (busy) Text("TA 正在写…", color = palette.accent, modifier = Modifier.padding(horizontal = 24.dp))
                 }
             }
             problem?.let { item { Text(it, color = palette.content, fontSize = 13.sp) } }
@@ -154,6 +133,7 @@ fun FeedScreen(onBack: () -> Unit) {
                 val name = if (post.authorId == 0L) settings.userName.ifBlank { "我" } else author?.name?.ifBlank { "TA" } ?: "TA"
                 val comments = remember(post.comments) { FeedComments.decode(post.comments) }
                 var expanded by remember(post.id) { mutableStateOf(false) }
+                GlassSurface(Modifier.fillMaxWidth().padding(horizontal = 12.dp), contentPadding = PaddingValues(16.dp)) {
                 Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
@@ -199,8 +179,48 @@ fun FeedScreen(onBack: () -> Unit) {
                     }
                     HorizontalDivider(Modifier.padding(top = 12.dp), color = palette.content.copy(alpha = .1f))
                 }
+                }
             }
         }
+        }
+    }
+    if (options) Dialog(onDismissRequest = { options = false }) {
+        GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("动态选项", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FeedChoice("朋友圈", !topics, !busy) { topics = false; options = false }
+                    FeedChoice("话题", topics, !busy) { topics = true; options = false }
+                }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FeedChoice("全部", !onlyCurrent) { onlyCurrent = false; options = false }
+                    FeedChoice(current?.name?.ifBlank { "当前 TA" } ?: "当前 TA", onlyCurrent) { onlyCurrent = true; options = false }
+                }
+                TextButton({ options = false; chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true }, enabled = !busy && current != null) {
+                    Icon(Icons.Rounded.Explore, null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accent)
+                }
+                TextButton({ options = false; bio = settings.feedBio; editingBio = true }, enabled = !busy) { Text("编辑主页简介") }
+                TextButton({ options = false; previewCover = true }, enabled = !busy) { Text("查看与更换封面") }
+                TextButton({ options = false }, modifier = Modifier.align(Alignment.End)) { Text("关闭") }
+            }
+        }
+    }
+    if (previewCover) Dialog(onDismissRequest = { previewCover = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.Black)) {
+            (settings.feedCover ?: settings.wallpaper)?.let { cover ->
+                AsyncImage(c.images.file(cover), "封面预览", Modifier.fillMaxWidth().height(520.dp), contentScale = ContentScale.Fit)
+            }
+            IconButton({ previewCover = false }, modifier = Modifier.align(Alignment.TopStart)) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回", tint = androidx.compose.ui.graphics.Color.White)
+            }
+            TextButton({ previewCover = false; coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                enabled = !busy, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
+                Icon(Icons.Rounded.Image, null, tint = androidx.compose.ui.graphics.Color.White)
+                Spacer(Modifier.width(8.dp)); Text("换封面", color = androidx.compose.ui.graphics.Color.White)
+            }
         }
     }
     if (editingBio) Dialog(onDismissRequest = { if (!busy) editingBio = false }) {
