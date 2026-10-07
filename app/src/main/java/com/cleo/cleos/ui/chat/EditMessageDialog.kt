@@ -10,15 +10,15 @@ import com.cleo.cleos.data.db.MessageEntity
 
 @Composable
 internal fun EditMessageDialog(message: MessageEntity, replying: Boolean, hasKey: Boolean,
-    onDismiss: () -> Unit, onSave: (String, Boolean, (String?) -> Unit) -> Unit) {
+    onDismiss: () -> Unit, onSave: (String, (String?) -> Unit) -> Unit) {
     var text by rememberSaveable(message.id) { mutableStateOf(message.content) }
     var saving by remember(message.id) { mutableStateOf(false) }
     var error by remember(message.id) { mutableStateOf<String?>(null) }
     val dismiss by rememberUpdatedState(onDismiss)
     val changed = text.isNotBlank() && text.trim() != message.content
-    fun save(resend: Boolean) {
+    fun save() {
         saving = true; error = null
-        onSave(text, resend) { problem ->
+        onSave(text) { problem ->
             saving = false
             if (problem == null) dismiss() else error = problem
         }
@@ -29,7 +29,8 @@ internal fun EditMessageDialog(message: MessageEntity, replying: Boolean, hasKey
                 OutlinedTextField(text, { text = it; error = null }, enabled = !saving,
                     modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp), minLines = 3,
                     label = { Text("消息内容") })
-                Text("保存会修改原消息，保留后面的聊天。保存并另发会再发送一条修改后的消息。")
+                Text("修改后，TA 会从这条消息重新回答。后面的旧聊天不带入新回复；原聊天保存在左上角「对话记录」的「修改前」记录中。")
+                if (!hasKey) Text("请先配置模型服务，才能重新回答。")
                 if (message.images != null || message.quote != null) Text("原来的图片和引用会保留。")
                 if (replying && !saving) Text("正在回复，稍后可保存。")
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -37,8 +38,7 @@ internal fun EditMessageDialog(message: MessageEntity, replying: Boolean, hasKey
         },
         confirmButton = {
             Row {
-                TextButton(enabled = changed && !saving && !replying, onClick = { save(false) }) { Text(if (saving) "保存中…" else "保存") }
-                TextButton(enabled = changed && !saving && !replying && hasKey, onClick = { save(true) }) { Text("保存并另发") }
+                TextButton(enabled = changed && !saving && !replying && hasKey, onClick = { save() }) { Text(if (saving) "处理中…" else "修改并重新回答") }
             }
         }, dismissButton = { TextButton(enabled = !saving, onClick = onDismiss) { Text("取消") } })
 }

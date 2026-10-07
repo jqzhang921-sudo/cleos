@@ -292,9 +292,12 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
         conversationId.value?.let { c.chat.retry(it, messageId) }
     }
 
-    fun editMessage(message: MessageEntity, text: String, resend: Boolean, done: (String?) -> Unit) {
+    fun editMessage(message: MessageEntity, text: String, done: (String?) -> Unit) {
         if (conversationId.value != message.conversationId) { done("已切换聊天，请重新打开编辑"); return }
-        c.chat.editMessage(message, text, resend) { problem -> viewModelScope.launch { done(problem) } }
+        c.chat.editMessage(message, text) { branch, problem -> viewModelScope.launch {
+            if (branch != null && conversationId.value == message.conversationId) c.settings.setCurrentConversation(branch)
+            done(problem)
+        } }
     }
 
     fun delete(messageId: Long) = c.chat.deleteMessage(messageId)

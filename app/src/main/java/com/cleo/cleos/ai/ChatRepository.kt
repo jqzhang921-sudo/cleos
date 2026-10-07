@@ -509,48 +509,56 @@ class ChatRepository(
         }
     }
 
-    /** Edit in place, optionally sending a new copy; later history and original media stay intact. */
-    fun editMessage(original: MessageEntity, text: String, resend: Boolean, done: (String?) -> Unit) {
+    /** Continue a new branch through the edited message; keep the entire original conversation. */
+    fun editMessage(original: MessageEntity, text: String, done: (Long?, String?) -> Unit) {
         val content = text.trim()
         val accepted = start(original.conversationId) {
             val before = sends[original.conversationId]
-            var copied = emptyList<MessageImage>()
+            val copied = mutableListOf<String>()
             var committed = false
             try {
-                val problem = db.withTransaction {
+                val result = db.withTransaction {
                     val current = db.messages().get(original.id)
                     val problem = MessageEdits.problem(current, original, content)
-                    if (problem != null) return@withTransaction problem
+                    if (problem != null) return@withTransaction null to problem
                     current!!
-                    db.messages().setContent(current.id, content)
-                    db.conversations().get(current.conversationId)?.let { conversation ->
-                        val recap = MessageEdits.correctedRecap(conversation, current, content)
-                        if (recap != conversation.recap) db.conversations().editRecap(conversation.id, recap)
+                    val conversation = db.conversations().get(current.conversationId)
+                        ?: return@withTransaction null to "聊天已经不存在了"
+                    val at = stamp()
+                    val title = conversation.title.removePrefix("修改前 · ")
+                    val branchId = db.conversations().insert(MessageEdits.branchConversation(conversation, at))
+                    val ids = mutableMapOf<Long, Long>()
+                    val prefix = MessageEdits.prefix(db.messages().forFavorite(current.conversationId), current)
+                    fun copyFile(name: String) = MessageImageCopies.copyFile(images.dir, name).also { copied += it }
+                    for (row in prefix) {
+                        val pictures = MessageImages.decode(row.images).map { it.copy(file = copyFile(it.file)) }
+                        val audio = MessageAudios.decode(row.audio)?.let { it.copy(file = copyFile(it.file)) }
+                        val quote = MessageQuotes.decode(row.quote)?.let { it.copy(id = ids[it.id] ?: it.id) }
+                        ids[row.id] = db.messages().insert(row.copy(id = 0, conversationId = branchId,
+                            content = if (row.id == current.id) content else row.content,
+                            images = MessageImages.encode(pictures), audio = audio?.let(MessageAudios::encode),
+                            quote = quote?.let(MessageQuotes::encode), call = row.call?.let { ids[it] },
+                            error = if (row.id == current.id) null else row.error))
                     }
-                    if (resend) {
-                        val at = stamp()
-                        copied = MessageImageCopies.copy(images.dir, MessageImages.decode(current.images))
-                        db.messages().insert(current.copy(id = 0, content = content, createdAt = at, error = null,
-                            images = MessageImages.encode(copied)))
-                        db.conversations().touch(current.conversationId, at)
-                    }
-                    null
+                    db.conversations().rename(conversation.id, "修改前 · $title")
+                    db.conversations().cancelFollowUp(conversation.id)
+                    branchId to null
                 }
                 committed = true
-                done(problem)
-                if (problem == null && resend) answerSoon(original.conversationId)
+                done(result.first, result.second)
+                result.first?.let { id -> start(id) { reply(id) } }
             } catch (e: CancellationException) {
-                if (!committed) images.delete(copied.map { it.file })
-                done("编辑已取消，请重新打开查看")
+                if (!committed) images.delete(copied)
+                done(null, "编辑已取消，请重新打开查看")
                 throw e
             } catch (e: Exception) {
-                if (!committed) images.delete(copied.map { it.file })
-                done("保存失败，请重试")
+                if (!committed) images.delete(copied)
+                done(null, "保存失败，请重试")
             }
             // Ordinary messages sent while this short edit job held the conversation still get answered.
             if (sends[original.conversationId] != before) answerUntilQuiet(original.conversationId)
         }
-        if (!accepted) done("正在回复或通话，稍后再编辑")
+        if (!accepted) done(null, "正在回复或通话，稍后再编辑")
     }
 
     /** Throw away [assistantMessageId] (a failed or unwanted reply) and ask again. */

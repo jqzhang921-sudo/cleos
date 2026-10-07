@@ -4,6 +4,10 @@ import com.cleo.cleos.data.db.MessageEntity
 import com.cleo.cleos.data.db.ConversationEntity
 
 object MessageEdits {
+    fun prefix(messages: List<MessageEntity>, edited: MessageEntity) = messages.filter {
+        it.conversationId == edited.conversationId &&
+            (it.createdAt < edited.createdAt || (it.createdAt == edited.createdAt && it.id <= edited.id))
+    }.sortedWith(compareBy<MessageEntity> { it.createdAt }.thenBy { it.id })
     fun eligible(m: MessageEntity) = m.role == "user" && m.note == null && m.audio == null &&
         m.call == null && m.toolCalls == null && m.content.isNotBlank() && StickerText.without(m.content).isNotBlank()
 
@@ -16,11 +20,8 @@ object MessageEdits {
         else -> null
     }
 
-    /** Correct a folded statement without discarding the rest of a person's recap. */
-    fun correctedRecap(c: ConversationEntity, m: MessageEntity, text: String): String? {
-        val at = c.recapUntilAt ?: return c.recap
-        val folded = m.createdAt < at || (m.createdAt == at && m.id <= (c.recapUntilId ?: Long.MIN_VALUE))
-        if (!folded) return c.recap
-        return c.recap.orEmpty() + "\n【对方更正过往消息】原话：${StickerText.plain(m.content)}\n更正为：${StickerText.plain(text)}"
-    }
+    /** A summary may contain events after the edit; build this branch from its actual prefix. */
+    fun branchConversation(c: ConversationEntity, at: Long) = c.copy(id = 0,
+        title = c.title.removePrefix("修改前 · "), createdAt = at, updatedAt = at,
+        recap = null, recapUntilAt = null, recapUntilId = null, followUpMessageId = null, followUpAt = null)
 }

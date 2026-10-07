@@ -7,6 +7,14 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class MessageImageCopiesTest {
+    @Test fun branchAudioIsAnIndependentCopy() {
+        val dir = folder.newFolder()
+        val source = File(dir, "recording.wav").apply { writeBytes(byteArrayOf(5, 6)) }
+        val name = MessageImageCopies.copyFile(dir, source.name)
+        assertNotEquals(source.name, name)
+        source.delete()
+        assertArrayEquals(byteArrayOf(5, 6), File(dir, name).readBytes())
+    }
     @get:Rule val folder = TemporaryFolder()
     @Test fun deletingEitherMessageKeepsTheOtherImageAndMetadata() {
         val dir = folder.newFolder()

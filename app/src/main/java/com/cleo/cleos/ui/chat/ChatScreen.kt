@@ -1071,7 +1071,7 @@ fun ChatTab(
     editingMessage?.let { original ->
         EditMessageDialog(original, state.replying, state.hasApiKey,
             onDismiss = { editingMessage = null },
-            onSave = { text, resend, result -> vm.editMessage(original, text, resend, result) })
+            onSave = { text, result -> vm.editMessage(original, text, result) })
     }
 
     if (askVoiceSetup) {
