@@ -331,8 +331,10 @@ class ChatRepository(
      * with tools, and be refused over and over by a model that takes none.
      */
     private fun groupsFor(s: AppSettings, ta: CompanionEntity): Set<ToolGroup> {
-        val on = (if (Speech.ready(s)) s.tools else s.tools - ToolGroup.Speak) - ToolGroup.Stickers
-        return if (ta.proactive) on + ToolGroup.Later else on
+        val on = (if (Speech.ready(s)) s.tools else s.tools - ToolGroup.Speak) - ToolGroup.Stickers - ToolGroup.FreeVisit
+        return (if (ta.proactive) on + ToolGroup.Later else on).let {
+            if (ta.freeTopicEnabled) it + ToolGroup.FreeVisit else it
+        }
     }
 
     /** The collection, read once for a request, and whether the TA may send from it (its switch). */
@@ -885,7 +887,7 @@ class ChatRepository(
         val taId = db.conversations().get(conversationId)?.companionId ?: return WakeResult.Skipped("对话已删除")
         val activity = activities.begin(taId, conversationId, source)
         return try {
-            val result = wakeRecorded(conversationId, instruction, followUp, activity, allowed)
+            val result = wakeRecorded(conversationId, instruction, followUp, activity, source == com.cleo.cleos.data.db.WakeActivityEntity.FREE, allowed)
             if (result is WakeResult.Failed && result.why == STOPPED)
                 activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.CANCELLED, "执行被取消，可能已发送部分内容；可在聊天里查看")
             else activities.result(activity, result)
@@ -899,7 +901,7 @@ class ChatRepository(
         }
     }
 
-    private suspend fun wakeRecorded(conversationId: Long, instruction: String, followUp: Boolean, activity: Long?, allowed: suspend () -> Boolean): WakeResult {
+    private suspend fun wakeRecorded(conversationId: Long, instruction: String, followUp: Boolean, activity: Long?, freeVisit: Boolean, allowed: suspend () -> Boolean): WakeResult {
         val taId = db.conversations().get(conversationId)?.companionId ?: return WakeResult.Skipped("对话已删除")
         val outcome = CompletableDeferred<WakeResult>()
         synchronized(lock) {
@@ -908,7 +910,7 @@ class ChatRepository(
             launchFor(conversationId) {
                 outcome.complete(
                     try {
-                        if (allowed()) wakeTurn(conversationId, instruction, activity) else WakeResult.Skipped("这次补充已取消")
+                        if (allowed()) wakeTurn(conversationId, instruction, activity, freeVisit) else WakeResult.Skipped("这次补充已取消")
                     } catch (e: CancellationException) {
                         outcome.complete(WakeResult.Failed(STOPPED))
                         throw e
@@ -941,7 +943,7 @@ class ChatRepository(
         return outcome.await()
     }
 
-    private suspend fun wakeTurn(conversationId: Long, instruction: String, activity: Long?): WakeResult {
+    private suspend fun wakeTurn(conversationId: Long, instruction: String, activity: Long?, freeVisit: Boolean): WakeResult {
         activities.preparing(activity)
         val s = settings.current()
         val ta = taOf(conversationId)
@@ -957,6 +959,7 @@ class ChatRepository(
         // whether to say something shouldn't cost what answering a picture does. No music either:
         // a song is paused or skipped when the person asks, and a wake is nobody asking.
         var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta) - ToolGroup.Music
+        if (!freeVisit) groups = groups - ToolGroup.FreeVisit
         var thinking = ta.deepThinking && endpointKey !in refusesThinking
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
         val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()

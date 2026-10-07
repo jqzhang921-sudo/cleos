@@ -120,6 +120,7 @@ object Prompt {
         if (ToolGroup.Memory in tools) MemoryDigest.forChat(memories, zone)?.let(::add)
         if (ToolGroup.Lore in tools) LoreDigest.forChat(lore)?.let(::add)
         Recap.forChat(recap)?.let(::add)
+        if (ToolGroup.FreeVisit in tools) add("本次 plan_next_visit 可选择 ${FreeTopicRules.intervalText(FreeTopicRules.level(ta.freeTopicLevel))} 后再看看；免打扰与次数上限优先。")
     }.joinToString("\n\n")
 
     /**
@@ -155,6 +156,7 @@ object Prompt {
             add("你能用 get_location 查对方现在在哪。需要的时候再查：对方问附近、问路，或者问天气没说城市；别无缘无故去查，也别把坐标念给对方。")
         }
         if (ToolGroup.Later in tools) add(LATER_RULE)
+        if (ToolGroup.FreeVisit in tools) add("你可以用 plan_next_visit 决定聊天结束后多久再醒来看看；醒来仍可选择 SKIP，不必发消息。结合对方是否忙、话题是否告一段落，自然决定，不要催回复或为占次数找话题。具体事情用 note_for_later（若可用），不要用它预约例行聊天。对方开始输入会取消旧安排；本次只保留最后一次 plan_next_visit。")
         if (ToolGroup.Alarm in tools) {
             add("对方让你定闹钟、叫醒、计时的时候，用 set_alarm 或 set_timer 在对方手机的时钟里定，定好了再说；没调用就别说定好了。对方没让，别自己给对方定闹钟。")
         }

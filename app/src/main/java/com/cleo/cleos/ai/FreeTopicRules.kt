@@ -32,6 +32,13 @@ object FreeTopicRules {
         return outsideQuiet(now.plusMinutes(minutes), on, start, end).toInstant().toEpochMilli()
     }
 
+    fun planned(now: ZonedDateTime, level: Level, minutes: Int, on: Boolean, start: Int, end: Int,
+                exhausted: Boolean = false): Long {
+        val at = if (exhausted) now.plusDays(1).withHour(8).withMinute(0).withSecond(0).withNano(0)
+        else now.plusMinutes(minutes.coerceIn(level.minMinutes, level.maxMinutes).toLong())
+        return outsideQuiet(at, on, start, end).toInstant().toEpochMilli()
+    }
+
     fun held(enabled: Boolean, quiet: Boolean, occupied: Boolean, lastActivity: Long?, now: Long,
              unanswered: Int, attemptsToday: Int, maximum: Int): String? = when {
         !enabled -> "自由找话题已关闭"
@@ -53,6 +60,6 @@ object FreeTopicRules {
         不要因对方没回而催促、埋怨、索要关注，也不要说“你很久没理我了”。
         不要编造自己刚刚在现实中做了什么、看到什么新闻或对方正在做什么；未知的事不要当事实。
         想说就像平常一样发消息，简短自然，别重复最近的主动消息，也别提定时器、频率或系统提示。
-        这是一次机会，不要为了占满机会硬找话题，也不要给自己预约下一次例行找话题。
+        可以用 plan_next_visit 决定下次多久以后再看看，然后说话或回复 SKIP；不要用 note_for_later 预约例行找话题。
     """.trimIndent()
 }

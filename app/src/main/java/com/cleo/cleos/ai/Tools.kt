@@ -44,7 +44,7 @@ import java.util.Locale
  * writes a sticker's name into what it says, so it is told about apart from the tools, and a model
  * that takes no tools sends them too.
  */
-enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Lore, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat }
+enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Lore, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat, FreeVisit }
 
 /**
  * A function offered to the model, when any of its [groups] is on. [parameters] is a
@@ -382,7 +382,13 @@ object ToolSpecs {
             "message_id" to prop("integer", "对方消息编号"), "emoji" to prop("string", "一个 emoji 表情"),
             "remove" to prop("boolean", "取消，默认 false"), "finish" to prop("boolean", "只用表情回应，默认 false")),
     )
-    val quiet = setOf(noteForLater.name, patUser.name, reactMessage.name)
+    val planNextVisit = ToolSpec(
+        name = "plan_next_visit", groups = setOf(ToolGroup.FreeVisit), action = "安排下次看看",
+        description = "决定本次聊天结束后多少分钟再醒来看看。醒来后可以保持安静；这是自由聊天的下一次机会，不是具体事项提醒。时间会受对方的频率、免打扰和每日次数限制。一次只保留最后的安排。",
+        parameters = schema(required = listOf("minutes"),
+            "minutes" to prop("integer", "多少分钟后再看看，正整数；按当前提示中的频率范围选择")),
+    )
+    val quiet = setOf(noteForLater.name, patUser.name, reactMessage.name, planNextVisit.name)
 
     val setAlarm = ToolSpec(
         name = "set_alarm",
@@ -492,6 +498,7 @@ object ToolSpecs {
         getWeather,
         getLocation,
         noteForLater,
+        planNextVisit,
         setAlarm,
         setTimer,
         readCalendar,
@@ -581,6 +588,7 @@ class ToolBox(
     /** Leaves a pat from the TA in a conversation (pat_user); the chat shows it, so the tool has no line of its own. */
     private val patBack: suspend (conversationId: Long, suffix: String) -> Unit = { _, _ -> },
     private val reactBack: suspend (Long, Long, String, Boolean) -> Unit = { _, _, _, _ -> error("表情回应不可用") },
+    private val planVisit: suspend (Long, Int) -> String = { _, _ -> throw ToolFailure("自由找话题不可用", "") },
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
 ) {
@@ -627,6 +635,11 @@ class ToolBox(
                 ToolSpecs.lore.name -> (loreBook ?: throw ToolFailure("现在查不了设定。", "这里查不了")).act(args, companionId)
                 ToolSpecs.getLocation.name -> getLocation()
                 ToolSpecs.noteForLater.name -> noteForLater(args, conversationId, companionId)
+                ToolSpecs.planNextVisit.name -> {
+                    val minutes = ToolArgs.int(args["minutes"])?.takeIf { it > 0 }
+                        ?: throw ToolFailure("minutes 必须是正整数", "")
+                    ToolOutcome(planVisit(conversationId, minutes), "")
+                }
                 ToolSpecs.setAlarm.name -> setAlarm(args)
                 ToolSpecs.setTimer.name -> setTimer(args)
                 ToolSpecs.readCalendar.name -> readCalendar(args, today)

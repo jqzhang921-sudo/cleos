@@ -27,7 +27,7 @@ internal fun FreeTopicSection(vm: SettingsViewModel) {
                 }
             }
             val level = FreeTopicRules.level(vm.freeTopicLevel)
-            Text("大约每 ${FreeTopicRules.intervalText(level)}考虑一次，每天最多 ${level.dailyMax} 次考虑机会。每次会请求模型，用工具时可能请求多轮；即使选择安静也会消耗 token。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
+            Text("TA 可在 ${FreeTopicRules.intervalText(level)}范围内决定下次何时再看看；没有安排时按这个范围自动等待。每天最多 ${level.dailyMax} 次考虑机会，每次会请求模型，用工具时可能请求多轮；选择安静也会消耗 token。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
             ExplainedSwitch("自由找话题免打扰", "这段时间不主动开启新话题",
                 "只影响自由找话题，原来约好的提醒和聊完补充仍按各自设置。起止时间相同表示全天免打扰。", vm.freeTopicQuietOn) { vm.setFreeTopicQuiet(it) }
             if (vm.freeTopicQuietOn) {
@@ -40,7 +40,7 @@ internal fun FreeTopicSection(vm: SettingsViewModel) {
                     }
                 }
             }
-            Text("首次聊天后生效。正在聊天时不打断，聊完至少留 15 分钟空闲；连续两轮主动消息没收到回复就先停下来。后台执行时间会受手机省电影响，开启和改档后会重新等待下一次机会。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
+            Text("首次聊天后生效。开始输入会取消旧安排，聊完重新安排，至少留 15 分钟空闲；连续两轮主动消息没收到回复就先停下来。后台执行时间会受手机省电影响，开启和改档后会重新等待下一次机会。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
         }
     }
 }

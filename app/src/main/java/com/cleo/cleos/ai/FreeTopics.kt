@@ -19,6 +19,8 @@ import com.cleo.cleos.data.db.WakeEntity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import java.time.ZonedDateTime
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
@@ -38,6 +40,8 @@ class FreeTopics(
     private val work = WorkManager.getInstance(context)
     private data class Active(val target: Long, val conversations: Set<Long>)
     private val active = ConcurrentHashMap<Long, Active>()
+    private val plans = VisitPlans()
+    private val resets = ConcurrentHashMap<Long, Job>()
     private fun now() = ZonedDateTime.now()
     private fun start(ta: CompanionEntity) = FreeTopicRules.minute(ta.freeTopicQuietStart, 1380)
     private fun end(ta: CompanionEntity) = FreeTopicRules.minute(ta.freeTopicQuietEnd, 480)
@@ -46,10 +50,65 @@ class FreeTopics(
 
     /** Input in any of this TA's conversations cancels its current free-topic turn. */
     fun interrupt(conversationId: Long) {
-        active.values.filter { conversationId in it.conversations }.forEach { chat.cancelFollowUp(it.target) }
+        val revision = plans.invalidate(conversationId)
+        active.values.filter { conversationId in it.conversations }.forEach {
+            if (it.target != conversationId) plans.invalidate(it.target)
+            chat.cancelFollowUp(it.target)
+        }
+        resets.remove(conversationId)?.cancel()
+        resets[conversationId] = scope.launch {
+            delay(500)
+            schedule(conversationId, revision, null, allowTyping = true)
+        }
+    }
+
+    suspend fun propose(conversationId: Long, minutes: Int): String {
+        val revision = plans.revision(conversationId)
+        val ta = db.conversations().get(conversationId)?.companionId?.let { db.companions().get(it) }
+            ?.takeIf { it.freeTopicEnabled } ?: throw ToolFailure("自由找话题已关闭", "")
+        val level = FreeTopicRules.level(ta.freeTopicLevel)
+        if (!plans.propose(conversationId, minutes.coerceIn(level.minMinutes, level.maxMinutes), revision))
+            throw ToolFailure("对方正在输入，旧安排已取消", "")
+        return "已记录，当前回复结束后安排。可选范围 ${FreeTopicRules.intervalText(level)}；免打扰和每日次数仍优先。"
+    }
+
+    suspend fun replied(conversationId: Long) {
+        val id = db.conversations().get(conversationId)?.companionId ?: return
+        db.conversations().idsFor(id).forEach {
+            resets.remove(it)?.cancel()
+            if (it != conversationId) plans.invalidate(it)
+        }
+        val (revision, minutes) = plans.finish(conversationId)
+        schedule(conversationId, revision, minutes)
+    }
+
+    /** A proposal is applied only after generation ends: changing nextAt sooner invalidates wake's guard. */
+    private suspend fun schedule(conversationId: Long, revision: Long, minutes: Int?,
+                                 expected: Long? = null, allowTyping: Boolean = false) {
+        val scheduled = db.withTransaction {
+            if (!plans.current(conversationId, revision)) return@withTransaction null
+            val id = db.conversations().get(conversationId)?.companionId ?: return@withTransaction null
+            val ta = db.companions().get(id)?.takeIf { it.freeTopicEnabled } ?: return@withTransaction null
+            val conversations = db.conversations().idsFor(id)
+            if (!allowTyping && conversations.any { chat.isTyping(it) || (it != conversationId && chat.busy(it)) })
+                return@withTransaction null
+            val state = db.freeTopics().get(id)
+            if (expected != null && state?.nextAt != expected) return@withTransaction null
+            val current = now()
+            val level = FreeTopicRules.level(ta.freeTopicLevel)
+            val exhausted = state?.attemptDay == current.toLocalDate().toEpochDay() && state.attempts >= level.dailyMax
+            val at = FreeTopicRules.planned(current, level,
+                minutes ?: (level.minMinutes..level.maxMinutes).random(), ta.freeTopicQuietOn, start(ta), end(ta), exhausted)
+            if (!plans.current(conversationId, revision)) return@withTransaction null
+            db.freeTopics().put(state?.copy(nextAt = at) ?: FreeTopicStateEntity(id, at))
+            id to at
+        } ?: return
+        // The running worker appends exactly once using run()'s returned persisted nextAt.
+        if (expected == null) enqueue(scheduled.first, scheduled.second, ExistingWorkPolicy.REPLACE)
     }
 
     suspend fun configure(id: Long) {
+        db.conversations().idsFor(id).forEach { plans.invalidate(it); resets.remove(it)?.cancel() }
         active[id]?.let { chat.cancelFollowUp(it.target) }
         val at = db.withTransaction {
             val ta = db.companions().get(id) ?: return@withTransaction null
@@ -69,18 +128,7 @@ class FreeTopics(
             onEnabled()
             val state = db.freeTopics().get(ta.id)
             if (state == null) configure(ta.id)
-            else {
-                val current = now()
-                val level = FreeTopicRules.level(ta.freeTopicLevel)
-                val available = state.attemptDay != current.toLocalDate().toEpochDay() || state.attempts < level.dailyMax
-                val earlier = next(ta, current)
-                // Upgrade old hour-long waits without resetting the day's count or waking immediately.
-                val shorten = available && !active.containsKey(ta.id) &&
-                    state.nextAt - current.toInstant().toEpochMilli() > level.maxMinutes * 60_000L && earlier < state.nextAt
-                if (shorten && db.freeTopics().move(ta.id, state.nextAt, earlier) == 1)
-                    enqueue(ta.id, earlier, ExistingWorkPolicy.REPLACE)
-                else enqueue(ta.id, state.nextAt, ExistingWorkPolicy.KEEP)
-            }
+            else enqueue(ta.id, state.nextAt, ExistingWorkPolicy.KEEP)
         }
     }
 
@@ -127,7 +175,8 @@ class FreeTopics(
         val mine = Active(target, conversations)
         if (active.putIfAbsent(id, mine) != null) return next
         try {
-            val result = chat.wake(target, FreeTopicRules.instruction, followUp = true, source = com.cleo.cleos.data.db.WakeActivityEntity.FREE, allowed = {
+            val wakeRevision = plans.invalidate(target)
+            val result = chat.wake(target, FreeTopicRules.instruction + "\n本次可选择 ${FreeTopicRules.intervalText(level)} 后再看看。", followUp = true, source = com.cleo.cleos.data.db.WakeActivityEntity.FREE, allowed = {
                 val current = db.companions().get(id)
                 current != null && current.freeTopicEnabled && db.freeTopics().get(id)?.nextAt == next &&
                     !FreeTopicRules.quiet(now(), current.freeTopicQuietOn, start(current), end(current)) &&
@@ -143,6 +192,11 @@ class FreeTopics(
                 is ChatRepository.WakeResult.Skipped -> log(id, WakeEntity.SKIPPED, result.why)
                 is ChatRepository.WakeResult.Failed -> log(id, WakeEntity.FAILED, result.why)
                 ChatRepository.WakeResult.Busy -> log(id, WakeEntity.HELD, "正在聊天，留到下一次机会")
+            }
+            if (plans.current(target, wakeRevision)) {
+                val (revision, minutes) = plans.finish(target)
+                if (minutes != null && (result is ChatRepository.WakeResult.Sent || result is ChatRepository.WakeResult.Skipped))
+                    schedule(target, revision, minutes, expected = next)
             }
         } catch (e: CancellationException) {
             chat.cancelFollowUp(target)

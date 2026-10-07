@@ -125,6 +125,7 @@ class AppContainer(context: Context) {
         music = music,
         patBack = { id, suffix -> chat.patBack(id, suffix) },
         reactBack = { conversation, message, emoji, remove -> chat.reactBack(conversation, message, emoji, remove) },
+        planVisit = { conversation, minutes -> freeTopics.propose(conversation, minutes) },
     )
     val recaps = Recaps(db, settings, secrets, chatClient, appScope)
     val mcp = McpHub(
@@ -143,6 +144,7 @@ class AppContainer(context: Context) {
         replied = { ta, conversationId, said ->
             if (!(visible && chatOnScreen == conversationId)) notifier.messages(ta, conversationId, said)
             followUps.plan(ta, conversationId, said)
+            freeTopics.replied(conversationId)
         },
         interrupted = { followUps.cancel(it); freeTopics.interrupt(it) },
         activities = wakeActivities,
