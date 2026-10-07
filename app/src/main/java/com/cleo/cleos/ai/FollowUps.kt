@@ -64,7 +64,7 @@ class FollowUps(
     suspend fun cancelFor(companionId: Long) {
         for (id in db.conversations().idsFor(companionId)) {
             chat.cancelFollowUp(id)
-            cancel(id, "聊完补充已关闭，取消等待；未请求模型")
+            cancel(id, "还有句话已关闭，取消等待；未请求模型")
         }
     }
 
@@ -129,7 +129,7 @@ class FollowUps(
                 activities.record(ta.id, id, com.cleo.cleos.data.db.WakeActivityEntity.FOLLOW_UP,
                     com.cleo.cleos.data.db.WakeActivityEntity.HELD,
                     when {
-                        !ta.followUpEnabled -> "聊完补充已关闭"
+                        !ta.followUpEnabled -> "还有句话已关闭"
                         row.followUpAt != null && now - row.followUpAt > FollowUpRules.GRACE_MS -> "执行较晚，这次补充已过时"
                         unanswered >= LaterRules.UNANSWERED_MAX -> "前面主动消息还没回，先保持安静"
                         else -> "对话状态改变或正在聊天，取消这次补充"
@@ -149,7 +149,7 @@ class FollowUps(
             db.withTransaction {
                 if (db.companions().get(ta.id) != null) {
                     db.wakes().insert(WakeEntity(companionId = ta.id, at = System.currentTimeMillis(), outcome = WakeEntity.SENT,
-                        detail = ("聊完补充：" + result.messages.joinToString(" / ") { it.content }).take(200)))
+                        detail = ("还有句话：" + result.messages.joinToString(" / ") { it.content }).take(200)))
                     db.wakes().prune(ta.id, 50)
                 }
             }

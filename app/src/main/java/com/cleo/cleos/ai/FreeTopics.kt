@@ -65,7 +65,7 @@ class FreeTopics(
     suspend fun propose(conversationId: Long, minutes: Int): String {
         val revision = plans.revision(conversationId)
         val ta = db.conversations().get(conversationId)?.companionId?.let { db.companions().get(it) }
-            ?.takeIf { it.freeTopicEnabled } ?: throw ToolFailure("自由找话题已关闭", "")
+            ?.takeIf { it.freeTopicEnabled } ?: throw ToolFailure("想找你聊已关闭", "")
         val level = FreeTopicRules.level(ta.freeTopicLevel)
         if (!plans.propose(conversationId, minutes.coerceIn(level.minMinutes, level.maxMinutes), revision))
             throw ToolFailure("对方正在输入，旧安排已取消", "")
@@ -211,7 +211,7 @@ class FreeTopics(
         db.withTransaction {
             if (db.companions().get(id) == null) return@withTransaction
             db.wakes().insert(WakeEntity(companionId = id, at = System.currentTimeMillis(), outcome = outcome,
-                detail = ("自由找话题：" + detail).take(200)))
+                detail = ("想找你聊：" + detail).take(200)))
             db.wakes().prune(id, 50)
         }
     }

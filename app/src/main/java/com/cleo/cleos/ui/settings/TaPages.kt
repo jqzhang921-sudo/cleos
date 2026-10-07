@@ -272,8 +272,8 @@ internal fun BehaviorPage(vm: SettingsViewModel) {
             vm.proactive,
         ) { vm.setReachOut(it) }
     }
-    Section("聊完再说一点") {
-        ExplainedSwitch("聊完再说一点", "回复后，允许 TA 自己决定是否再补充一点",
+    Section("还有句话") {
+        ExplainedSwitch("还有句话", "回复后，允许 TA 自己决定是否再补充一点",
             "每轮正常回复后只给一次机会，TA 也可以保持安静。你开始输入、录音、选附件或发送新消息时取消；补充不会接着触发补充。", vm.followUpEnabled) { vm.setFollowUp(it) }
         if (vm.followUpEnabled) {
             Text("回复结束后，等多久再考虑补充", color = LocalGlassPalette.current.contentSecondary, fontSize = 14.sp)

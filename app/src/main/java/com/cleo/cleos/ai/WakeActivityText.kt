@@ -5,8 +5,8 @@ import com.cleo.cleos.data.db.WakeActivityEntity as W
 /** Truthful labels: an application rule skipping is different from a model choosing silence. */
 object WakeActivityText {
     fun source(value: String) = when (value) {
-        W.FREE -> "自由找话题"
-        W.FOLLOW_UP -> "聊完补充"
+        W.FREE -> "想找你聊"
+        W.FOLLOW_UP -> "还有句话"
         W.MORNING -> "早安招呼"
         W.NIGHT -> "睡前招呼"
         else -> "记下的事到时间了"

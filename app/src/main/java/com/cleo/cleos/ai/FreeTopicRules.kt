@@ -41,7 +41,7 @@ object FreeTopicRules {
 
     fun held(enabled: Boolean, quiet: Boolean, occupied: Boolean, lastActivity: Long?, now: Long,
              unanswered: Int, attemptsToday: Int, maximum: Int): String? = when {
-        !enabled -> "自由找话题已关闭"
+        !enabled -> "想找你聊已关闭"
         quiet -> "免打扰时段，先保持安静"
         occupied -> "正在聊天或输入，先不打断"
         lastActivity == null -> "还没有聊过，等第一次对话后再来"

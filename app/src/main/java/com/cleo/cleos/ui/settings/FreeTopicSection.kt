@@ -17,9 +17,9 @@ import com.cleo.cleos.glass.LocalGlassPalette
 internal fun FreeTopicSection(vm: SettingsViewModel) {
     val context = LocalContext.current
     val color = LocalGlassPalette.current.contentSecondary
-    Section("自由找话题") {
-        ExplainedSwitch("自由找话题", "不必先约好，TA 也可以自己想聊什么",
-            "默认关闭。开启后，TA 会偶尔看看最近的聊天和记忆，自行决定聊什么，也可以保持安静。与原来的提醒和「聊完再说一点」分别设置。", vm.freeTopicEnabled) { vm.setFreeTopic(it) }
+    Section("想找你聊") {
+        ExplainedSwitch("想找你聊", "不必先约好，TA 也可以自己想聊什么",
+            "默认关闭。开启后，TA 会偶尔看看最近的聊天和记忆，自行决定聊什么，也可以保持安静。与原来的提醒和「还有句话」分别设置。", vm.freeTopicEnabled) { vm.setFreeTopic(it) }
         if (vm.freeTopicEnabled) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FreeTopicRules.LEVELS.forEach { level ->
@@ -28,8 +28,8 @@ internal fun FreeTopicSection(vm: SettingsViewModel) {
             }
             val level = FreeTopicRules.level(vm.freeTopicLevel)
             Text("TA 可在 ${FreeTopicRules.intervalText(level)}范围内决定下次何时再看看；没有安排时按这个范围自动等待。每天最多 ${level.dailyMax} 次考虑机会，每次会请求模型，用工具时可能请求多轮；选择安静也会消耗 token。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
-            ExplainedSwitch("自由找话题免打扰", "这段时间不主动开启新话题",
-                "只影响自由找话题，原来约好的提醒和聊完补充仍按各自设置。起止时间相同表示全天免打扰。", vm.freeTopicQuietOn) { vm.setFreeTopicQuiet(it) }
+            ExplainedSwitch("想找你聊免打扰", "这段时间不主动开启新话题",
+                "只影响想找你聊，原来约好的提醒和「还有句话」仍按各自设置。起止时间相同表示全天免打扰。", vm.freeTopicQuietOn) { vm.setFreeTopicQuiet(it) }
             if (vm.freeTopicQuietOn) {
                 Row {
                     listOf(true, false).forEach { start ->

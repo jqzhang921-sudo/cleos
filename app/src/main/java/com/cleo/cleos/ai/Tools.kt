@@ -588,7 +588,7 @@ class ToolBox(
     /** Leaves a pat from the TA in a conversation (pat_user); the chat shows it, so the tool has no line of its own. */
     private val patBack: suspend (conversationId: Long, suffix: String) -> Unit = { _, _ -> },
     private val reactBack: suspend (Long, Long, String, Boolean) -> Unit = { _, _, _, _ -> error("表情回应不可用") },
-    private val planVisit: suspend (Long, Int) -> String = { _, _ -> throw ToolFailure("自由找话题不可用", "") },
+    private val planVisit: suspend (Long, Int) -> String = { _, _ -> throw ToolFailure("想找你聊不可用", "") },
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
 ) {
