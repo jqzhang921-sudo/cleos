@@ -2,8 +2,16 @@ package com.cleo.cleos.ui.feed
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
@@ -76,7 +84,7 @@ fun FeedScreen(onBack: () -> Unit) {
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val listState = rememberLazyListState()
     val density = LocalDensity.current
-    val coverHeight = top + 300.dp
+    val coverHeight = top + 168.dp
     val frostTop = if (listState.firstVisibleItemIndex == 0) (coverHeight - with(density) { listState.firstVisibleItemScrollOffset.toDp() }).coerceAtLeast(0.dp) else 0.dp
     fun act(action: suspend () -> Unit) {
         if (busy) return
@@ -103,40 +111,52 @@ fun FeedScreen(onBack: () -> Unit) {
         GlassSurface(Modifier.fillMaxSize().padding(top = frostTop), shape = GlassShape.Rounded(0.dp)) {}
         LazyColumn(Modifier.fillMaxSize(), state = listState,
             contentPadding = PaddingValues(bottom = bottom + 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            verticalArrangement = Arrangement.spacedBy(0.dp)) {
             item {
-                val ownName = settings.userName.ifBlank { "我" }
-                Column {
-                    Box(Modifier.fillMaxWidth().height(top + 300.dp)
-                        .background(Brush.linearGradient(listOf(palette.accent.copy(alpha = .35f), palette.content.copy(alpha = .08f)))).clickable(enabled = !busy) { previewCover = true }) {
-                        (settings.feedCover ?: settings.wallpaper)?.let { cover ->
-                            AsyncImage(c.images.file(cover), "主页封面", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }
+                Box(Modifier.fillMaxWidth().height(coverHeight)
+                    .background(Brush.linearGradient(listOf(palette.accent.copy(alpha = .35f), palette.content.copy(alpha = .08f)))).clickable(enabled = !busy) { previewCover = true }) {
+                    (settings.feedCover ?: settings.wallpaper)?.let { cover ->
+                        AsyncImage(c.images.file(cover), "主页封面", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
                 }
             }
             item {
                 val ownName = settings.userName.ifBlank { "我" }
-                Column {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp).offset(y = (-28).dp), verticalAlignment = Alignment.Bottom,
+                // The avatar hangs over the cover's edge; the block is pulled up by as much, so no gap is left under it.
+                val pull = 28.dp
+                Column(Modifier.layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    val up = pull.roundToPx()
+                    layout(placeable.width, (placeable.height - up).coerceAtLeast(0)) { placeable.place(0, -up) }
+                }, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                        Avatar(settings.userAvatar, avatarLetter(ownName, "我"), 64.dp)
-                        Text(ownName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                        Avatar(settings.userAvatar, avatarLetter(ownName, "我"), 60.dp)
+                        Text(ownName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 6.dp))
                     }
-                    if (settings.feedBio.isNotBlank()) Text(settings.feedBio, color = palette.content.copy(alpha = .7f), fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 24.dp).clickable { bio = settings.feedBio; editingBio = true })
-                    if (busy) Text("TA 正在写…", color = palette.accent, modifier = Modifier.padding(horizontal = 24.dp))
+                    if (settings.feedBio.isNotBlank()) Text(settings.feedBio, color = palette.contentSecondary, fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 20.dp).clickable { bio = settings.feedBio; editingBio = true })
+                    if (busy) Text("TA 正在写…", color = palette.accentContent, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
                 }
             }
-            problem?.let { item { Text(it, color = palette.content, fontSize = 13.sp) } }
+            item {
+                Column {
+                    FeedTabs(topics, enabled = !busy) { topics = it }
+                    Row(Modifier.padding(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FeedChip("全部", !onlyCurrent) { onlyCurrent = false }
+                        FeedChip(current?.name?.ifBlank { "当前 TA" } ?: "当前 TA", onlyCurrent, enabled = current != null) { onlyCurrent = true }
+                    }
+                }
+            }
+            problem?.let { item { Text(it, color = palette.content, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) } }
             val visible = posts.filter { it.isTopic == topics && (!onlyCurrent || it.authorId == 0L || it.authorId == current?.id) }
             if (visible.isEmpty()) item {
                 Box(Modifier.fillMaxWidth().padding(20.dp)) {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(Icons.Rounded.DynamicFeed, null, tint = palette.accent, modifier = Modifier.size(30.dp))
+                        Icon(Icons.Rounded.DynamicFeed, null, tint = palette.accentContent, modifier = Modifier.size(30.dp))
                         Text(if (topics) "有什么新发现？" else "今天想说点什么？", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                        Text(if (topics) "分享资讯与观点，留下一起讨论的话题。" else "随手记一句，让彼此的日常在这里碰面。", color = palette.content.copy(alpha = .7f), fontSize = 14.sp)
-                        TextButton({ draft = ""; composing = true }) { Text("发第一条动态", color = palette.accent) }
+                        Text(if (topics) "分享资讯与观点，留下一起讨论的话题。" else "随手记一句，让彼此的日常在这里碰面。", color = palette.contentSecondary, fontSize = 14.sp)
+                        TextButton({ draft = ""; composing = true }) { Text("发第一条动态", color = palette.accentContent) }
                     }
                 }
             }
@@ -145,52 +165,79 @@ fun FeedScreen(onBack: () -> Unit) {
                 val name = if (post.authorId == 0L) settings.userName.ifBlank { "我" } else author?.name?.ifBlank { "TA" } ?: "TA"
                 val comments = remember(post.comments) { FeedComments.decode(post.comments) }
                 var expanded by remember(post.id) { mutableStateOf(false) }
-                Box(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
-                Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
-                        if (post.authorId == 0L) avatarLetter(name, "我") else author?.avatarEmoji ?: avatarLetter(name, "TA"), 36.dp)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(if (topics) 12.dp else 8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Column(Modifier.weight(1f)) {
-                                Text(name, color = if (topics) palette.content else palette.accent, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                                Text(SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(Date(post.createdAt)), color = palette.content.copy(alpha = .55f), fontSize = 11.sp)
-                            }
-                            IconButton({ deleting = post }, enabled = !busy, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Rounded.DeleteOutline, "删除动态", tint = palette.content.copy(alpha = .5f), modifier = Modifier.size(18.dp))
-                            }
+                var menu by remember(post.id) { mutableStateOf(false) }
+                val shown = if (expanded) comments else comments.takeLast(3)
+                // Whoever the TA is that the person is talking to now; the chip asks them to reply.
+                val ta = companions.firstOrNull { it.id == current?.id }
+                val taName = ta?.name?.ifBlank { "TA" } ?: "TA"
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        // The thread: the line runs from the post's avatar down to the first reply's.
+                        Column(Modifier.fillMaxHeight().width(36.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Avatar(if (post.authorId == 0L) settings.userAvatar else author?.avatar,
+                                if (post.authorId == 0L) avatarLetter(name, "我") else author?.avatarEmoji ?: avatarLetter(name, "TA"), 36.dp)
+                            if (shown.isNotEmpty()) Box(Modifier.padding(top = 6.dp).width(1.5.dp).weight(1f)
+                                .clip(RoundedCornerShape(1.dp)).background(palette.content.copy(alpha = .16f)))
                         }
-                        Text(post.content, color = palette.content, fontSize = 16.sp, lineHeight = 24.sp)
-                        post.sourceUrl?.let { link ->
-                            Text(post.sourceTitle ?: "查看来源", color = palette.accent, fontSize = 12.sp,
-                                modifier = Modifier.clickable { runCatching { uri.openUri(link) }.onFailure { problem = "无法打开来源" } })
-                        }
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton({ act { c.feed.like(post.id) } }, enabled = !busy) {
-                                Icon(if (post.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, null, tint = palette.accent, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(5.dp)); Text(if (post.liked) "已喜欢" else "喜欢", color = palette.content, fontSize = 13.sp)
+                        Column(Modifier.weight(1f).padding(bottom = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(name, color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                                Text(SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(Date(post.createdAt)), color = palette.contentSecondary, fontSize = 12.sp, maxLines = 1)
+                                Spacer(Modifier.weight(1f))
+                                Box {
+                                    IconButton({ menu = true }, modifier = Modifier.size(28.dp)) {
+                                        Icon(Icons.Rounded.MoreHoriz, "更多", tint = palette.contentSecondary, modifier = Modifier.size(18.dp))
+                                    }
+                                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                        DropdownMenuItem(text = { Text("删除") }, enabled = !busy, onClick = { menu = false; deleting = post })
+                                    }
+                                }
                             }
-                            TextButton({ draft = ""; commenting = post.id }, enabled = !busy) {
-                                Icon(Icons.Rounded.ChatBubbleOutline, null, tint = palette.content, modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.width(5.dp)); Text(if (comments.isEmpty()) "回复" else "回复 ${comments.size}", color = palette.content, fontSize = 13.sp)
+                            Text(post.content, color = palette.content, fontSize = 15.sp, lineHeight = 22.sp)
+                            post.sourceUrl?.let { link ->
+                                Text(post.sourceTitle ?: "查看来源", color = palette.accentContent, fontSize = 12.sp,
+                                    modifier = Modifier.clickable { runCatching { uri.openUri(link) }.onFailure { problem = "无法打开来源" } })
                             }
-                            TextButton({ current?.let { ta -> act { c.feedAi.reply(post.id, ta.id) } } }, enabled = !busy && current != null) {
-                                Text("请${current?.name?.ifBlank { "TA" } ?: "TA"}回复", color = palette.accent, fontSize = 13.sp)
+                            Row(Modifier.padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                FeedAction(if (post.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (post.liked) "取消喜欢" else "喜欢",
+                                    if (post.liked) palette.accentContent else palette.contentSecondary, enabled = !busy) { act { c.feed.like(post.id) } }
+                                FeedAction(Icons.Rounded.ChatBubbleOutline, "回复", palette.contentSecondary, count = comments.size.takeIf { it > 0 }, enabled = !busy) {
+                                    draft = ""; commenting = post.id
+                                }
+                                // Asking a TA to reply: a small outlined chip with their own avatar, so it reads as a button, not as a caption.
+                                Row(
+                                    Modifier.alpha(if (busy || current == null) .5f else 1f)
+                                        .clip(RoundedCornerShape(50))
+                                        .border(0.5.dp, palette.content.copy(alpha = .22f), RoundedCornerShape(50))
+                                        .clickable(enabled = !busy && current != null) { current?.let { t -> act { c.feedAi.reply(post.id, t.id) } } }
+                                        .padding(start = 3.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
+                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Avatar(ta?.avatar, ta?.avatarEmoji ?: avatarLetter(taName, "TA"), 18.dp)
+                                    Text("请${taName}回复", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
+                                }
                             }
-                        }
-                        if (comments.isNotEmpty()) {
-                            HorizontalDivider(color = palette.content.copy(alpha = .1f))
-                            (if (expanded) comments else comments.takeLast(3)).forEach { comment ->
-                                val who = if (comment.authorId == 0L) settings.userName.ifBlank { "我" }
-                                    else companions.firstOrNull { it.id == comment.authorId }?.name ?: "TA"
-                                Text("$who：${comment.content}", color = palette.content, fontSize = 14.sp, lineHeight = 21.sp)
-                            }
-                            if (comments.size > 3) TextButton({ expanded = !expanded }) { Text(if (expanded) "收起回复" else "查看全部回复", color = palette.accent) }
                         }
                     }
+                    shown.forEach { comment ->
+                        val who = if (comment.authorId == 0L) settings.userName.ifBlank { "我" }
+                            else companions.firstOrNull { it.id == comment.authorId }?.name ?: "TA"
+                        val speaker = companions.firstOrNull { it.id == comment.authorId }
+                        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(Modifier.width(36.dp), contentAlignment = Alignment.TopCenter) {
+                                Avatar(if (comment.authorId == 0L) settings.userAvatar else speaker?.avatar,
+                                    if (comment.authorId == 0L) avatarLetter(who, "我") else speaker?.avatarEmoji ?: avatarLetter(who, "TA"), 22.dp)
+                            }
+                            Text(buildAnnotatedString {
+                                withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(who) }
+                                append("  ")
+                                append(comment.content)
+                            }, color = palette.content.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 21.sp, modifier = Modifier.weight(1f))
+                        }
                     }
-                    HorizontalDivider(Modifier.padding(top = 12.dp), color = palette.content.copy(alpha = .1f))
-                }
+                    if (comments.size > 3) Text(if (expanded) "收起回复" else "查看全部 ${comments.size} 条回复", color = palette.accentContent, fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 46.dp, bottom = 8.dp).clickable { expanded = !expanded })
+                    HorizontalDivider(Modifier.padding(top = 4.dp), color = palette.content.copy(alpha = .1f))
                 }
             }
         }
@@ -200,19 +247,10 @@ fun FeedScreen(onBack: () -> Unit) {
         GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("动态选项", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FeedChoice("朋友圈", !topics, !busy) { topics = false; options = false }
-                    FeedChoice("话题", topics, !busy) { topics = true; options = false }
-                }
-                Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FeedChoice("全部", !onlyCurrent) { onlyCurrent = false; options = false }
-                    FeedChoice(current?.name?.ifBlank { "当前 TA" } ?: "当前 TA", onlyCurrent) { onlyCurrent = true; options = false }
-                }
                 TextButton({ options = false; chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true }, enabled = !busy && current != null) {
-                    Icon(Icons.Rounded.Explore, null, tint = palette.accent, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Explore, null, tint = palette.accentContent, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accent)
+                    Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accentContent)
                 }
                 TextButton({ options = false; bio = settings.feedBio; editingBio = true }, enabled = !busy) { Text("编辑主页简介") }
                 TextButton({ options = false; previewCover = true }, enabled = !busy) { Text("查看与更换封面") }
@@ -280,7 +318,7 @@ fun FeedScreen(onBack: () -> Unit) {
                             c.feedAi.browse(id, news)
                             browsing = false
                         }
-                    }, enabled = !busy && chosenTa != null) { Text(if (busy) "TA 正在写…" else "去逛逛", color = palette.accent) }
+                    }, enabled = !busy && chosenTa != null) { Text(if (busy) "TA 正在写…" else "去逛逛", color = palette.accentContent) }
                 }
             }
         }
@@ -300,7 +338,7 @@ fun FeedScreen(onBack: () -> Unit) {
                             if (id == null) c.feed.publish(text, topics) else c.feed.comment(id, text)
                             composing = false; commenting = null; draft = ""
                         }
-                    }, enabled = !busy && draft.isNotBlank()) { Text(if (busy) "保存中…" else "发布", color = palette.accent) }
+                    }, enabled = !busy && draft.isNotBlank()) { Text(if (busy) "保存中…" else "发布", color = palette.accentContent) }
                 }
             }
         }
@@ -311,15 +349,41 @@ fun FeedScreen(onBack: () -> Unit) {
         dismissButton = { TextButton({ deleting = null }) { Text("取消") } }) }
 }
 
+/** 朋友圈 / 话题: two words with a line under the one that is open. */
 @Composable
-private fun FeedChoice(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+private fun FeedTabs(topics: Boolean, enabled: Boolean, onPick: (Boolean) -> Unit) {
     val palette = LocalGlassPalette.current
-    GlassButton(onClick, LocalWallpaperBackdrop.current, style = palette.chrome,
-        enabled = enabled, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-            if (selected) Icon(Icons.Rounded.Check, null, modifier = Modifier.size(16.dp), tint = palette.accent)
-            Text(label, color = if (selected) palette.accent else palette.content, fontSize = 14.sp,
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+        listOf(false to "朋友圈", true to "话题").forEach { (isTopics, label) ->
+            val on = topics == isTopics
+            Column(Modifier.weight(1f).clickable(enabled = enabled) { onPick(isTopics) }, horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(label, color = if (on) palette.content else palette.contentSecondary, fontSize = 15.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, modifier = Modifier.padding(vertical = 12.dp))
+                Box(Modifier.fillMaxWidth().height(if (on) 1.5.dp else 0.5.dp)
+                    .background(if (on) palette.content else palette.content.copy(alpha = .12f)))
+            }
         }
+    }
+}
+
+/** A filter: soft fill, heavier when it is the one in use. */
+@Composable
+private fun FeedChip(label: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    val palette = LocalGlassPalette.current
+    Text(label, color = if (selected) palette.content else palette.contentSecondary, fontSize = 13.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.clip(RoundedCornerShape(50))
+            .background(palette.content.copy(alpha = if (selected) .14f else .06f))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 13.dp, vertical = 5.dp))
+}
+
+/** An action under a post: an icon, and a number when there is one. No words. */
+@Composable
+private fun FeedAction(icon: ImageVector, description: String, tint: Color, count: Int? = null, enabled: Boolean = true, onClick: () -> Unit) {
+    Row(Modifier.clip(RoundedCornerShape(50)).clickable(enabled = enabled, onClick = onClick).padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(icon, description, tint = tint, modifier = Modifier.size(19.dp))
+        if (count != null) Text(count.toString(), color = tint, fontSize = 13.sp)
     }
 }
