@@ -175,7 +175,6 @@ fun FeedScreen(onBack: () -> Unit) {
                     }
                     if (settings.feedBio.isNotBlank()) Text(settings.feedBio, color = palette.contentSecondary, fontSize = 13.sp,
                         modifier = Modifier.padding(horizontal = 20.dp).clickable { bio = settings.feedBio; editingBio = true })
-                    if (busy) Text("TA 正在写…", color = palette.accentContent, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp))
                 }
             }
             item {
