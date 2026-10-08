@@ -4,7 +4,7 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.core.rememberTransition
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,7 +47,7 @@ internal fun FeedOptionsMenu(
     val palette = LocalGlassPalette.current
     val visibility = remember { MutableTransitionState(false) }
     visibility.targetState = expanded
-    val transition = updateTransition(visibility, label = "feed menu")
+    val transition = rememberTransition(visibility, label = "feed menu")
     val scale by transition.animateFloat(
         transitionSpec = { if (targetState) spring(dampingRatio = 0.72f, stiffness = 450f) else tween(140) },
         label = "scale",

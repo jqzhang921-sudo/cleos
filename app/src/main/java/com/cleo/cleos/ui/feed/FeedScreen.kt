@@ -76,6 +76,7 @@ fun FeedScreen(onBack: () -> Unit) {
     var deleting by remember { mutableStateOf<FeedPostEntity?>(null) }
     var draft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var replyingTo by remember { mutableStateOf<Long?>(null) }
     var running by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
     var browsing by rememberSaveable { mutableStateOf(false) }
@@ -226,8 +227,14 @@ fun FeedScreen(onBack: () -> Unit) {
                                     IconButton({ menu = true }, modifier = Modifier.size(28.dp)) {
                                         Icon(Icons.Rounded.MoreHoriz, "更多", tint = palette.contentSecondary, modifier = Modifier.size(18.dp))
                                     }
-                                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                                        DropdownMenuItem(text = { Text("删除") }, enabled = !busy, onClick = { menu = false; deleting = post })
+                                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false },
+                                        containerColor = Color.Transparent, tonalElevation = 0.dp, shadowElevation = 0.dp,
+                                        shape = RoundedCornerShape(20.dp)) {
+                                        GlassSurface(style = palette.card, shape = GlassShape.Rounded(20.dp), contentPadding = PaddingValues(6.dp)) {
+                                            DropdownMenuItem(text = { Text("删除", color = palette.content) },
+                                                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.contentSecondary) },
+                                                enabled = !busy, onClick = { menu = false; deleting = post })
+                                        }
                                     }
                                 }
                             }
@@ -247,12 +254,15 @@ fun FeedScreen(onBack: () -> Unit) {
                                     Modifier.alpha(if (busy || current == null) .5f else 1f)
                                         .clip(RoundedCornerShape(50))
                                         .border(0.5.dp, palette.content.copy(alpha = .22f), RoundedCornerShape(50))
-                                        .clickable(enabled = !busy && current != null) { current?.let { t -> act { c.feedAi.reply(post.id, t.id) } } }
+                                        .clickable(enabled = !busy && current != null) { current?.let { t ->
+                                            replyingTo = post.id
+                                            act { try { c.feedAi.reply(post.id, t.id) } finally { replyingTo = null } }
+                                        } }
                                         .padding(start = 3.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 ) {
                                     Avatar(ta?.avatar, ta?.avatarEmoji ?: avatarLetter(taName, "TA"), 18.dp)
-                                    Text("戳一下 ${taName}", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
+                                    Text(if (replyingTo == post.id) "TA 正在写…" else "戳一下 ${taName}", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
                                 }
                             }
                         }
@@ -351,12 +361,19 @@ fun FeedScreen(onBack: () -> Unit) {
             }
         }
     }
-    deleting?.let { post -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text("删除这条动态？") },
-        text = { Text("这条动态和下面的回复会一起删除。") },
-        confirmButton = { TextButton({ act { c.feed.delete(post.id); deleting = null } }, enabled = !busy) { Text("删除") } },
-        dismissButton = { TextButton({ deleting = null }) { Text("取消") } }) }
+    deleting?.let { post -> Dialog(onDismissRequest = { if (!busy) deleting = null }) {
+        GlassSurface(Modifier.fillMaxWidth(), style = palette.card, shape = GlassShape.Rounded(28.dp), contentPadding = PaddingValues(20.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("删除这条动态？", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text("这条动态和下面的回复会一起删除。", color = palette.contentSecondary, fontSize = 14.sp)
+                Row(Modifier.align(Alignment.End)) {
+                    TextButton({ deleting = null }, enabled = !busy) { Text("取消") }
+                    TextButton({ act { c.feed.delete(post.id); deleting = null } }, enabled = !busy) { Text("删除") }
+                }
+            }
+        }
+    } }
 }
-
 /** 朋友圈 / 话题: two words with a line under the one that is open. */
 @Composable
 private fun FeedTabs(topics: Boolean, enabled: Boolean, onPick: (Boolean) -> Unit) {
