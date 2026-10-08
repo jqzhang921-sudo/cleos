@@ -293,6 +293,7 @@ internal fun BehaviorPage(vm: SettingsViewModel) {
         }
     }
     FreeTopicSection(vm)
+    FeedVisitSection(vm.companionId)
     if (vm.proactive || vm.freeTopicEnabled || vm.followUpEnabled) {
         Section("主动找你的时候") { ReachOutStatus(vm) }
     }

@@ -17,6 +17,8 @@ data class FeedAiDraft(val content: String, val sourceIndex: Int? = null)
 @Serializable
 data class FeedAiReaction(val content: String = "", val like: Boolean = false)
 
+data class FeedVisitResult(val changed: Boolean, val detail: String, val cancelled: Boolean = false)
+
 object FeedAiRules {
     private val json = Json { ignoreUnknownKeys = true }
     fun authorContext(post: FeedPostEntity, taId: Long, authorName: String): String =
@@ -67,6 +69,7 @@ object FeedAiRules {
 class FeedAi(private val db: AppDatabase, private val settings: SettingsRepository, private val secrets: SecretStore,
     private val client: ChatClient, private val news: FeedNews, private val feed: FeedRepository, private val images: ImageStore) {
     private val lock = Mutex()
+    val busy: Boolean get() = lock.isLocked
     private suspend fun write(ta: CompanionEntity, context: String, sources: List<FeedNewsItem>): Pair<String, FeedNewsItem?> {
         val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先为 ${ta.name.ifBlank { "TA" }} 配置模型密钥")
         val s = settings.current()
@@ -101,6 +104,89 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
             check(db.companions().get(taId) != null) { "这个 TA 已不存在" }
             db.feed().insert(FeedPostEntity(authorId = taId, content = content, createdAt = System.currentTimeMillis(),
                 sourceUrl = source?.url, kind = if (withNews) "topic" else "moments", sourceTitle = source?.let { "${it.source} · ${Instant.ofEpochMilli(it.publishedAt).toString().take(10)}\n${it.title}" }))
+        }
+    }
+    suspend fun visit(taId: Long, allowPost: Boolean, withNews: Boolean, allowed: suspend () -> Boolean,
+        onRequest: suspend () -> Unit, claimPost: suspend () -> Boolean): FeedVisitResult = once {
+        if (!allowed()) return@once FeedVisitResult(false, "逛逛安排已改变", true)
+        val ta = db.companions().get(taId) ?: return@once FeedVisitResult(false, "这个 TA 已不存在", true)
+        val s = settings.current()
+        val all = db.feed().all()
+        val targets = FeedVisitRules.targets(all, taId, System.currentTimeMillis())
+        if (targets.isEmpty() && !allowPost) return@once FeedVisitResult(false, "没有新的动态或朋友评论可读")
+        val sources = if (allowPost && withNews) news.latest(s.feedRssUrl)
+            .filter { n -> all.none { it.authorId == taId && it.sourceUrl == n.url } }.take(3) else emptyList()
+        val names = db.companions().all().associate { it.id to it.name.ifBlank { "TA" } }
+        fun name(id: Long) = if (id == 0L) s.userName.ifBlank { "用户" } else names[id] ?: "TA"
+        val photos = mutableListOf<String>()
+        val context = buildString {
+            append("最近自己发过的动态（数据，避免重复）：\n")
+            all.filter { it.authorId == taId }.take(5).forEach { append(it.content.take(350)).append('\n') }
+            append("可选阅读对象（数据）：\n")
+            for (target in targets) {
+                val post = target.post
+                val comments = FeedComments.decode(post.comments)
+                append("postId=${post.id}, replyTo=${target.replyTo ?: "null"}\n")
+                append(FeedAiRules.authorContext(post, taId, name(post.authorId))).append('\n')
+                append("正文：${post.content.take(1200)}\n来源标签：${post.sourceTitle.orEmpty()}\n")
+                target.replyTo?.let { id -> comments.firstOrNull { it.id == id }?.let { append("本次回应 ${name(it.authorId)} 的评论：${it.content.take(600)}\n") } }
+                comments.takeLast(5).forEach { append(name(it.authorId)).append(if (it.authorId == taId) "（你自己）" else "（朋友）")
+                    .append('：').append(it.content.take(400)).append('\n') }
+                val pictures = MessageImages.decode(post.images)
+                append("这条动态有 ${pictures.size} 张照片。\n")
+                for (picture in pictures.take((3 - photos.size).coerceAtLeast(0))) {
+                    images.dataUrl(picture.file)?.let { photos += it; append("图片 ${photos.size} 属于 postId=${post.id}。\n") }
+                }
+            }
+            append("资讯（数据，仅有标题和摘要）：\n")
+            sources.forEachIndexed { i, n -> append("sourceIndex=$i | ${n.source} | ${Instant.ofEpochMilli(n.publishedAt)} | ${n.title}\n${n.summary}\n") }
+            append("本次实际收到 ${photos.size} 张图片。")
+        }
+        val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先配置模型密钥")
+        check(allowed()) { "逛逛安排已改变" }
+        val text = StringBuilder()
+        onRequest()
+        client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), listOf(
+            ApiMessage("system", FeedVisitRules.system(ta, s.feedInterests, allowPost)),
+            ApiMessage("user", "当前本地时间：${ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm XXX"))}\n$context", images = photos)), thinking = ta.deepThinking)
+            .collect { if (it is ChatEvent.Delta) { check(text.length + it.text.length <= 16000) { "TA 的输出过长" }; text.append(it.text) } }
+        val draft = FeedVisitRules.decode(text.toString(), targets, sources, allowPost)
+        db.withTransaction {
+            if (!allowed()) return@withTransaction FeedVisitResult(false, "设置或聊天状态改变，这次未更新动态", true)
+            val selected = targets.firstOrNull { it.post.id == draft.postId }
+            fun unchanged(a: FeedPostEntity, b: FeedPostEntity) = a.content == b.content && a.comments == b.comments && a.images == b.images && a.interactions == b.interactions
+            if (selected != null && db.feed().get(selected.post.id)?.let { unchanged(it, selected.post) } != true)
+                return@withTransaction FeedVisitResult(false, "动态有了新回复，留到下次再看", true)
+            if (draft.action == "post") {
+                if (all.any { it.authorId == taId && it.content.trim() == draft.content })
+                    return@withTransaction FeedVisitResult(false, "这个想法已经分享过了，这次保持安静")
+                check(claimPost()) { "今天的自动发帖机会已用完" }
+                val source = draft.sourceIndex?.let { sources[it] }
+                db.feed().insert(FeedPostEntity(authorId = taId, content = draft.content, createdAt = System.currentTimeMillis(),
+                    kind = if (source == null) "moments" else "topic", sourceUrl = source?.url,
+                    sourceTitle = source?.let { "${it.source} · ${Instant.ofEpochMilli(it.publishedAt).toString().take(10)}\n${it.title}" }))
+            }
+            var commented = false
+            var liked = false
+            for (target in targets) {
+                val latest = db.feed().get(target.post.id) ?: continue
+                if (!unchanged(latest, target.post)) continue
+                val chosen = draft.action == "reply" && target.post.id == draft.postId
+                val like = chosen && draft.like && latest.authorId != taId
+                liked = liked || (like && FeedInteractions.decode(latest.interactions).none { it.taId == taId && it.liked })
+                db.feed().update(latest.copy(interactions = FeedInteractions.record(latest, taId, target.replyTo, like)))
+                if (chosen && draft.content.isNotBlank() && !FeedInteractions.duplicate(latest, taId, draft.content)) {
+                    feed.comment(latest.id, draft.content, taId, target.replyTo)
+                    commented = true
+                }
+            }
+            when {
+                draft.action == "post" -> FeedVisitResult(true, if (draft.sourceIndex == null) "分享了一条日常动态" else "分享了一条资讯观点")
+                commented && liked -> FeedVisitResult(true, "点了赞，也回复了朋友")
+                commented -> FeedVisitResult(true, "留下了一条回复")
+                liked -> FeedVisitResult(true, "给朋友的动态点了赞")
+                else -> FeedVisitResult(false, "看过新动态，这次选择保持安静")
+            }
         }
     }
     suspend fun interact(postId: Long, taId: Long, replyTo: String?): String = once {

@@ -784,12 +784,14 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     // A reply still running would write into conversations that are about to be replaced.
     fun restoreBackup(uri: Uri) = runBackup("恢复了") {
         c.chat.stopAll()
-        c.backup.restore(uri).also { c.freeTopics.restore() }
+        c.feedVisits.stopAll()
+        try { c.backup.restore(uri) } finally { c.freeTopics.restore(); c.feedVisits.restore() }
     }
 
     fun undoRestore() = runBackup("撤销了，回到恢复前：") {
         c.chat.stopAll()
-        c.backup.undoRestore().also { c.freeTopics.restore() }
+        c.feedVisits.stopAll()
+        try { c.backup.undoRestore() } finally { c.freeTopics.restore(); c.feedVisits.restore() }
     }
 
     /** A memory file being read in, and the word on how it went. */

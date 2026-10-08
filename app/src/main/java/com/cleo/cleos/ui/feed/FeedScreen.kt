@@ -99,6 +99,8 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
     var editingBio by rememberSaveable { mutableStateOf(false) }
     var bio by rememberSaveable { mutableStateOf("") }
     var options by rememberSaveable { mutableStateOf(false) }
+    var visitSettings by rememberSaveable { mutableStateOf(false) }
+    if (visitSettings) com.cleo.cleos.ui.settings.FeedVisitSettingsDialog(current?.id) { visitSettings = false }
     // The cover opened up in place (tap it): taller, with 换封面; the feed waits below. Tap again, or back, to close it.
     var coverOpen by rememberSaveable { mutableStateOf(false) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -150,7 +152,8 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                     FeedOptionsMenu(options, { options = false }, page, busy, !busy && current != null,
                         onBrowse = { chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true },
                         onEditBio = { bio = settings.feedBio; editingBio = true },
-                        onCover = { coverOpen = true })
+                        onCover = { coverOpen = true },
+                        onVisitSettings = { visitSettings = true })
                 }
                 GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy)
             })

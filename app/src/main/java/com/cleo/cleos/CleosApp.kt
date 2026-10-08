@@ -147,7 +147,7 @@ class AppContainer(context: Context) {
             followUps.plan(ta, conversationId, said)
             freeTopics.replied(conversationId)
         },
-        interrupted = { followUps.cancel(it); freeTopics.interrupt(it) },
+        interrupted = { followUps.cancel(it); freeTopics.interrupt(it); feedVisits.interrupt(it) },
         activities = wakeActivities,
         listening = { Listening(music, lyrics).line() },
     )
@@ -194,6 +194,7 @@ class AppContainer(context: Context) {
         showing = { id -> visible && chatOnScreen == id },
         onEnabled = { later.wantsNotifications.value = true })
     val letters = Letters(db, settings, secrets, chatClient, appScope, written = { later.letterWritten(it) })
+    val feedVisits = com.cleo.cleos.ai.FeedVisits(context, db, feedAi, chat, secrets, appScope, wakeActivities)
 
     /** Where a tapped notification leads, until a screen has gone there. */
     val opening = MutableStateFlow<Opening?>(null)
@@ -227,6 +228,7 @@ class AppContainer(context: Context) {
         later.reconcile()
         followUps.restore()
         freeTopics.restore()
+        feedVisits.restore()
         // A reply under way is what keeps the app running in the background (ReplyKeeper), and this
         // is where that is decided: it goes up the moment one starts — the person is in front then,
         // and the system lets a service start — rather than when they leave, which is the moment

@@ -39,6 +39,13 @@ data class CompanionEntity(
     @ColumnInfo(defaultValue = "1") val freeTopicQuietOn: Boolean = true,
     @ColumnInfo(defaultValue = "1380") val freeTopicQuietStart: Int = 1380,
     @ColumnInfo(defaultValue = "480") val freeTopicQuietEnd: Int = 480,
+    @ColumnInfo(defaultValue = "0") val feedVisitEnabled: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val feedVisitLevel: Int = 0,
+    @ColumnInfo(defaultValue = "0") val feedVisitPosts: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val feedVisitNews: Boolean = false,
+    @ColumnInfo(defaultValue = "1") val feedVisitQuietOn: Boolean = true,
+    @ColumnInfo(defaultValue = "1380") val feedVisitQuietStart: Int = 1380,
+    @ColumnInfo(defaultValue = "480") val feedVisitQuietEnd: Int = 480,
     /** May note things down to come back to, and say them on its own when they come due (ai/Later.kt). */
     @ColumnInfo(defaultValue = "1")
     val proactive: Boolean = true,
@@ -233,6 +240,16 @@ data class FreeTopicStateEntity(
     val attempts: Int = 0,
 )
 
+/** Persisted automatic-feed quota and claim; schedules are not restored from user backups. */
+@Entity(tableName = "feed_visits", foreignKeys = [ForeignKey(entity = CompanionEntity::class, parentColumns = ["id"], childColumns = ["companionId"], onDelete = ForeignKey.CASCADE)])
+data class FeedVisitStateEntity(
+    @PrimaryKey val companionId: Long,
+    val nextAt: Long,
+    val attemptDay: Long? = null,
+    val attempts: Int = 0,
+    val posts: Int = 0,
+)
+
 @Serializable
 @Entity(tableName = "conversations", indices = [Index("companionId")])
 data class ConversationEntity(
@@ -421,6 +438,7 @@ data class WakeActivityEntity(
 ) {
     companion object {
         const val RUNNING = "running"
+        const val ACTED = "acted"
         const val SENT = "sent"
         const val QUIET = "quiet"
         const val HELD = "held"
@@ -429,6 +447,7 @@ data class WakeActivityEntity(
         const val EXPIRED = "expired"
         const val INTERRUPTED = "interrupted"
         const val FREE = "free"
+        const val FEED = "feed"
         const val FOLLOW_UP = "follow_up"
         const val NOTE = "note"
         const val MORNING = "morning"

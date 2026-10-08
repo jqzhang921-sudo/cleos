@@ -51,6 +51,19 @@ interface FreeTopicDao {
 }
 
 @Dao
+interface FeedVisitDao {
+    @Query("SELECT * FROM feed_visits WHERE companionId = :id") suspend fun get(id: Long): FeedVisitStateEntity?
+    @Query("SELECT * FROM feed_visits") suspend fun all(): List<FeedVisitStateEntity>
+    @Upsert suspend fun put(state: FeedVisitStateEntity)
+    @Query("UPDATE feed_visits SET nextAt = :next WHERE companionId = :id AND nextAt = :expected")
+    suspend fun move(id: Long, expected: Long, next: Long): Int
+    @Query("UPDATE feed_visits SET nextAt = :next, attemptDay = :day, attempts = CASE WHEN attemptDay = :day THEN attempts + 1 ELSE 1 END, posts = CASE WHEN attemptDay = :day THEN posts ELSE 0 END WHERE companionId = :id AND nextAt = :expected AND (attemptDay IS NOT :day OR attempts < :maximum)")
+    suspend fun claim(id: Long, expected: Long, next: Long, day: Long, maximum: Int): Int
+    @Query("UPDATE feed_visits SET posts = posts + 1 WHERE companionId = :id AND nextAt = :expected AND attemptDay = :day AND posts < 1")
+    suspend fun posted(id: Long, expected: Long, day: Long): Int
+}
+
+@Dao
 interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE companionId = :companionId ORDER BY updatedAt DESC")
     fun observeFor(companionId: Long): Flow<List<ConversationEntity>>

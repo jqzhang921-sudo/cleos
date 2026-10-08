@@ -6,6 +6,7 @@ import com.cleo.cleos.data.db.WakeActivityEntity as W
 object WakeActivityText {
     fun source(value: String) = when (value) {
         W.FREE -> "想找你聊"
+        W.FEED -> "主动逛朋友圈"
         W.FOLLOW_UP -> "还有句话"
         W.MORNING -> "早安招呼"
         W.NIGHT -> "睡前招呼"
@@ -13,6 +14,7 @@ object WakeActivityText {
     }
     fun status(w: W) = when (w.status) {
         W.RUNNING -> w.phase
+        W.ACTED -> "已更新朋友圈"
         W.SENT -> "已发送 ${w.sent} 条消息"
         W.QUIET -> "选择保持安静"
         W.HELD -> "规则跳过"
