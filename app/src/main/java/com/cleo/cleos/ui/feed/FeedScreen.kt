@@ -118,7 +118,16 @@ fun FeedScreen(onBack: () -> Unit) {
     GlassPage(overlay = { page ->
         if (!coverOpen) GlassTopBar(title = if (topics) "话题" else "朋友圈", backdrop = page,
             leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
-            trailing = { GlassIconButton(Icons.Rounded.MoreHoriz, "动态选项", { options = true }, page); GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy) })
+            trailing = {
+                Box {
+                    GlassIconButton(Icons.Rounded.MoreHoriz, "动态选项", { options = !options }, page)
+                    FeedOptionsMenu(options, { options = false }, page, busy, !busy && current != null,
+                        onBrowse = { chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true },
+                        onEditBio = { bio = settings.feedBio; editingBio = true },
+                        onCover = { coverOpen = true })
+                }
+                GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy)
+            })
     }) {
         Box(Modifier.fillMaxSize()) {
         GlassSurface(Modifier.fillMaxSize().padding(top = frostTop), shape = GlassShape.Rounded(0.dp)) {}
@@ -270,21 +279,6 @@ fun FeedScreen(onBack: () -> Unit) {
                 }
             }
         }
-        }
-    }
-    if (options) Dialog(onDismissRequest = { options = false }) {
-        GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("动态选项", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                TextButton({ options = false; chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true }, enabled = !busy && current != null) {
-                    Icon(Icons.Rounded.Explore, null, tint = palette.accentContent, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accentContent)
-                }
-                TextButton({ options = false; bio = settings.feedBio; editingBio = true }, enabled = !busy) { Text("编辑主页简介") }
-                TextButton({ options = false; coverOpen = true }, enabled = !busy) { Text("查看与更换封面") }
-                TextButton({ options = false }, modifier = Modifier.align(Alignment.End)) { Text("关闭") }
-            }
         }
     }
     if (editingBio) Dialog(onDismissRequest = { if (!busy) editingBio = false }) {
