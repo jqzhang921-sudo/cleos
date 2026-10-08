@@ -641,6 +641,7 @@ fun ChatTab(
     }
     var diaryRequestId by rememberSaveable(state.conversationId) { mutableStateOf<Long?>(null) }
     val secretDraft by c.chat.secretDraft.collectAsStateWithLifecycle()
+    val feedDraft by c.chat.feedDraft.collectAsStateWithLifecycle()
     var inputHeight by remember { mutableIntStateOf(0) }
     var pickingAttachment by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) {
@@ -758,6 +759,18 @@ fun ChatTab(
         c.chat.secretDraft.compareAndSet(draft, null)
         inputFocus.requestFocus()
     }
+    // A feed share is editable input, not a sent message or a request to reveal a diary.
+    LaunchedEffect(feedDraft, state.conversationId, pageShown, editSaving) {
+        val draft = feedDraft ?: return@LaunchedEffect
+        if (!pageShown || editSaving || state.conversationId != draft.conversationId) return@LaunchedEffect
+        if (!c.chat.feedDraft.compareAndSet(draft, null)) return@LaunchedEffect
+        if (editingMessage != null) cancelEditing()
+        input = if (input.isBlank()) draft.text else input.trimEnd() + "\n\n" + draft.text
+        drawerOpen = false
+        inputFocus.requestFocus()
+        scope.launch { listState.animateScrollToItem(0) }
+    }
+
     // The message a quote was tapped to find, lit up for a moment.
     var flashed by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(flashed) {

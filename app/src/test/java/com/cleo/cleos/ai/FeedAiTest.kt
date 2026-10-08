@@ -6,6 +6,12 @@ import org.junit.Test
 import java.time.Instant
 
 class FeedAiTest {
+    @Test fun commentsRecognizeThePostAuthorById() {
+        val post = com.cleo.cleos.data.db.FeedPostEntity(authorId = 7, content = "想法", createdAt = 1)
+        assertTrue(FeedAiRules.authorContext(post, 7, "小颂").contains("你自己"))
+        assertTrue(FeedAiRules.authorContext(post, 8, "小颂").contains("不是你写的"))
+        assertTrue(FeedAiRules.authorContext(post.copy(authorId = 0), 7, "用户").contains("动态作者：用户"))
+    }
     private val now = Instant.parse("2026-10-07T00:00:00Z").toEpochMilli()
     private val source = FeedNewsItem("新闻", "https://example.com/story", "摘要", now, "来源")
 

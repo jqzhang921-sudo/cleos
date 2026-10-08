@@ -52,6 +52,7 @@ import com.cleo.cleos.data.db.isTopic
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -76,7 +77,6 @@ fun FeedScreen(onBack: () -> Unit) {
     var deleting by remember { mutableStateOf<FeedPostEntity?>(null) }
     var draft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var replyingTo by remember { mutableStateOf<Long?>(null) }
     var running by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
     var browsing by rememberSaveable { mutableStateOf(false) }
@@ -205,7 +205,7 @@ fun FeedScreen(onBack: () -> Unit) {
                 var expanded by remember(post.id) { mutableStateOf(false) }
                 var menu by remember(post.id) { mutableStateOf(false) }
                 val shown = if (expanded) comments else comments.takeLast(3)
-                // Whoever the TA is that the person is talking to now; the chip asks them to reply.
+                // Sharing goes to the current chat; it never asks the author to comment on their own post.
                 val ta = companions.firstOrNull { it.id == current?.id }
                 val taName = ta?.name?.ifBlank { "TA" } ?: "TA"
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
@@ -252,20 +252,25 @@ fun FeedScreen(onBack: () -> Unit) {
                                 FeedAction(Icons.Rounded.ChatBubbleOutline, "回复", palette.contentSecondary, count = comments.size.takeIf { it > 0 }, enabled = !busy) {
                                     draft = ""; commenting = post.id
                                 }
-                                // Asking a TA to reply: a small outlined chip with their own avatar, so it reads as a button, not as a caption.
+                                // Bring a snapshot into the chat input, preserving any text already there.
                                 Row(
                                     Modifier.alpha(if (busy || current == null) .5f else 1f)
                                         .clip(RoundedCornerShape(50))
                                         .border(0.5.dp, palette.content.copy(alpha = .22f), RoundedCornerShape(50))
                                         .clickable(enabled = !busy && current != null) { current?.let { t ->
-                                            replyingTo = post.id
-                                            act { try { c.feedAi.reply(post.id, t.id) } finally { replyingTo = null } }
+                                            act {
+                                                val conversation = c.chat.resolveConversation(c.settings.currentConversation.first(), t.id)
+                                                c.settings.setCurrentConversation(conversation)
+                                                c.chat.feedDraft.value = com.cleo.cleos.ai.ChatRepository.FeedDraft(conversation, FeedShares.text(post, name, t.id))
+                                                c.opening.value = com.cleo.cleos.Opening.Chat(conversation)
+                                            }
                                         } }
                                         .padding(start = 3.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 ) {
                                     Avatar(ta?.avatar, ta?.avatarEmoji ?: avatarLetter(taName, "TA"), 18.dp)
-                                    Text(if (replyingTo == post.id) "TA 正在写…" else "戳一下 ${taName}", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
+                                    Icon(Icons.Rounded.Send, null, tint = palette.contentSecondary, modifier = Modifier.size(14.dp))
+                                    Text("转发到聊天", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
                                 }
                             }
                         }

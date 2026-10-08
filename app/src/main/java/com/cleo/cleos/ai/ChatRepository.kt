@@ -117,6 +117,10 @@ class ChatRepository(
     data class SecretDraft(val conversationId: Long, val diaryId: Long, val text: String)
     val secretDraft = MutableStateFlow<SecretDraft?>(null)
 
+    /** A post brought from the feed, waiting for the person to send or edit it. */
+    data class FeedDraft(val conversationId: Long, val text: String)
+    val feedDraft = MutableStateFlow<FeedDraft?>(null)
+
     private val _focus = MutableStateFlow<Focus?>(null)
     val focus: StateFlow<Focus?> = _focus.asStateFlow()
 
