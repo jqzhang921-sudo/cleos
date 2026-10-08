@@ -14,6 +14,8 @@ import com.cleo.cleos.data.MessageImage
 import com.cleo.cleos.data.MessageImages
 import com.cleo.cleos.data.MessageQuote
 import com.cleo.cleos.data.MessageQuotes
+import com.cleo.cleos.data.FeedShare
+import com.cleo.cleos.data.FeedShares
 import com.cleo.cleos.data.MessageReactions
 import com.cleo.cleos.data.MessageThought
 import com.cleo.cleos.data.MessageThoughts
@@ -118,7 +120,7 @@ class ChatRepository(
     val secretDraft = MutableStateFlow<SecretDraft?>(null)
 
     /** A post brought from the feed, waiting for the person to send or edit it. */
-    data class FeedDraft(val conversationId: Long, val text: String)
+    data class FeedDraft(val conversationId: Long, val share: FeedShare)
     val feedDraft = MutableStateFlow<FeedDraft?>(null)
 
     private val _focus = MutableStateFlow<Focus?>(null)
@@ -399,8 +401,9 @@ class ChatRepository(
      * stopped for a moment ([answerSoon]). [quote]: the message this one answers. False only
      * when there is nothing to send.
      */
-    fun send(conversationId: Long, text: String, pictures: List<MessageImage> = emptyList(), quote: MessageQuote? = null, diaryRequestId: Long? = null): Boolean {
-        val content = text.trim()
+    fun send(conversationId: Long, text: String, pictures: List<MessageImage> = emptyList(), quote: MessageQuote? = null, diaryRequestId: Long? = null, feedShare: FeedShare? = null): Boolean {
+        val shared = feedShare?.copy(caption = text.trim())
+        val content = shared?.let(FeedShares::text) ?: text.trim()
         if (content.isEmpty() && pictures.isEmpty()) return false
         val at = stamp()
         scope.launch {
@@ -418,6 +421,7 @@ class ChatRepository(
                     createdAt = at,
                     images = MessageImages.encode(pictures),
                     quote = quote?.let(MessageQuotes::encode),
+                    feedShare = shared?.let(FeedShares::encode),
                 ),
             )
             val conversation = db.conversations().get(conversationId)
@@ -531,7 +535,8 @@ class ChatRepository(
 
     /** Continue a new branch through the edited message; keep the entire original conversation. */
     fun editMessage(original: MessageEntity, text: String, done: (Long?, String?) -> Unit) {
-        val content = text.trim()
+        val shared = FeedShares.decode(original.feedShare)?.copy(caption = text.trim())
+        val content = shared?.let(FeedShares::text) ?: text.trim()
         val accepted = start(original.conversationId) {
             val before = sends[original.conversationId]
             val copied = mutableListOf<String>()
@@ -556,6 +561,7 @@ class ChatRepository(
                         val quote = MessageQuotes.decode(row.quote)?.let { it.copy(id = ids[it.id] ?: it.id) }
                         ids[row.id] = db.messages().insert(row.copy(id = 0, conversationId = branchId,
                             content = if (row.id == current.id) content else row.content,
+                            feedShare = if (row.id == current.id) shared?.let(FeedShares::encode) else row.feedShare,
                             images = MessageImages.encode(pictures), audio = audio?.let(MessageAudios::encode),
                             quote = quote?.let(MessageQuotes::encode), call = row.call?.let { ids[it] },
                             error = if (row.id == current.id) null else row.error))

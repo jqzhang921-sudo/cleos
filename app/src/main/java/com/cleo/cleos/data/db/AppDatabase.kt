@@ -29,7 +29,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FreeTopicStateEntity::class,
         FeedPostEntity::class,
     ],
-    version = 27,
+    version = 28,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -78,6 +78,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 24, to = 25),
         AutoMigration(from = 25, to = 26),
         AutoMigration(from = 26, to = 27),
+        // Shared feed cards: one nullable column, preserving every existing message.
+        AutoMigration(from = 27, to = 28),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {

@@ -171,6 +171,8 @@ import com.cleo.cleos.data.MessageImage
 import com.cleo.cleos.data.MessageImages
 import com.cleo.cleos.data.MessageQuote
 import com.cleo.cleos.data.MessageQuotes
+import com.cleo.cleos.data.FeedShare
+import com.cleo.cleos.data.FeedShares
 import com.cleo.cleos.data.MessageReactions
 import com.cleo.cleos.data.MessageThoughts
 import com.cleo.cleos.data.Pats
@@ -629,10 +631,13 @@ fun ChatTab(
     val palette = LocalGlassPalette.current
     val density = LocalDensity.current
     val listState = rememberLazyListState()
-    var input by rememberSaveable { mutableStateOf("") }
+    val inputState = rememberConversationDraft(state.conversationId)
+    var input by inputState
+    var shareDraft by rememberConversationDraft(state.conversationId)
+    val pendingShare = remember(shareDraft) { FeedShares.decode(shareDraft) }
     var beforeEditInput by rememberSaveable { mutableStateOf("") }
     fun cancelEditing() {
-        input = beforeEditInput
+        editingMessage?.conversationId?.let { inputState.restore(it, beforeEditInput) }
         editingMessage = null
         editProblem = null
     }
@@ -736,7 +741,7 @@ fun ChatTab(
         if (sentCount > 0) listState.animateScrollToItem(0)
     }
     // Something in the box: the TA waits for it before answering.
-    val composing = input.isNotBlank() || recording || pickingAttachment || vm.attaching || vm.attachments.isNotEmpty() || drawerOpen
+    val composing = input.isNotBlank() || pendingShare != null || recording || pickingAttachment || vm.attaching || vm.attachments.isNotEmpty() || drawerOpen
     val processingMedia = recording || pickingAttachment || vm.attaching
     LaunchedEffect(composing, processingMedia, pageShown, state.conversationId) {
         vm.typing(pageShown && composing, processingMedia = processingMedia)
@@ -765,7 +770,9 @@ fun ChatTab(
         if (!pageShown || editSaving || state.conversationId != draft.conversationId) return@LaunchedEffect
         if (!c.chat.feedDraft.compareAndSet(draft, null)) return@LaunchedEffect
         if (editingMessage != null) cancelEditing()
-        input = if (input.isBlank()) draft.text else input.trimEnd() + "\n\n" + draft.text
+        // Convert an untouched text draft from the preceding version into the card.
+        if (input.trim() == FeedShares.text(draft.share)) input = ""
+        shareDraft = FeedShares.encode(draft.share)
         drawerOpen = false
         inputFocus.requestFocus()
         scope.launch { listState.animateScrollToItem(0) }
@@ -912,12 +919,17 @@ fun ChatTab(
                 quote = if (editingMessage != null) MessageQuotes.decode(editingMessage?.quote)?.let { quoteLabel(it) }
                     else if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
                 onDropQuote = { diaryRequestId = null; vm.unquote() },
+                share = if (editingMessage != null) FeedShares.decode(editingMessage?.feedShare) else pendingShare,
+                onRemoveShare = if (editingMessage == null) ({ shareDraft = "" }) else null,
                 focus = inputFocus,
                 busy = state.replying || editSaving,
                 editing = editingMessage != null,
                 editHint = editProblem ?: if (editSaving) "正在修改…" else "正在编辑 · 发送后从这里重新回答",
                 onCancelEdit = { if (!editSaving) cancelEditing() },
-                sendEnabled = !editSaving && (editingMessage?.let { input.isNotBlank() && input.trim() != it.content && !state.replying && state.hasApiKey } ?: true),
+                sendEnabled = !editSaving && (editingMessage?.let {
+                    val shared = FeedShares.decode(it.feedShare)
+                    (input.isNotBlank() || shared != null) && input.trim() != (shared?.caption ?: it.content) && !state.replying && state.hasApiKey
+                } ?: true),
                 onSend = {
                     val original = editingMessage
                     if (original != null) {
@@ -926,7 +938,8 @@ fun ChatTab(
                             editSaving = false
                             if (problem == null) { cancelEditing(); sentCount++ } else editProblem = problem
                         }
-                    } else if (vm.send(input, diaryRequestId)) {
+                    } else if (vm.send(input, diaryRequestId, pendingShare)) {
+                        shareDraft = ""
                         diaryRequestId = null
                         input = ""
                         sentCount++
@@ -1103,7 +1116,7 @@ fun ChatTab(
                                         onDelete = { vm.delete(m.id) },
                                         onEdit = if (!state.replying && !editSaving && MessageEdits.eligible(m)) ({
                                             if (editingMessage == null) beforeEditInput = input
-                                            editingMessage = m; input = m.content; editProblem = null; drawerOpen = false
+                                            editingMessage = m; input = FeedShares.decode(m.feedShare)?.caption ?: m.content; editProblem = null; drawerOpen = false
                                         }) else null,
                                         onOpenImage = onOpenImage,
                                         transcribing = m.id in state.transcribing,
@@ -1397,8 +1410,10 @@ private fun MessageBubble(
     val thought = remember(message.thought) { MessageThoughts.decode(message.thought) }
     // Words and stickers, in order; the words alone are what 复制 copies.
     val book = LocalStickers.current
-    val pieces = remember(message.content, book) { StickerText.split(message.content, book) }
-    val words = remember(pieces) { pieces.filterIsInstance<StickerText.Piece.Words>().joinToString("\n") { it.text } }
+    val shared = remember(message.feedShare) { FeedShares.decode(message.feedShare) }
+    val displayText = shared?.caption ?: message.content
+    val pieces = remember(displayText, book) { StickerText.split(displayText, book) }
+    val words = remember(pieces, shared) { if (shared != null) message.content else pieces.filterIsInstance<StickerText.Piece.Words>().joinToString("\n") { it.text } }
     val reactions = remember(message.reactions) { MessageReactions.decode(message.reactions) }
 
     Row(
@@ -1462,6 +1477,7 @@ private fun MessageBubble(
                             }
                         }
                     }
+                    if (shared != null) FeedShareCard(shared, Modifier.widthIn(max = bubbleMaxWidth()), onLongClick = { menu = true })
                     // The message this one answers, under it like in WeChat; a tap finds it.
                     if (quote != null) QuoteBox(quote, onOpenQuote)
                     if (reactions.isNotEmpty()) ReactionChips(reactions, reactionAvatar, reactionLetter) { menu = true }
@@ -2332,6 +2348,8 @@ private fun ChatInputBar(
     busy: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit,
+    share: FeedShare? = null,
+    onRemoveShare: (() -> Unit)? = null,
     editing: Boolean = false,
     editHint: String = "",
     onCancelEdit: () -> Unit = {},
@@ -2348,7 +2366,7 @@ private fun ChatInputBar(
 ) {
     val palette = LocalGlassPalette.current
     val c = appContainer()
-    val canSend = text.isNotBlank() || attachments.isNotEmpty()
+    val canSend = text.isNotBlank() || attachments.isNotEmpty() || share != null
     Column(
         modifier
             .fillMaxWidth()
@@ -2365,6 +2383,7 @@ private fun ChatInputBar(
             }
         }
         // The stickers, in the same glass as the rest, where the keyboard would otherwise be.
+        if (share != null) FeedShareCard(share, Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp), onRemove = onRemoveShare)
         if (drawerOpen) drawer()
         if (quote != null) {
             Row(

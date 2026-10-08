@@ -75,6 +75,8 @@ fun FeedScreen(onBack: () -> Unit) {
     var composing by rememberSaveable { mutableStateOf(false) }
     var commenting by rememberSaveable { mutableStateOf<Long?>(null) }
     var deleting by remember { mutableStateOf<FeedPostEntity?>(null) }
+    var forwarding by remember { mutableStateOf<FeedPostEntity?>(null) }
+    var recipient by rememberSaveable { mutableStateOf<Long?>(null) }
     var draft by rememberSaveable { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -205,9 +207,6 @@ fun FeedScreen(onBack: () -> Unit) {
                 var expanded by remember(post.id) { mutableStateOf(false) }
                 var menu by remember(post.id) { mutableStateOf(false) }
                 val shown = if (expanded) comments else comments.takeLast(3)
-                // Sharing goes to the current chat; it never asks the author to comment on their own post.
-                val ta = companions.firstOrNull { it.id == current?.id }
-                val taName = ta?.name?.ifBlank { "TA" } ?: "TA"
                 Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).padding(top = 14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         // The thread: the line runs from the post's avatar down to the first reply's.
@@ -252,23 +251,15 @@ fun FeedScreen(onBack: () -> Unit) {
                                 FeedAction(Icons.Rounded.ChatBubbleOutline, "回复", palette.contentSecondary, count = comments.size.takeIf { it > 0 }, enabled = !busy) {
                                     draft = ""; commenting = post.id
                                 }
-                                // Bring a snapshot into the chat input, preserving any text already there.
+                                // Everyone shares this feed. Choose the recipient only when forwarding.
                                 Row(
-                                    Modifier.alpha(if (busy || current == null) .5f else 1f)
+                                    Modifier.alpha(if (busy || companions.isEmpty()) .5f else 1f)
                                         .clip(RoundedCornerShape(50))
                                         .border(0.5.dp, palette.content.copy(alpha = .22f), RoundedCornerShape(50))
-                                        .clickable(enabled = !busy && current != null) { current?.let { t ->
-                                            act {
-                                                val conversation = c.chat.resolveConversation(c.settings.currentConversation.first(), t.id)
-                                                c.settings.setCurrentConversation(conversation)
-                                                c.chat.feedDraft.value = com.cleo.cleos.ai.ChatRepository.FeedDraft(conversation, FeedShares.text(post, name, t.id))
-                                                c.opening.value = com.cleo.cleos.Opening.Chat(conversation)
-                                            }
-                                        } }
-                                        .padding(start = 3.dp, end = 10.dp, top = 3.dp, bottom = 3.dp),
+                                        .clickable(enabled = !busy && companions.isNotEmpty()) { recipient = null; forwarding = post }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 ) {
-                                    Avatar(ta?.avatar, ta?.avatarEmoji ?: avatarLetter(taName, "TA"), 18.dp)
                                     Icon(Icons.Rounded.Send, null, tint = palette.contentSecondary, modifier = Modifier.size(14.dp))
                                     Text("转发到聊天", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
                                 }
@@ -311,6 +302,43 @@ fun FeedScreen(onBack: () -> Unit) {
             }
         }
     }
+    forwarding?.let { post -> Dialog(onDismissRequest = { if (!busy) forwarding = null }) {
+        GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(20.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("转发给谁？", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text("带到聊天后，可以附上一句话再发送。", color = palette.contentSecondary, fontSize = 13.sp)
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    companions.forEach { ta ->
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                            .clickable(enabled = !busy) { recipient = ta.id }.padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Avatar(ta.avatar, ta.avatarEmoji ?: avatarLetter(ta.name, "TA"), 36.dp)
+                            Text(ta.name.ifBlank { "TA" }, color = palette.content, modifier = Modifier.weight(1f))
+                            RadioButton(recipient == ta.id, null, enabled = !busy)
+                        }
+                    }
+                }
+                Row(Modifier.align(Alignment.End)) {
+                    TextButton({ forwarding = null }, enabled = !busy) { Text("取消", color = palette.content) }
+                    TextButton({
+                        val id = recipient ?: return@TextButton
+                        act {
+                            val ta = c.companions.get(id) ?: error("这位 TA 已经不在了")
+                            val remembered = if (current?.id == id) c.settings.currentConversation.first() else null
+                            val conversation = c.chat.resolveConversation(remembered, id)
+                            val authorName = if (post.authorId == 0L) settings.userName.ifBlank { "我" }
+                                else companions.firstOrNull { it.id == post.authorId }?.name?.ifBlank { "TA" } ?: "TA"
+                            if (current?.id != ta.id) c.companions.select(ta.id)
+                            c.settings.setCurrentConversation(conversation)
+                            c.chat.feedDraft.value = com.cleo.cleos.ai.ChatRepository.FeedDraft(conversation, FeedShares.of(post, authorName, ta.id))
+                            forwarding = null
+                            c.opening.value = com.cleo.cleos.Opening.Chat(conversation)
+                        }
+                    }, enabled = !busy && companions.any { it.id == recipient }) { Text("带到聊天", color = palette.accentContent) }
+                }
+            }
+        }
+    } }
     if (browsing) Dialog(onDismissRequest = { if (!busy) browsing = false }) {
         GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
             Column(Modifier.heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

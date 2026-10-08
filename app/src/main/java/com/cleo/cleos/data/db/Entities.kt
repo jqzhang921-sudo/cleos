@@ -326,6 +326,8 @@ data class MessageEntity(
     val call: Long? = null,
     /** User request tied to a diary; hidden from the visible message text. */
     val diaryRequestId: Long? = null,
+    /** Shared feed post snapshot (FeedShare as JSON). Content keeps its full readable model context. */
+    val feedShare: String? = null,
 )
 
 /**

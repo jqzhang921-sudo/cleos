@@ -3,6 +3,8 @@ package com.cleo.cleos.data
 import com.cleo.cleos.data.db.FeedPostEntity
 import org.junit.Assert.*
 import org.junit.Test
+import com.cleo.cleos.data.db.MessageEntity
+import kotlinx.serialization.json.Json
 
 class FeedSharesTest {
     private val post = FeedPostEntity(authorId = 7, content = "自己的想法", createdAt = 1,
@@ -24,5 +26,35 @@ class FeedSharesTest {
         assertTrue(daily.startsWith("【转发朋友圈】"))
         assertTrue(daily.contains("作者：我\n"))
         assertFalse(daily.contains("来源"))
+    }
+
+    @Test fun cardSnapshotAndCaptionSurviveMessageSerialization() {
+        val shared = FeedShares.of(post, "小颂", 7).copy(caption = "想和你聊聊这个")
+        val raw = FeedShares.encode(shared)
+        val message = MessageEntity(conversationId = 3, role = "user", content = FeedShares.text(shared),
+            createdAt = 5, feedShare = raw)
+        val restored = Json.decodeFromString<MessageEntity>(Json.encodeToString(message))
+        assertEquals(shared, FeedShares.decode(restored.feedShare))
+        assertTrue(restored.content.startsWith("想和你聊聊这个\n\n【转发话题】"))
+        assertTrue(restored.content.contains("自己的想法"))
+        assertTrue(restored.content.contains("（你自己）"))
+    }
+
+    @Test fun olderMessagesAndMalformedCardsRemainReadable() {
+        val old = Json.decodeFromString<MessageEntity>("""{"conversationId":3,"role":"user","content":"旧消息","createdAt":1}""")
+        assertNull(old.feedShare)
+        assertNull(FeedShares.decode(null))
+        assertNull(FeedShares.decode("不是卡片"))
+        assertEquals("旧消息", old.content)
+    }
+
+    @Test fun editingCaptionPreservesTheOriginalPostAndSource() {
+        val original = FeedShares.of(post, "小颂", 7).copy(caption = "第一句话")
+        val changed = original.copy(caption = "换一句话")
+        assertTrue(FeedShares.text(changed).startsWith("换一句话\n\n"))
+        assertFalse(FeedShares.text(changed).contains("第一句话"))
+        assertEquals(original.content, changed.content)
+        assertEquals(original.sourceUrl, changed.sourceUrl)
+        assertEquals(original.ownPost, changed.ownPost)
     }
 }
