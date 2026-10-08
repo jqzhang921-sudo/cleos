@@ -1,5 +1,10 @@
 package com.cleo.cleos.ui.feed
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,6 +20,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.result.PickVisualMediaRequest
@@ -22,6 +28,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -79,12 +86,18 @@ fun FeedScreen(onBack: () -> Unit) {
     var editingBio by rememberSaveable { mutableStateOf(false) }
     var bio by rememberSaveable { mutableStateOf("") }
     var options by rememberSaveable { mutableStateOf(false) }
-    var previewCover by rememberSaveable { mutableStateOf(false) }
+    // The cover opened up in place (tap it): taller, with 换封面; the feed waits below. Tap again, or back, to close it.
+    var coverOpen by rememberSaveable { mutableStateOf(false) }
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val listState = rememberLazyListState()
     val density = LocalDensity.current
-    val coverHeight = top + 168.dp
+    val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+    val closedCover = top + 168.dp
+    val openCover = (screenHeight - 150.dp).coerceAtLeast(closedCover + 120.dp)
+    val coverHeight by animateDpAsState(if (coverOpen) openCover else closedCover, tween(320), label = "cover")
+    BackHandler(enabled = coverOpen) { coverOpen = false }
+    LaunchedEffect(coverOpen) { if (coverOpen) listState.animateScrollToItem(0) }
     val frostTop = if (listState.firstVisibleItemIndex == 0) (coverHeight - with(density) { listState.firstVisibleItemScrollOffset.toDp() }).coerceAtLeast(0.dp) else 0.dp
     fun act(action: suspend () -> Unit) {
         if (busy) return
@@ -103,7 +116,7 @@ fun FeedScreen(onBack: () -> Unit) {
         }
     }
     GlassPage(overlay = { page ->
-        GlassTopBar(title = if (topics) "话题" else "朋友圈", backdrop = page,
+        if (!coverOpen) GlassTopBar(title = if (topics) "话题" else "朋友圈", backdrop = page,
             leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
             trailing = { GlassIconButton(Icons.Rounded.MoreHoriz, "动态选项", { options = true }, page); GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy) })
     }) {
@@ -114,9 +127,25 @@ fun FeedScreen(onBack: () -> Unit) {
             verticalArrangement = Arrangement.spacedBy(0.dp)) {
             item {
                 Box(Modifier.fillMaxWidth().height(coverHeight)
-                    .background(Brush.linearGradient(listOf(palette.accent.copy(alpha = .35f), palette.content.copy(alpha = .08f)))).clickable(enabled = !busy) { previewCover = true }) {
+                    .background(Brush.linearGradient(listOf(palette.accent.copy(alpha = .35f), palette.content.copy(alpha = .08f))))
+                    .clickable(enabled = !busy) { coverOpen = !coverOpen }) {
                     (settings.feedCover ?: settings.wallpaper)?.let { cover ->
                         AsyncImage(c.images.file(cover), "主页封面", Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    }
+                    // Only while it is open: a soft dark foot, so the white 换封面 reads on any picture.
+                    AnimatedVisibility(coverOpen, Modifier.align(Alignment.BottomCenter), enter = fadeIn(tween(240)), exit = fadeOut(tween(160))) {
+                        Box(Modifier.fillMaxWidth().height(180.dp)
+                            .background(Brush.verticalGradient(listOf(androidx.compose.ui.graphics.Color.Transparent, androidx.compose.ui.graphics.Color.Black.copy(alpha = .42f)))))
+                    }
+                    AnimatedVisibility(coverOpen, Modifier.align(Alignment.BottomEnd), enter = fadeIn(tween(240)), exit = fadeOut(tween(160))) {
+                        Column(Modifier.padding(end = 22.dp, bottom = 22.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(enabled = !busy) { coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(Icons.Rounded.Image, null, tint = androidx.compose.ui.graphics.Color.White, modifier = Modifier.size(30.dp))
+                            Text("换封面", color = androidx.compose.ui.graphics.Color.White, fontSize = 13.sp)
+                        }
                     }
                 }
             }
@@ -253,23 +282,8 @@ fun FeedScreen(onBack: () -> Unit) {
                     Text(if (busy) "TA 正在写…" else "让 TA 逛逛", color = palette.accentContent)
                 }
                 TextButton({ options = false; bio = settings.feedBio; editingBio = true }, enabled = !busy) { Text("编辑主页简介") }
-                TextButton({ options = false; previewCover = true }, enabled = !busy) { Text("查看与更换封面") }
+                TextButton({ options = false; coverOpen = true }, enabled = !busy) { Text("查看与更换封面") }
                 TextButton({ options = false }, modifier = Modifier.align(Alignment.End)) { Text("关闭") }
-            }
-        }
-    }
-    if (previewCover) Dialog(onDismissRequest = { previewCover = false }, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
-        Box(Modifier.fillMaxWidth().background(androidx.compose.ui.graphics.Color.Black)) {
-            (settings.feedCover ?: settings.wallpaper)?.let { cover ->
-                AsyncImage(c.images.file(cover), "封面预览", Modifier.fillMaxWidth().height(520.dp), contentScale = ContentScale.Fit)
-            }
-            IconButton({ previewCover = false }, modifier = Modifier.align(Alignment.TopStart)) {
-                Icon(Icons.AutoMirrored.Rounded.ArrowBack, "返回", tint = androidx.compose.ui.graphics.Color.White)
-            }
-            TextButton({ previewCover = false; coverPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                enabled = !busy, modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) {
-                Icon(Icons.Rounded.Image, null, tint = androidx.compose.ui.graphics.Color.White)
-                Spacer(Modifier.width(8.dp)); Text("换封面", color = androidx.compose.ui.graphics.Color.White)
             }
         }
     }
