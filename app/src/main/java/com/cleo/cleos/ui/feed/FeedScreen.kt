@@ -227,12 +227,16 @@ fun FeedScreen(onBack: () -> Unit) {
                                         Icon(Icons.Rounded.MoreHoriz, "更多", tint = palette.contentSecondary, modifier = Modifier.size(18.dp))
                                     }
                                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false },
+                                        modifier = Modifier.width(180.dp),
                                         containerColor = Color.Transparent, tonalElevation = 0.dp, shadowElevation = 0.dp,
                                         shape = RoundedCornerShape(20.dp)) {
-                                        GlassSurface(style = palette.card, shape = GlassShape.Rounded(20.dp), contentPadding = PaddingValues(6.dp)) {
-                                            DropdownMenuItem(text = { Text("删除", color = palette.content) },
-                                                leadingIcon = { Icon(Icons.Rounded.DeleteOutline, null, tint = palette.contentSecondary) },
-                                                enabled = !busy, onClick = { menu = false; deleting = post })
+                                        Box(Modifier.padding(12.dp)) {
+                                            GlassSurface(Modifier.fillMaxWidth(), style = palette.card,
+                                                shape = GlassShape.Rounded(16.dp), contentPadding = PaddingValues(6.dp)) {
+                                                FeedOptionRow(Icons.Rounded.DeleteOutline, "删除", !busy) {
+                                                    menu = false; deleting = post
+                                                }
+                                            }
                                         }
                                     }
                                 }

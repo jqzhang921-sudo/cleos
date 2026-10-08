@@ -86,7 +86,7 @@ internal fun FeedOptionsMenu(
     }
 }
 @Composable
-private fun FeedOptionRow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+internal fun FeedOptionRow(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
     val palette = LocalGlassPalette.current
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
