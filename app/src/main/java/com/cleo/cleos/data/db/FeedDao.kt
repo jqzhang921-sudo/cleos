@@ -16,6 +16,8 @@ data class FeedPostEntity(
     val sourceUrl: String? = null,
     val sourceTitle: String? = null,
     @ColumnInfo(defaultValue = "'moments'") val kind: String = "moments",
+    /** Imported photos owned by this post, encoded as MessageImage list. */
+    val images: String? = null,
 )
 
 /** Older sourced posts belong to topics even before the explicit category existed. */

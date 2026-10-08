@@ -7,6 +7,17 @@ import com.cleo.cleos.data.db.MessageEntity
 import kotlinx.serialization.json.Json
 
 class FeedSharesTest {
+    @Test fun photoOnlyShareKeepsPhotoMetadataAndReportsTheAlbumToTheModel() {
+        val photo = MessageImage("owned-photo.jpg", 800, 600)
+        val photoPost = post.copy(content = "", images = MessageImages.encode(listOf(photo)))
+        val shared = FeedShares.of(photoPost, "小颂", 7)
+        val restored = FeedShares.decode(FeedShares.encode(shared))!!
+        assertEquals(listOf(photo), restored.images)
+        assertTrue(FeedShares.text(restored).contains("图片：1 张"))
+        val message = MessageEntity(conversationId = 3, role = "user", createdAt = 1,
+            content = FeedShares.text(restored), images = MessageImages.encode(restored.images), feedShare = FeedShares.encode(restored))
+        assertEquals(FeedShares.decode(message.feedShare)!!.images, MessageImages.decode(message.images))
+    }
     private val post = FeedPostEntity(authorId = 7, content = "自己的想法", createdAt = 1,
         sourceTitle = "来源标题", sourceUrl = "https://example.com/story")
 

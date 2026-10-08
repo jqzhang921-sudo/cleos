@@ -84,10 +84,10 @@ class AppContainer(context: Context) {
 
     val db: AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "cleos.db").build()
     val settings = SettingsRepository(context)
-    val feed = com.cleo.cleos.data.FeedRepository(db)
     val secrets = SecretStore(context)
     val modelProfiles = com.cleo.cleos.data.ModelProfiles(secrets)
     val images = ImageStore(context)
+    val feed = com.cleo.cleos.data.FeedRepository(db, images)
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)

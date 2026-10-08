@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.cleo.cleos.data.FeedShare
+import com.cleo.cleos.ui.feed.FeedPhotos
 import com.cleo.cleos.glass.*
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -27,7 +28,7 @@ import java.util.Locale
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun FeedShareCard(share: FeedShare, modifier: Modifier = Modifier,
-    onRemove: (() -> Unit)? = null, onLongClick: (() -> Unit)? = null) {
+    onRemove: (() -> Unit)? = null, onLongClick: (() -> Unit)? = null, onOpenImage: (String) -> Unit) {
     val palette = LocalGlassPalette.current
     var open by remember { mutableStateOf(false) }
     val date = remember(share.createdAt) { SimpleDateFormat("M月d日 HH:mm", Locale.CHINA).format(Date(share.createdAt)) }
@@ -45,9 +46,10 @@ internal fun FeedShareCard(share: FeedShare, modifier: Modifier = Modifier,
                 Text(share.authorName, color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(date, color = palette.contentSecondary, fontSize = 11.sp)
             }
-            Text(share.content, color = palette.content, fontSize = 14.sp, lineHeight = 21.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (share.images.isNotEmpty()) FeedPhotos(share.images.take(1), onOpenImage, compact = true)
+            if (share.content.isNotBlank()) Text(share.content, color = palette.content, fontSize = 14.sp, lineHeight = 21.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
             HorizontalDivider(color = palette.content.copy(alpha = .1f))
-            Text(share.sourceTitle?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: "点开看看这条动态",
+            Text(share.sourceTitle?.lineSequence()?.firstOrNull()?.takeIf { it.isNotBlank() } ?: if (share.images.isNotEmpty()) "${share.images.size} 张照片 · 点开查看动态" else "点开看看这条动态",
                 color = palette.contentSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -60,6 +62,7 @@ internal fun FeedShareCard(share: FeedShare, modifier: Modifier = Modifier,
                     Text(share.authorName, color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     Text(date, color = palette.contentSecondary, fontSize = 12.sp)
                     Text(share.content, color = palette.content, fontSize = 15.sp, lineHeight = 23.sp)
+                    if (share.images.isNotEmpty()) FeedPhotos(share.images, { file -> open = false; onOpenImage(file) })
                     share.sourceTitle?.let { Text(it, color = palette.contentSecondary, fontSize = 12.sp) }
                     if (linkProblem) Text("无法打开来源", color = palette.error, fontSize = 12.sp)
                 }

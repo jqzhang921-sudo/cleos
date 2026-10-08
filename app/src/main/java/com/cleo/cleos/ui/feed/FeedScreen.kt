@@ -61,7 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-fun FeedScreen(onBack: () -> Unit) {
+fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
     val c = appContainer()
     val palette = LocalGlassPalette.current
     val posts by c.feed.posts.collectAsStateWithLifecycle(emptyList())
@@ -78,6 +78,13 @@ fun FeedScreen(onBack: () -> Unit) {
     var forwarding by remember { mutableStateOf<FeedPostEntity?>(null) }
     var recipient by rememberSaveable { mutableStateOf<Long?>(null) }
     var draft by rememberSaveable { mutableStateOf("") }
+    var photoDraft by rememberSaveable { mutableStateOf("") }
+    val photos = remember(photoDraft) { MessageImages.decode(photoDraft) }
+    fun discardPhotos() {
+        val files = MessageImages.decode(photoDraft).map { it.file }
+        photoDraft = ""
+        c.appScope.launch { c.images.delete(files) }
+    }
     var busy by remember { mutableStateOf(false) }
     var running by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var problem by remember { mutableStateOf<String?>(null) }
@@ -116,6 +123,19 @@ fun FeedScreen(onBack: () -> Unit) {
         if (picked != null) act {
             val image = c.images.import(picked, prefix = "feed_cover_")
             c.settings.update { it.copy(feedCover = image.file) }
+        }
+    }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(FeedPostRules.MAX_PHOTOS)) { picked ->
+        if (picked.isNotEmpty()) act {
+            val existing = MessageImages.decode(photoDraft)
+            val made = mutableListOf<MessageImage>()
+            try {
+                for (photo in picked.take(FeedPostRules.MAX_PHOTOS - existing.size)) {
+                    val imported = c.images.import(photo, prefix = "feed_draft_")
+                    made += MessageImage(imported.file, imported.width, imported.height)
+                }
+                photoDraft = MessageImages.encode(existing + made).orEmpty()
+            } catch (e: Exception) { c.images.delete(made.map { it.file }); throw e }
         }
     }
     GlassPage(overlay = { page ->
@@ -240,7 +260,9 @@ fun FeedScreen(onBack: () -> Unit) {
                                     }
                                 }
                             }
-                            Text(post.content, color = palette.content, fontSize = 15.sp, lineHeight = 22.sp)
+                            if (post.content.isNotBlank()) Text(post.content, color = palette.content, fontSize = 15.sp, lineHeight = 22.sp)
+                            val postPhotos = remember(post.images) { MessageImages.decode(post.images) }
+                            if (postPhotos.isNotEmpty()) FeedPhotos(postPhotos, onOpenImage, Modifier.padding(vertical = 5.dp))
                             post.sourceUrl?.let { link ->
                                 Text(post.sourceTitle ?: "查看来源", color = palette.accentContent, fontSize = 12.sp,
                                     modifier = Modifier.clickable { runCatching { uri.openUri(link) }.onFailure { problem = "无法打开来源" } })
@@ -330,7 +352,7 @@ fun FeedScreen(onBack: () -> Unit) {
                                 else companions.firstOrNull { it.id == post.authorId }?.name?.ifBlank { "TA" } ?: "TA"
                             if (current?.id != ta.id) c.companions.select(ta.id)
                             c.settings.setCurrentConversation(conversation)
-                            c.chat.feedDraft.value = com.cleo.cleos.ai.ChatRepository.FeedDraft(conversation, FeedShares.of(post, authorName, ta.id))
+                            c.chat.stageFeedShare(conversation, FeedShares.of(post, authorName, ta.id))
                             forwarding = null
                             c.opening.value = com.cleo.cleos.Opening.Chat(conversation)
                         }
@@ -377,22 +399,37 @@ fun FeedScreen(onBack: () -> Unit) {
             }
         }
     }
-    if (composing || commenting != null) Dialog(onDismissRequest = { if (!busy) { composing = false; commenting = null } }) {
+    if (composing || commenting != null) Dialog(onDismissRequest = { if (!busy) { discardPhotos(); composing = false; commenting = null } }) {
         GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(Modifier.heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(if (composing) { if (topics) "发话题" else "发朋友圈" } else "回复动态", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 OutlinedTextField(draft, { draft = it.take(4000) }, modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp, max = 260.dp), enabled = !busy,
                     placeholder = { Text("分享你的想法…") })
+                if (composing) {
+                    if (photos.isNotEmpty()) FeedPhotos(photos, onOpenImage, compact = true, onRemove = { photo ->
+                        photoDraft = MessageImages.encode(photos.filterNot { it.file == photo.file }).orEmpty()
+                        c.appScope.launch { c.images.delete(listOf(photo.file)) }
+                    })
+                    TextButton({ photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                        enabled = !busy && photos.size < FeedPostRules.MAX_PHOTOS) {
+                        Icon(Icons.Rounded.AddPhotoAlternate, null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("添加照片 · ${photos.size}/9", color = palette.accentContent)
+                    }
+                }
                 problem?.let { Text(it, color = palette.content, fontSize = 12.sp) }
+                }
                 Row(Modifier.align(Alignment.End)) {
-                    TextButton({ composing = false; commenting = null }, enabled = !busy) { Text("取消", color = palette.content) }
+                    TextButton({ discardPhotos(); composing = false; commenting = null }, enabled = !busy) { Text("取消", color = palette.content) }
                     TextButton({
                         val id = commenting; val text = draft
                         act {
-                            if (id == null) c.feed.publish(text, topics) else c.feed.comment(id, text)
+                            if (id == null) c.feed.publish(text, topics, photos) else c.feed.comment(id, text)
+                            discardPhotos()
                             composing = false; commenting = null; draft = ""
                         }
-                    }, enabled = !busy && draft.isNotBlank()) { Text(if (busy) "保存中…" else "发布", color = palette.accentContent) }
+                    }, enabled = !busy && (draft.isNotBlank() || (composing && photos.isNotEmpty()))) { Text(if (busy) "处理中…" else "发布", color = palette.accentContent) }
                 }
             }
         }

@@ -35,6 +35,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -122,6 +123,14 @@ class ChatRepository(
     /** A post brought from the feed, waiting for the person to send or edit it. */
     data class FeedDraft(val conversationId: Long, val share: FeedShare)
     val feedDraft = MutableStateFlow<FeedDraft?>(null)
+
+    /** The draft owns copies too: deleting a feed post cannot break a pending or sent card. */
+    suspend fun stageFeedShare(conversationId: Long, share: FeedShare) = withContext(Dispatchers.IO + NonCancellable) {
+        val owned = MessageImageCopies.copy(images.dir, share.images)
+        val previous = feedDraft.value
+        feedDraft.value = FeedDraft(conversationId, share.copy(images = owned))
+        images.delete(previous?.share?.images.orEmpty().map { it.file })
+    }
 
     private val _focus = MutableStateFlow<Focus?>(null)
     val focus: StateFlow<Focus?> = _focus.asStateFlow()
@@ -419,7 +428,7 @@ class ChatRepository(
                     content = content,
                     diaryRequestId = request,
                     createdAt = at,
-                    images = MessageImages.encode(pictures),
+                    images = MessageImages.encode(shared?.images.orEmpty() + pictures),
                     quote = quote?.let(MessageQuotes::encode),
                     feedShare = shared?.let(FeedShares::encode),
                 ),
@@ -556,12 +565,17 @@ class ChatRepository(
                     val prefix = MessageEdits.prefix(db.messages().forFavorite(current.conversationId), current)
                     fun copyFile(name: String) = MessageImageCopies.copyFile(images.dir, name).also { copied += it }
                     for (row in prefix) {
-                        val pictures = MessageImages.decode(row.images).map { it.copy(file = copyFile(it.file)) }
+                        val originals = MessageImages.decode(row.images)
+                        val pictures = originals.map { it.copy(file = copyFile(it.file)) }
+                        val copiedByName = originals.map { it.file }.zip(pictures).toMap()
+                        val rowShare = (if (row.id == current.id) shared else FeedShares.decode(row.feedShare))?.let { card ->
+                            card.copy(images = card.images.mapNotNull { copiedByName[it.file] })
+                        }
                         val audio = MessageAudios.decode(row.audio)?.let { it.copy(file = copyFile(it.file)) }
                         val quote = MessageQuotes.decode(row.quote)?.let { it.copy(id = ids[it.id] ?: it.id) }
                         ids[row.id] = db.messages().insert(row.copy(id = 0, conversationId = branchId,
                             content = if (row.id == current.id) content else row.content,
-                            feedShare = if (row.id == current.id) shared?.let(FeedShares::encode) else row.feedShare,
+                            feedShare = rowShare?.let(FeedShares::encode),
                             images = MessageImages.encode(pictures), audio = audio?.let(MessageAudios::encode),
                             quote = quote?.let(MessageQuotes::encode), call = row.call?.let { ids[it] },
                             error = if (row.id == current.id) null else row.error))

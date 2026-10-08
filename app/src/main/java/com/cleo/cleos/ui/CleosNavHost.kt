@@ -167,7 +167,7 @@ fun CleosNavHost() {
                 onOpenFavorites = { nav.go(FavoritesRoute) },
             )
         }
-        composable<FeedRoute> { com.cleo.cleos.ui.feed.FeedScreen(onBack = nav::back) }
+        composable<FeedRoute> { com.cleo.cleos.ui.feed.FeedScreen(onBack = nav::back, onOpenImage = { nav.go(ImageRoute(it)) }) }
         composable<LettersRoute> { LettersScreen(onBack = nav::back, onOpen = { nav.go(LetterRoute(it)) }) }
         composable<LetterRoute> { entry -> LetterScreen(entry.toRoute<LetterRoute>().id, onBack = nav::back) }
         composable<FavoritesRoute> {

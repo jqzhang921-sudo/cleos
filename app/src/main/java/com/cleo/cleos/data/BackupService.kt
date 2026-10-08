@@ -270,6 +270,7 @@ class BackupService(
         val stickerFiles = data.stickers.map { it.file }.toSet()
         val favoriteFiles = data.favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) }
         val pictures = (favoriteFiles + data.diary.flatMap { e -> DiaryBlocks.images(DiaryBlocks.decode(e.blocks)).map { it.file } } +
+            data.feedPosts.flatMap { MessageImages.decode(it.images).map { picture -> picture.file } } +
             data.messages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
             // Recordings live with the pictures and travel the same way.
             data.messages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +

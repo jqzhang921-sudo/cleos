@@ -772,6 +772,8 @@ fun ChatTab(
         if (editingMessage != null) cancelEditing()
         // Convert an untouched text draft from the preceding version into the card.
         if (input.trim() == FeedShares.text(draft.share)) input = ""
+        val oldFiles = pendingShare?.images.orEmpty().map { it.file }
+        c.appScope.launch { c.images.delete(oldFiles) }
         shareDraft = FeedShares.encode(draft.share)
         drawerOpen = false
         inputFocus.requestFocus()
@@ -912,7 +914,10 @@ fun ChatTab(
                 type = chatType,
                 text = input,
                 onTextChange = { input = it; editProblem = null; if (it.isBlank() && editingMessage == null) diaryRequestId = null },
-                attachments = editingMessage?.let { MessageImages.decode(it.images) } ?: vm.attachments,
+                attachments = editingMessage?.let { m ->
+                    val cardFiles = FeedShares.decode(m.feedShare)?.images.orEmpty().map { it.file }.toSet()
+                    MessageImages.decode(m.images).filterNot { it.file in cardFiles }
+                } ?: vm.attachments,
                 attaching = editingMessage == null && vm.attaching,
                 onPick = { pickingAttachment = true; vm.typing(true, processingMedia = true); picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 onRemove = vm::detach,
@@ -920,7 +925,12 @@ fun ChatTab(
                     else if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
                 onDropQuote = { diaryRequestId = null; vm.unquote() },
                 share = if (editingMessage != null) FeedShares.decode(editingMessage?.feedShare) else pendingShare,
-                onRemoveShare = if (editingMessage == null) ({ shareDraft = "" }) else null,
+                onRemoveShare = if (editingMessage == null) ({
+                    val files = pendingShare?.images.orEmpty().map { it.file }
+                    shareDraft = ""
+                    c.appScope.launch { c.images.delete(files) }
+                }) else null,
+                onOpenShareImage = onOpenImage,
                 focus = inputFocus,
                 busy = state.replying || editSaving,
                 editing = editingMessage != null,
@@ -1406,7 +1416,10 @@ private fun MessageBubble(
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val faces = LocalFaces.current
-    val pictures = remember(message.images) { MessageImages.decode(message.images) }
+    val pictures = remember(message.images, message.feedShare) {
+        val cardFiles = FeedShares.decode(message.feedShare)?.images.orEmpty().map { it.file }.toSet()
+        MessageImages.decode(message.images).filterNot { it.file in cardFiles }
+    }
     val thought = remember(message.thought) { MessageThoughts.decode(message.thought) }
     // Words and stickers, in order; the words alone are what 复制 copies.
     val book = LocalStickers.current
@@ -1477,7 +1490,7 @@ private fun MessageBubble(
                             }
                         }
                     }
-                    if (shared != null) FeedShareCard(shared, Modifier.widthIn(max = bubbleMaxWidth()), onLongClick = { menu = true })
+                    if (shared != null) FeedShareCard(shared, Modifier.widthIn(max = bubbleMaxWidth()), onLongClick = { menu = true }, onOpenImage = onOpenImage)
                     // The message this one answers, under it like in WeChat; a tap finds it.
                     if (quote != null) QuoteBox(quote, onOpenQuote)
                     if (reactions.isNotEmpty()) ReactionChips(reactions, reactionAvatar, reactionLetter) { menu = true }
@@ -2350,6 +2363,7 @@ private fun ChatInputBar(
     onStop: () -> Unit,
     share: FeedShare? = null,
     onRemoveShare: (() -> Unit)? = null,
+    onOpenShareImage: (String) -> Unit = {},
     editing: Boolean = false,
     editHint: String = "",
     onCancelEdit: () -> Unit = {},
@@ -2383,7 +2397,7 @@ private fun ChatInputBar(
             }
         }
         // The stickers, in the same glass as the rest, where the keyboard would otherwise be.
-        if (share != null) FeedShareCard(share, Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp), onRemove = onRemoveShare)
+        if (share != null) FeedShareCard(share, Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 12.dp), onRemove = onRemoveShare, onOpenImage = onOpenShareImage)
         if (drawerOpen) drawer()
         if (quote != null) {
             Row(
