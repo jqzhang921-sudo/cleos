@@ -6,6 +6,21 @@ import org.junit.Test
 import java.time.Instant
 
 class FeedAiTest {
+    @Test fun reactionsCanBeCommentsLikesOrSilentReads() {
+        assertEquals(FeedAiReaction("嗯，很喜欢", true), FeedAiRules.reaction("""{"content":" 嗯，很喜欢 ","like":true}"""))
+        assertEquals(FeedAiReaction("", true), FeedAiRules.reaction("""{"content":"","like":true}"""))
+        assertEquals(FeedAiReaction("", false), FeedAiRules.reaction("""{"content":"","like":false}"""))
+        assertTrue(runCatching { FeedAiRules.reaction("{}") }.isFailure)
+        assertTrue(runCatching { FeedAiRules.reaction("""{"content":"${"字".repeat(201)}","like":true}""") }.isFailure)
+    }
+    @Test fun interactionPromptHasOnlyTheReactionSchemaAndExplainsIdentityAndImages() {
+        val ta = CompanionEntity(name = "小颂", persona = "喜欢天文", apiBaseUrl = "https://example.com", apiModel = "test", createdAt = 1)
+        val system = FeedAiRules.reactionSystem(ta, "电影")
+        assertTrue(system.contains("没有收到图片"))
+        assertTrue(system.contains("不要冒充刚第一次看到"))
+        assertTrue(system.contains("\"like\":true"))
+        assertFalse(system.contains("sourceIndex"))
+    }
     @Test fun commentsRecognizeThePostAuthorById() {
         val post = com.cleo.cleos.data.db.FeedPostEntity(authorId = 7, content = "想法", createdAt = 1)
         assertTrue(FeedAiRules.authorContext(post, 7, "小颂").contains("你自己"))

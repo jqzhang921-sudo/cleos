@@ -74,6 +74,9 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
     var topics by rememberSaveable { mutableStateOf(false) }
     var composing by rememberSaveable { mutableStateOf(false) }
     var commenting by rememberSaveable { mutableStateOf<Long?>(null) }
+    var replyTo by rememberSaveable { mutableStateOf<String?>(null) }
+    var inviting by rememberSaveable { mutableStateOf<Long?>(null) }
+    val notices = remember { SnackbarHostState() }
     var deleting by remember { mutableStateOf<FeedPostEntity?>(null) }
     var forwarding by remember { mutableStateOf<FeedPostEntity?>(null) }
     var recipient by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -252,8 +255,13 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                                         Box(Modifier.padding(12.dp)) {
                                             GlassSurface(Modifier.fillMaxWidth(), style = palette.card,
                                                 shape = GlassShape.Rounded(16.dp), contentPadding = PaddingValues(6.dp)) {
-                                                FeedOptionRow(Icons.Rounded.DeleteOutline, "删除", !busy) {
-                                                    menu = false; deleting = post
+                                                Column {
+                                                    FeedOptionRow(Icons.Rounded.MarkChatRead, "邀请 TA 看看", !busy && companions.isNotEmpty()) {
+                                                        menu = false; problem = null; inviting = post.id
+                                                    }
+                                                    FeedOptionRow(Icons.Rounded.DeleteOutline, "删除", !busy) {
+                                                        menu = false; deleting = post
+                                                    }
                                                 }
                                             }
                                         }
@@ -271,7 +279,7 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                                 FeedAction(if (post.liked) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, if (post.liked) "取消喜欢" else "喜欢",
                                     if (post.liked) palette.accentContent else palette.contentSecondary, enabled = !busy) { act { c.feed.like(post.id) } }
                                 FeedAction(Icons.Rounded.ChatBubbleOutline, "回复", palette.contentSecondary, count = comments.size.takeIf { it > 0 }, enabled = !busy) {
-                                    draft = ""; commenting = post.id
+                                    draft = ""; replyTo = null; commenting = post.id
                                 }
                                 // Everyone shares this feed. Choose the recipient only when forwarding.
                                 Row(
@@ -286,6 +294,18 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                                     Text("转发到聊天", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
                                 }
                             }
+                            val likes = buildList {
+                                if (post.liked) add(settings.userName.ifBlank { "我" })
+                                FeedInteractions.decode(post.interactions).filter { it.liked }.forEach { state ->
+                                    companions.firstOrNull { it.id == state.taId }?.let { add(it.name.ifBlank { "TA" }) }
+                                }
+                            }
+                            // Reserve one line so toggling the user's like never moves the replies.
+                            Row(Modifier.heightIn(min = 20.dp).padding(top = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                Icon(Icons.Rounded.Favorite, null, tint = palette.accentContent, modifier = Modifier.size(12.dp).alpha(if (likes.isEmpty()) 0f else 1f))
+                                Text(if (likes.isEmpty()) " " else likes.joinToString("、") + " 觉得很赞", color = palette.accentContent,
+                                    fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                     shown.forEach { comment ->
@@ -299,9 +319,19 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                             }
                             Text(buildAnnotatedString {
                                 withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) { append(who) }
+                                comment.replyTo?.let { id -> comments.firstOrNull { it.id == id }?.let { target ->
+                                    append(" 回复 ")
+                                    withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                                        append(if (target.authorId == 0L) settings.userName.ifBlank { "我" }
+                                            else companions.firstOrNull { it.id == target.authorId }?.name?.ifBlank { "TA" } ?: "TA")
+                                    }
+                                } }
                                 append("  ")
                                 append(comment.content)
-                            }, color = palette.content.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 21.sp, modifier = Modifier.weight(1f))
+                            }, color = palette.content.copy(alpha = .88f), fontSize = 14.sp, lineHeight = 21.sp,
+                                modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).clickable(enabled = !busy) {
+                                    draft = ""; replyTo = comment.id; commenting = post.id
+                                })
                         }
                     }
                     if (comments.size > 3) Text(if (expanded) "收起回复" else "查看全部 ${comments.size} 条回复", color = palette.accentContent, fontSize = 12.sp,
@@ -310,8 +340,19 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                 }
             }
         }
+        SnackbarHost(notices, Modifier.align(Alignment.BottomCenter).padding(bottom = bottom + 8.dp))
         }
     }
+    inviting?.let { id -> posts.firstOrNull { it.id == id }?.let { post ->
+        FeedInviteDialog(post, companions, current?.id, settings.userName, busy, problem,
+            onCancel = { running?.cancel(); inviting = null }, onInvite = { taId, target ->
+                act {
+                    val notice = c.feedAi.interact(id, taId, target)
+                    inviting = null
+                    scope.launch { notices.showSnackbar(notice) }
+                }
+            })
+    } }
     if (editingBio) Dialog(onDismissRequest = { if (!busy) editingBio = false }) {
         GlassSurface(Modifier.fillMaxWidth(), contentPadding = PaddingValues(20.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -404,6 +445,16 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
             Column(Modifier.heightIn(max = 560.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text(if (composing) { if (topics) "发话题" else "发朋友圈" } else "回复动态", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                if (!composing && replyTo != null) {
+                    val target = posts.firstOrNull { it.id == commenting }?.let { FeedComments.decode(it.comments) }?.firstOrNull { it.id == replyTo }
+                    target?.let { comment ->
+                        val who = if (comment.authorId == 0L) settings.userName.ifBlank { "我" } else companions.firstOrNull { it.id == comment.authorId }?.name?.ifBlank { "TA" } ?: "TA"
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("回复 $who：${comment.content.take(80)}", color = palette.contentSecondary, fontSize = 13.sp, maxLines = 2, modifier = Modifier.weight(1f))
+                            IconButton({ replyTo = null }) { Icon(Icons.Rounded.Close, "改为回复动态", tint = palette.contentSecondary) }
+                        }
+                    }
+                }
                 OutlinedTextField(draft, { draft = it.take(4000) }, modifier = Modifier.fillMaxWidth().heightIn(min = 140.dp, max = 260.dp), enabled = !busy,
                     placeholder = { Text("分享你的想法…") })
                 if (composing) {
@@ -425,9 +476,9 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                     TextButton({
                         val id = commenting; val text = draft
                         act {
-                            if (id == null) c.feed.publish(text, topics, photos) else c.feed.comment(id, text)
+                            if (id == null) c.feed.publish(text, topics, photos) else c.feed.comment(id, text, replyTo = replyTo)
                             discardPhotos()
-                            composing = false; commenting = null; draft = ""
+                            composing = false; commenting = null; replyTo = null; draft = ""
                         }
                     }, enabled = !busy && (draft.isNotBlank() || (composing && photos.isNotEmpty()))) { Text(if (busy) "处理中…" else "发布", color = palette.accentContent) }
                 }

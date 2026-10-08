@@ -19,7 +19,8 @@ object FeedPostRules {
 }
 
 @Serializable
-data class FeedComment(val id: String, val authorId: Long = 0, val content: String, val createdAt: Long)
+data class FeedComment(val id: String, val authorId: Long = 0, val content: String, val createdAt: Long,
+    val replyTo: String? = null)
 
 object FeedComments {
     private val json = Json { ignoreUnknownKeys = true }
@@ -41,10 +42,12 @@ class FeedRepository(private val db: AppDatabase, private val images: ImageStore
     suspend fun like(id: Long) = db.withTransaction {
         db.feed().get(id)?.let { db.feed().update(it.copy(liked = !it.liked)) }
     }
-    suspend fun comment(id: Long, text: String, authorId: Long = 0) = db.withTransaction {
+    suspend fun comment(id: Long, text: String, authorId: Long = 0, replyTo: String? = null) = db.withTransaction {
         val content = FeedComments.text(text)
         val post = db.feed().get(id) ?: error("这条动态已删除")
-        val comments = FeedComments.decode(post.comments) + FeedComment(java.util.UUID.randomUUID().toString(), authorId = authorId, content = content, createdAt = System.currentTimeMillis())
+        val existing = FeedComments.decode(post.comments)
+        require(replyTo == null || existing.any { it.id == replyTo }) { "这条回复已不存在" }
+        val comments = existing + FeedComment(java.util.UUID.randomUUID().toString(), authorId = authorId, content = content, createdAt = System.currentTimeMillis(), replyTo = replyTo)
         db.feed().update(post.copy(comments = FeedComments.encode(comments)))
     }
     suspend fun delete(id: Long) = withContext(Dispatchers.IO + NonCancellable) {

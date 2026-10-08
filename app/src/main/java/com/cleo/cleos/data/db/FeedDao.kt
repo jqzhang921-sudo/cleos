@@ -18,6 +18,8 @@ data class FeedPostEntity(
     @ColumnInfo(defaultValue = "'moments'") val kind: String = "moments",
     /** Imported photos owned by this post, encoded as MessageImage list. */
     val images: String? = null,
+    /** TA likes and reviewed reply targets; independent of the user's liked flag. */
+    val interactions: String? = null,
 )
 
 /** Older sourced posts belong to topics even before the explicit category existed. */
