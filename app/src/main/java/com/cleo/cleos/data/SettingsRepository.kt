@@ -29,6 +29,7 @@ enum class GlassMode { Auto, Light, Dark }
 data class AppSettings(
     val feedInterests: String = "",
     val feedRssUrl: String = "",
+    val feedNewsSources: String = "",
     val feedCover: String? = null,
     val feedBio: String = "",
     val userName: String = "",
@@ -193,6 +194,7 @@ class SettingsRepository(private val context: Context) {
         val patBuzz = booleanPreferencesKey("pat_buzz")
         val feedInterests = stringPreferencesKey("feed_interests")
         val feedRssUrl = stringPreferencesKey("feed_rss_url")
+        val feedNewsSources = stringPreferencesKey("feed_news_sources")
         val feedCover = stringPreferencesKey("feed_cover")
         val feedBio = stringPreferencesKey("feed_bio")
         val myBubble = intPreferencesKey("my_bubble")
@@ -239,6 +241,7 @@ class SettingsRepository(private val context: Context) {
         return AppSettings(
             feedInterests = this[Keys.feedInterests].orEmpty(),
             feedRssUrl = this[Keys.feedRssUrl].orEmpty(),
+            feedNewsSources = this[Keys.feedNewsSources].orEmpty(),
             feedCover = this[Keys.feedCover],
             feedBio = this[Keys.feedBio].orEmpty(),
             userName = this[Keys.userName] ?: d.userName,
@@ -319,6 +322,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.patBuzz] = next.patBuzz
             prefs[Keys.feedInterests] = next.feedInterests.take(300)
             prefs[Keys.feedRssUrl] = next.feedRssUrl.take(2000)
+            prefs[Keys.feedNewsSources] = next.feedNewsSources.take(200)
             if (next.feedCover != null) prefs[Keys.feedCover] = next.feedCover else prefs.remove(Keys.feedCover)
             prefs[Keys.feedBio] = next.feedBio.take(120)
             if (next.myBubble != null) prefs[Keys.myBubble] = next.myBubble else prefs.remove(Keys.myBubble)

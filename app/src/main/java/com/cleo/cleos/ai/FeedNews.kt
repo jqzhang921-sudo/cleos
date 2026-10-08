@@ -1,6 +1,5 @@
 package com.cleo.cleos.ai
 
-import kotlinx.coroutines.CancellationException
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.w3c.dom.Element
@@ -9,8 +8,9 @@ import java.text.SimpleDateFormat
 import java.time.Instant
 import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
+import java.util.concurrent.ConcurrentHashMap
 
-data class FeedNewsItem(val title: String, val url: String, val summary: String, val publishedAt: Long, val source: String)
+data class FeedNewsItem(val title: String, val url: String, val summary: String, val publishedAt: Long, val source: String, val category: String = "")
 
 /** Only bounded, dated feed excerpts go to the model, never instructions from a page. */
 object FeedNewsParser {
@@ -47,33 +47,38 @@ object FeedNewsParser {
 }
 
 class FeedNews(private val http: OkHttpClient) {
-    suspend fun latest(customUrl: String): List<FeedNewsItem> {
-        val sources = if (customUrl.isBlank()) listOf(
-            "https://www.nasa.gov/news-release/feed/" to "NASA",
-            "https://science.nasa.gov/feed/" to "NASA Science",
-        ) else {
-            require(customUrl.startsWith("https://")) { "订阅地址请使用 https://" }
-            listOf(customUrl to "自选订阅")
+    private data class Cached(val at: Long, val items: List<FeedNewsItem>)
+    private val cache = ConcurrentHashMap<String, Cached>()
+    suspend fun check(customUrl: String, selection: String): FeedNewsBatch =
+        FeedNewsSources.collect(FeedNewsSources.groups(selection, customUrl), read = ::read)
+    suspend fun latest(customUrl: String, selection: String = "", excluded: Set<String> = emptySet(), maximum: Int = 12): List<FeedNewsItem> {
+        val batch = FeedNewsSources.collect(FeedNewsSources.groups(selection, customUrl), excluded, maximum, ::read)
+        check(batch.items.isNotEmpty()) {
+            if (batch.statuses.any { it.count > 0 }) "近期资讯已经分享过了，稍后再逛逛吧"
+            else "这些来源暂时读不到近期内容，可以检查来源或稍后再试"
         }
-        for ((url, source) in sources) {
-            try {
-                val items = http.fetch(Request.Builder().url(url).header("Accept", "application/rss+xml, application/atom+xml, text/xml").build()) { response ->
-                    check(response.isSuccessful) { "资讯源暂时不可用" }
-                    val reader = requireNotNull(response.body).charStream()
-                    val content = StringBuilder()
-                    val buffer = CharArray(4096)
-                    while (true) {
-                        val n = reader.read(buffer)
-                        if (n < 0) break
-                        check(content.length + n <= 1000000) { "订阅内容过大" }
-                        content.append(buffer, 0, n)
-                    }
-                    FeedNewsParser.parse(content.toString(), source, System.currentTimeMillis())
-                }
-                if (items.isNotEmpty()) return items
-            } catch (e: CancellationException) { throw e }
-            catch (e: Exception) { if (customUrl.isNotBlank()) throw IllegalStateException("这个订阅暂时读不到近期资讯，请检查地址或稍后再试", e) }
+        return batch.items
+    }
+    private suspend fun read(source: FeedNewsSource): List<FeedNewsItem> {
+        val now = System.currentTimeMillis()
+        cache[source.url]?.takeIf { now - it.at in 0..300_000 }?.let { return it.items }
+        val items = http.fetch(Request.Builder().url(source.url).header("Accept", "application/rss+xml, application/atom+xml, text/xml").build()) { response ->
+            check(response.isSuccessful) { "资讯源暂时不可用" }
+            val reader = requireNotNull(response.body).charStream()
+            val content = StringBuilder()
+            val buffer = CharArray(4096)
+            while (true) {
+                val n = reader.read(buffer)
+                if (n < 0) break
+                check(content.length + n <= 1000000) { "订阅内容过大" }
+                content.append(buffer, 0, n)
+            }
+            FeedNewsParser.parse(content.toString(), source.name, System.currentTimeMillis())
         }
-        error("暂时读不到近期资讯，可以稍后重试或换一个 RSS 订阅")
+        if (items.isNotEmpty()) {
+            cache[source.url] = Cached(now, items)
+            if (cache.size > 16) cache.entries.minByOrNull { it.value.at }?.let { cache.remove(it.key, it.value) }
+        }
+        return items
     }
 }

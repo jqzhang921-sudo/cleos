@@ -42,6 +42,7 @@ internal fun FeedOptionsMenu(
     onEditBio: () -> Unit,
     onCover: () -> Unit,
     onVisitSettings: () -> Unit,
+    onSources: () -> Unit,
 ) {
     val palette = LocalGlassPalette.current
     val scope = rememberCoroutineScope()
@@ -79,6 +80,7 @@ internal fun FeedOptionsMenu(
                 Column {
                     FeedOptionRow(Icons.Rounded.Explore, if (busy) "TA 正在写…" else "让 TA 逛逛", expanded && browseEnabled) { choose(onBrowse) }
                     FeedOptionRow(Icons.Rounded.Explore, "主动逛朋友圈", expanded) { choose(onVisitSettings) }
+                    FeedOptionRow(Icons.Rounded.Explore, "想看什么", expanded && !busy) { choose(onSources) }
                     HorizontalDivider(Modifier.padding(horizontal = 10.dp, vertical = 4.dp), color = palette.content.copy(alpha = 0.10f))
                     FeedOptionRow(Icons.Rounded.EditNote, "编辑主页简介", expanded && !busy) { choose(onEditBio) }
                     FeedOptionRow(Icons.Rounded.Image, "查看与更换封面", expanded && !busy) { choose(onCover) }

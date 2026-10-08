@@ -38,6 +38,7 @@ import java.util.zip.ZipOutputStream
 data class BackupSettings(
     val feedInterests: String = "",
     val feedRssUrl: String = "",
+    val feedNewsSources: String = "",
     val feedCover: String? = null,
     val feedBio: String = "",
     val apiBaseUrl: String,
@@ -212,6 +213,7 @@ class BackupService(
                 userName = s.userName,
                 feedInterests = s.feedInterests,
                 feedRssUrl = s.feedRssUrl,
+                feedNewsSources = s.feedNewsSources,
                 feedCover = s.feedCover,
                 feedBio = s.feedBio,
                 persona = lead?.persona.orEmpty(),
@@ -402,6 +404,7 @@ class BackupService(
                     userName = bs.userName,
                     feedInterests = bs.feedInterests,
                     feedRssUrl = bs.feedRssUrl,
+                    feedNewsSources = bs.feedNewsSources,
                     feedCover = bs.feedCover?.takeIf { images.file(it).exists() },
                     feedBio = bs.feedBio.take(120),
                     historySize = bs.historySize,

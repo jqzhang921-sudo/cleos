@@ -102,8 +102,8 @@ class AppContainer(context: Context) {
 
     val companions = Companions(db, settings, secrets, images)
     val chatClient = ChatClient(http)
-    val feedAi = com.cleo.cleos.ai.FeedAi(db, settings, secrets, chatClient,
-        com.cleo.cleos.ai.FeedNews(http.newBuilder().callTimeout(25, TimeUnit.SECONDS).readTimeout(20, TimeUnit.SECONDS).build()), feed, images)
+    val feedNews = com.cleo.cleos.ai.FeedNews(http.newBuilder().callTimeout(18, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build())
+    val feedAi = com.cleo.cleos.ai.FeedAi(db, settings, secrets, chatClient, feedNews, feed, images)
     private val calendar = PhoneCalendar(context)
 
     /** What the phone is playing, and its words: the chat's 一起听 bar, a reply's line about it, music_control. */

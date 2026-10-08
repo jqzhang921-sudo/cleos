@@ -65,6 +65,8 @@ private fun FeedVisitControls(ta: CompanionEntity) {
     val context = LocalContext.current
     var saving by remember(ta.id) { mutableStateOf(false) }
     var problem by remember(ta.id) { mutableStateOf<String?>(null) }
+    var sources by rememberSaveable { mutableStateOf(false) }
+    if (sources) com.cleo.cleos.ui.feed.FeedSourcesDialog { sources = false }
     fun change(transform: (CompanionEntity) -> CompanionEntity) {
         if (saving) return
         saving = true
@@ -123,5 +125,6 @@ private fun FeedVisitControls(ta: CompanionEntity) {
         Text("开启或调整后，从下一次等待开始；后台时间受手机省电影响。聊天时先不逛，同一段内容不重复回应，自己的帖子只回应朋友评论。图文阅读需要模型支持图片。", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
     }
     Text("默认关闭。只更新朋友圈，不发送聊天提醒。执行记录在「设置 → 说话方式 → 主动消息记录」里查看。", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+    TextButton({ sources = true }, enabled = !saving) { Text("设置资讯兴趣与来源", color = palette.accentContent) }
     problem?.let { Text(it, color = palette.error, fontSize = 12.sp) }
 }

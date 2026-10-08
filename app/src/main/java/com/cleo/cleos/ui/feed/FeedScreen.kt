@@ -94,12 +94,16 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
     var browsing by rememberSaveable { mutableStateOf(false) }
     var chosenTa by rememberSaveable { mutableStateOf<Long?>(null) }
     var withNews by rememberSaveable { mutableStateOf(false) }
-    var interests by rememberSaveable { mutableStateOf("") }
-    var rss by rememberSaveable { mutableStateOf("") }
     var editingBio by rememberSaveable { mutableStateOf(false) }
     var bio by rememberSaveable { mutableStateOf("") }
     var options by rememberSaveable { mutableStateOf(false) }
     var visitSettings by rememberSaveable { mutableStateOf(false) }
+    var sourceSettings by rememberSaveable { mutableStateOf(false) }
+    var resumeBrowse by rememberSaveable { mutableStateOf(false) }
+    if (sourceSettings) FeedSourcesDialog {
+        sourceSettings = false
+        if (resumeBrowse) { resumeBrowse = false; browsing = true }
+    }
     if (visitSettings) com.cleo.cleos.ui.settings.FeedVisitSettingsDialog(current?.id) { visitSettings = false }
     // The cover opened up in place (tap it): taller, with 换封面; the feed waits below. Tap again, or back, to close it.
     var coverOpen by rememberSaveable { mutableStateOf(false) }
@@ -150,10 +154,11 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                 Box {
                     GlassIconButton(Icons.Rounded.MoreHoriz, "动态选项", { options = !options }, page)
                     FeedOptionsMenu(options, { options = false }, page, busy, !busy && current != null,
-                        onBrowse = { chosenTa = current?.id; withNews = topics; interests = settings.feedInterests; rss = settings.feedRssUrl; browsing = true },
+                        onBrowse = { chosenTa = current?.id; withNews = topics; browsing = true },
                         onEditBio = { bio = settings.feedBio; editingBio = true },
                         onCover = { coverOpen = true },
-                        onVisitSettings = { visitSettings = true })
+                        onVisitSettings = { visitSettings = true },
+                        onSources = { resumeBrowse = false; sourceSettings = true })
                 }
                 GlassIconButton(Icons.Rounded.Edit, "发动态", { draft = ""; composing = true }, page, enabled = !busy)
             })
@@ -419,24 +424,19 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                         }
                     }
                 }
-                OutlinedTextField(interests, { interests = it.take(300) }, label = { Text("兴趣提示（可留空）") },
-                    placeholder = { Text("例如科技、电影、猫；留空跟随角色设定") }, enabled = !busy, modifier = Modifier.fillMaxWidth())
-                if (withNews) {
-                    Text("默认看 NASA 科学与太空资讯；也可以使用自己的 RSS 订阅。", color = palette.content.copy(alpha = .7f), fontSize = 13.sp)
-                    OutlinedTextField(rss, { rss = it.take(2000) }, label = { Text("RSS 地址（可留空）") }, placeholder = { Text("https://…") },
-                        enabled = !busy, modifier = Modifier.fillMaxWidth(), maxLines = 3)
-                }
+                if (withNews) Text("阅读范围：${com.cleo.cleos.ai.FeedNewsSources.summary(settings.feedNewsSources, settings.feedRssUrl)}。TA 自己挑感兴趣的一篇，也可以不发。", color = palette.contentSecondary, fontSize = 13.sp)
+                Text("兴趣提示：${settings.feedInterests.ifBlank { "跟随角色设定" }}", color = palette.contentSecondary, fontSize = 13.sp)
+                TextButton({ resumeBrowse = true; browsing = false; sourceSettings = true }, enabled = !busy) { Text("设置兴趣与来源", color = palette.accentContent) }
                 problem?.let { Text(it, color = palette.content, fontSize = 12.sp) }
                 }
                 Row(Modifier.align(Alignment.End)) {
                     TextButton({ running?.cancel(); browsing = false }, enabled = true) { Text(if (busy) "取消生成" else "取消", color = palette.content) }
                     TextButton({
-                        val id = chosenTa; val news = withNews; val topic = interests.trim(); val address = rss.trim()
+                        val id = chosenTa; val news = withNews
                         if (id != null) act {
-                            require(!news || address.isBlank() || address.startsWith("https://")) { "RSS 地址请使用 https://" }
-                            c.settings.update { it.copy(feedInterests = topic, feedRssUrl = address) }
-                            c.feedAi.browse(id, news)
+                            val result = c.feedAi.browse(id, news)
                             browsing = false
+                            scope.launch { notices.showSnackbar(result) }
                         }
                     }, enabled = !busy && chosenTa != null) { Text(if (busy) "TA 正在写…" else "去逛逛", color = palette.accentContent) }
                 }
