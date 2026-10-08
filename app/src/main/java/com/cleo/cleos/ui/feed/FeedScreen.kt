@@ -252,7 +252,7 @@ fun FeedScreen(onBack: () -> Unit) {
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp),
                                 ) {
                                     Avatar(ta?.avatar, ta?.avatarEmoji ?: avatarLetter(taName, "TA"), 18.dp)
-                                    Text("请${taName}回复", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
+                                    Text("戳一下 ${taName}", color = palette.content.copy(alpha = .75f), fontSize = 12.sp, maxLines = 1)
                                 }
                             }
                         }
