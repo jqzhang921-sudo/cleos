@@ -103,7 +103,7 @@ enum class SettingsPage(val title: String) {
 
 /** The switches on the abilities page, for the count on the list. */
 internal val ABILITIES = listOf(
-    ToolGroup.Messages, ToolGroup.Speak, ToolGroup.Stickers, ToolGroup.Pat, ToolGroup.Feed,
+    ToolGroup.Messages, ToolGroup.Speak, ToolGroup.Stickers, ToolGroup.Pat, ToolGroup.Feed, ToolGroup.FeedActions,
     ToolGroup.Todos, ToolGroup.Memory, ToolGroup.Lore, ToolGroup.AiDiary, ToolGroup.Diary, ToolGroup.Secrets, ToolGroup.Letters,
     ToolGroup.Weather, ToolGroup.Location, ToolGroup.Alarm, ToolGroup.Calendar, ToolGroup.Music, ToolGroup.Avatar,
 )

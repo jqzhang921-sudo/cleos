@@ -44,7 +44,7 @@ import java.util.Locale
  * writes a sticker's name into what it says, so it is told about apart from the tools, and a model
  * that takes no tools sends them too.
  */
-enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Lore, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat, FreeVisit, Feed }
+enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Lore, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat, FreeVisit, Feed, FeedActions }
 
 /**
  * A function offered to the model, when any of its [groups] is on. [parameters] is a
@@ -94,6 +94,27 @@ object ToolSpecs {
             "limit" to prop("integer", "最多几条，默认 3，最多 5"),
             "offset" to prop("integer", "跳过几条匹配结果，默认 0；需要继续看更早的时使用"),
         ),
+    )
+    val publishFeed = ToolSpec(
+        name = "publish_feed", groups = setOf(ToolGroup.FeedActions), action = "发朋友圈",
+        description = "对方让你发朋友圈时，以你自己的 TA 身份在 Cleos App 发表一条文字日常动态。不是微信，不代替对方或其他 TA 发帖。直接写正文，不需要对方复制粘贴；成功返回后才说已发布。不会附图，不编造新闻或现实经历。",
+        parameters = schema(required = listOf("content"),
+            "content" to prop("string", "你想发表的正文，1–1200 字，用自己的语气")),
+    )
+    val likeFeed = ToolSpec(
+        name = "like_feed", groups = setOf(ToolGroup.FeedActions), action = "赞朋友圈",
+        description = "以你自己的 TA 身份点赞或取消赞 Cleos App 内的一条朋友圈或话题。先用 read_feed 确认帖子编号和作者；不能赞自己，不改变对方或其他 TA 的赞。只有成功返回才算操作完成。",
+        parameters = schema(required = listOf("post_id"),
+            "post_id" to prop("integer", "已有帖子的编号，来自 read_feed 或转发卡片"),
+            "liked" to prop("boolean", "true 点赞（默认），false 取消你的赞；重复调用不会反复切换")),
+    )
+    val commentFeed = ToolSpec(
+        name = "comment_feed", groups = setOf(ToolGroup.FeedActions), action = "回朋友圈",
+        description = "以你自己的 TA 身份评论 Cleos App 内的一条动态或回复朋友评论。先用 read_feed 确认正文、作者及评论编号。不能回复自己的评论，也不把自己的正文当成别人说的话；自己的帖子只能回复朋友评论。成功返回后才算已留言。",
+        parameters = schema(required = listOf("post_id", "content"),
+            "post_id" to prop("integer", "已有帖子的编号，来自 read_feed 或转发卡片"),
+            "content" to prop("string", "简短评论，1–200 字"),
+            "reply_to" to prop("string", "可不填；要回复具体朋友时，填 read_feed 返回的那条评论 id")),
     )
     val addTodo = ToolSpec(
         name = "add_todo",
@@ -521,6 +542,9 @@ object ToolSpecs {
         patUser,
         reactMessage,
         readFeed,
+        publishFeed,
+        likeFeed,
+        commentFeed,
     )
     val byName = all.associateBy { it.name }
 
@@ -605,6 +629,7 @@ class ToolBox(
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
     private val feed: FeedBook? = null,
+    private val feedActions: FeedActions? = null,
 ) {
     private val book = memories?.let { MemoryBook(it, clock) }
     private val loreBook = lore?.let { LoreBook(it) }
@@ -634,6 +659,8 @@ class ToolBox(
         return try {
             when (spec.name) {
                 ToolSpecs.readFeed.name -> (feed ?: throw ToolFailure("当前无法读取 App 内朋友圈，请让对方转发帖子到聊天。", "暂时读不到")).read(args, companionId, settings.userName)
+                ToolSpecs.publishFeed.name, ToolSpecs.likeFeed.name, ToolSpecs.commentFeed.name ->
+                    (feedActions ?: throw ToolFailure("朋友圈操作暂时不可用，没有发布或修改任何内容。", "暂时用不了")).run(spec.name, args, companionId)
                 ToolSpecs.addTodo.name -> addTodo(args, today)
                 ToolSpecs.listTodos.name -> listTodos(args, today)
                 ToolSpecs.updateTodo.name -> updateTodo(args, today)

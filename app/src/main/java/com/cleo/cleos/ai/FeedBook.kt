@@ -1,6 +1,7 @@
 package com.cleo.cleos.ai
 
 import com.cleo.cleos.data.FeedComments
+import com.cleo.cleos.data.FeedInteractions
 import com.cleo.cleos.data.MessageImages
 import com.cleo.cleos.data.db.FeedDao
 import com.cleo.cleos.data.db.isTopic
@@ -69,6 +70,8 @@ class FeedBook(private val posts: FeedDao, private val authorName: suspend (Long
                         put("author_id", post.authorId)
                         put("author_name", names.getValue(post.authorId))
                         put("written_by_you", post.authorId != 0L && post.authorId == companionId)
+                        put("liked_by_user", post.liked)
+                        put("liked_by_you", FeedInteractions.decode(post.interactions).any { it.taId == companionId && it.liked })
                         put("kind", if (post.isTopic) "topic" else "moments")
                         put("created_at_ms", post.createdAt)
                         put("created_at", DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").format(Instant.ofEpochMilli(post.createdAt).atZone(ZoneId.systemDefault())))

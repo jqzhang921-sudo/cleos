@@ -5,6 +5,7 @@ import android.app.KeyguardManager
 import android.content.Context
 import android.os.PowerManager
 import androidx.room.Room
+import androidx.room.withTransaction
 import com.cleo.cleos.ai.AiSelfAvatar
 import com.cleo.cleos.ai.Calls
 import com.cleo.cleos.ai.ChatClient
@@ -128,6 +129,8 @@ class AppContainer(context: Context) {
         reactBack = { conversation, message, emoji, remove -> chat.reactBack(conversation, message, emoji, remove) },
         planVisit = { conversation, minutes -> freeTopics.propose(conversation, minutes) },
         feed = com.cleo.cleos.ai.FeedBook(db.feed()) { id -> db.companions().get(id)?.name },
+        feedActions = com.cleo.cleos.ai.FeedActions(db.feed(), { id -> db.companions().get(id) != null },
+            { action -> db.withTransaction { action() } }),
     )
     val recaps = Recaps(db, settings, secrets, chatClient, appScope)
     val mcp = McpHub(

@@ -105,6 +105,13 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
         ) { vm.setTool(ToolGroup.Feed, it) }
         RowDivider(inset = 0.dp)
         ExplainedSwitch(
+            "发朋友圈与互动",
+            "聊天中让 TA 发动态、点赞或留言",
+            "TA 可以用自己的身份发表文字动态、点赞或取消自己的赞，以及评论或回复朋友。需要模型支持工具调用；点赞和留言前需开启「看朋友圈」确认对象。不会代替你或其他 TA 操作，也不会赞自己或回复自己的评论。与后台「主动逛朋友圈」独立，开启这里不会开启自动发帖。",
+            on(ToolGroup.FeedActions),
+        ) { vm.setTool(ToolGroup.FeedActions, it) }
+        RowDivider(inset = 0.dp)
+        ExplainedSwitch(
             "分条消息与表情回应",
             "分开发消息，也能给你的消息贴表情",
             "TA 可以分成几条消息说，也能偶尔给你的消息贴表情，或者只用一个表情回应。关掉后这两项能力都停用。",

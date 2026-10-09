@@ -19,7 +19,7 @@ class ToolSettingsTest {
         // chosen, so they take their default (on).
         assertEquals(
             chosen + ToolGroup.Secrets + ToolGroup.Avatar + ToolGroup.Messages + ToolGroup.Letters +
-                ToolGroup.Memory + ToolGroup.Lore + ToolGroup.Alarm + ToolGroup.Stickers + ToolGroup.Pat + ToolGroup.Feed,
+                ToolGroup.Memory + ToolGroup.Lore + ToolGroup.Alarm + ToolGroup.Stickers + ToolGroup.Pat + ToolGroup.Feed + ToolGroup.FeedActions,
             decodeTools("Todos:on,Diary:on,AiDiary:off,Weather:off"),
         )
     }
@@ -29,7 +29,7 @@ class ToolSettingsTest {
         // 0.3.0 listed only the groups that were on, and knew Todos, Diary and Weather.
         val newer = setOf(
             ToolGroup.AiDiary, ToolGroup.Secrets, ToolGroup.Avatar, ToolGroup.Messages, ToolGroup.Letters,
-            ToolGroup.Memory, ToolGroup.Lore, ToolGroup.Alarm, ToolGroup.Stickers, ToolGroup.Pat, ToolGroup.Feed,
+            ToolGroup.Memory, ToolGroup.Lore, ToolGroup.Alarm, ToolGroup.Stickers, ToolGroup.Pat, ToolGroup.Feed, ToolGroup.FeedActions,
         )
         assertEquals(setOf(ToolGroup.Todos, ToolGroup.Weather) + newer, decodeTools("Todos,Weather"))
         // Everything switched off then stays off; the newer groups still start on.
@@ -39,5 +39,12 @@ class ToolSettingsTest {
     @Test
     fun unknownNamesAreSkipped() {
         assertEquals(AppSettings().tools - ToolGroup.Todos, decodeTools("Todos:off,Teleport:on"))
+    }
+
+    @Test
+    fun version069KeepsReadChoiceAndAddsChatActionsWithoutChangingOtherSwitches() {
+        val previous = ToolGroup.entries.filter { it != ToolGroup.FeedActions }.joinToString(",") { "${it.name}:off" }
+        assertEquals(setOf(ToolGroup.FeedActions), decodeTools(previous))
+        assertEquals(setOf(ToolGroup.Feed), decodeTools(encodeTools(setOf(ToolGroup.Feed))))
     }
 }
