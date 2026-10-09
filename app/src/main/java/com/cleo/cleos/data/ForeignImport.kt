@@ -239,6 +239,16 @@ object ForeignMemory {
  * or Markdown file of notes still works.
  */
 object ForeignFile {
+    /** Detect the container from its content, including files with an incorrect MIME type/name. */
+    fun read(bytes: ByteArray): ForeignExport {
+        PngCard.json(bytes)?.let { return read(it) }
+        if (DocxText.isZip(bytes)) return ForeignExport(memories = ForeignMemory.parse(DocxText.read(bytes)))
+        val ole = byteArrayOf(0xd0.toByte(), 0xcf.toByte(), 0x11, 0xe0.toByte(), 0xa1.toByte(), 0xb1.toByte(), 0x1a, 0xe1.toByte())
+        if (bytes.size >= ole.size && ole.indices.all { bytes[it] == ole[it] })
+            throw ImportException("旧版 DOC 或加密 Word 文档暂不支持，请另存为未加密的 .docx 再导入")
+        return read(bytes.decodeToString())
+    }
+
     /** The keys only a character card has. A bare "description" is not one: every world book has that. */
     private val CARD_KEYS = listOf(
         "system_prompt", "personality", "scenario", "greeting_message", "first_mes",
@@ -581,8 +591,7 @@ class ForeignImport(
     /** What one import made, for the line the page shows. */
     suspend fun import(uri: Uri, companionId: Long): ForeignImportResult = withContext(Dispatchers.IO) {
         val bytes = resolver.openInputStream(uri)?.use { readAtMost(it, MAX_BYTES) } ?: throw ImportException("打不开这个文件")
-        // A card can arrive as a picture (PngCard); anything else is read as the text it is.
-        val file = ForeignFile.read(PngCard.json(bytes) ?: bytes.decodeToString())
+        val file = ForeignFile.read(bytes)
         val now = System.currentTimeMillis()
         var target = companionId
         val made = mutableListOf<Pair<Long, String>>()
@@ -770,7 +779,7 @@ class ForeignImport(
             if (n < 0) break
             out.write(buffer, 0, n)
             if (out.size() > max) {
-                throw ImportException("文件太大了（超过 ${max / 1024 / 1024} MB），多半里面还夹着老的图片。在那边重新导出一份再试。")
+                throw ImportException("文件太大了（超过 ${max / 1024 / 1024} MB），请拆成几个小文件，或另存一份不带图片的文件再导入")
             }
         }
         return out.toByteArray()

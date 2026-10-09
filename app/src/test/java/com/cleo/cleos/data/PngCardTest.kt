@@ -18,7 +18,7 @@ class PngCardTest {
         val bytes = png("chara" to json)
         assertEquals(json, PngCard.json(bytes))
         // And what comes out of the picture reads as a card like any other file's.
-        val card = ForeignFile.read(PngCard.json(bytes).orEmpty()).cards.single()
+        val card = ForeignFile.read(bytes).cards.single()
         assertEquals("林夏", card.name)
         assertEquals("嗨", card.greeting)
     }
@@ -48,7 +48,7 @@ class PngCardTest {
             chunk("IDAT", ByteArray(64)),
         )
         assertEquals(json, PngCard.json(bytes))
-        assertEquals("洺洺", ForeignFile.read(PngCard.json(bytes).orEmpty()).cards.single().name)
+        assertEquals("洺洺", ForeignFile.read(bytes).cards.single().name)
     }
 
     @Test
