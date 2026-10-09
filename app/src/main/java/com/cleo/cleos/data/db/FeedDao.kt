@@ -30,6 +30,13 @@ interface FeedDao {
     @Query("SELECT * FROM feed_posts ORDER BY createdAt DESC, id DESC") fun observe(): Flow<List<FeedPostEntity>>
     @Query("SELECT * FROM feed_posts ORDER BY createdAt DESC, id DESC") suspend fun all(): List<FeedPostEntity>
     @Query("SELECT * FROM feed_posts WHERE id = :id") suspend fun get(id: Long): FeedPostEntity?
+    @Query("""SELECT * FROM feed_posts
+        WHERE (:authorId IS NULL OR authorId = :authorId)
+        AND (:kind = 'all' OR (:kind = 'topic' AND (kind = 'topic' OR sourceUrl IS NOT NULL))
+             OR (:kind = 'moments' AND kind != 'topic' AND sourceUrl IS NULL))
+        AND (:query = '' OR instr(lower(content), lower(:query)) > 0 OR instr(lower(coalesce(sourceTitle, '')), lower(:query)) > 0)
+        ORDER BY createdAt DESC, id DESC LIMIT :limit OFFSET :offset""")
+    suspend fun search(authorId: Long?, kind: String, query: String, limit: Int, offset: Int): List<FeedPostEntity>
     @Insert suspend fun insert(post: FeedPostEntity): Long
     @Insert suspend fun insertAll(posts: List<FeedPostEntity>)
     @Update suspend fun update(post: FeedPostEntity)

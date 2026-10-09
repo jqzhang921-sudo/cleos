@@ -44,7 +44,7 @@ import java.util.Locale
  * writes a sticker's name into what it says, so it is told about apart from the tools, and a model
  * that takes no tools sends them too.
  */
-enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Lore, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat, FreeVisit }
+enum class ToolGroup { Todos, Diary, AiDiary, Secrets, Avatar, Weather, Messages, Letters, Memory, Lore, Location, Speak, Later, Alarm, Calendar, Music, Stickers, Pat, FreeVisit, Feed }
 
 /**
  * A function offered to the model, when any of its [groups] is on. [parameters] is a
@@ -83,6 +83,18 @@ class ToolFailure(val result: String, val note: String) : Exception(result)
  * whether to use tools at all live in the system prompt.
  */
 object ToolSpecs {
+    val readFeed = ToolSpec(
+        name = "read_feed", groups = setOf(ToolGroup.Feed), action = "看朋友圈",
+        description = "查看 Cleos App 内共享的朋友圈和资讯话题，不是微信朋友圈。对方问能否看朋友圈、最近发了什么或让你去看时，先用它查实际内容。默认看对方最近的帖子；能读正文、作者、时间、来源与最近评论，图片只返回数量。只读，不会点赞、评论或发帖。",
+        parameters = schema(
+            "post_id" to prop("integer", "可不填。查看某条具体帖子，编号来自此前 read_feed 的结果；填了后忽略其他筛选"),
+            "author" to prop("string", "user 对方（默认），self 你自己，all 所有人"),
+            "kind" to prop("string", "all 全部（默认），moments 日常朋友圈，topic 资讯话题"),
+            "query" to prop("string", "可不填。正文或来源标题里的关键词"),
+            "limit" to prop("integer", "最多几条，默认 3，最多 5"),
+            "offset" to prop("integer", "跳过几条匹配结果，默认 0；需要继续看更早的时使用"),
+        ),
+    )
     val addTodo = ToolSpec(
         name = "add_todo",
         groups = setOf(ToolGroup.Todos),
@@ -508,6 +520,7 @@ object ToolSpecs {
         musicControl,
         patUser,
         reactMessage,
+        readFeed,
     )
     val byName = all.associateBy { it.name }
 
@@ -591,6 +604,7 @@ class ToolBox(
     private val planVisit: suspend (Long, Int) -> String = { _, _ -> throw ToolFailure("想找你聊不可用", "") },
     private val clock: () -> Long = System::currentTimeMillis,
     private val zone: () -> ZoneId = ZoneId::systemDefault,
+    private val feed: FeedBook? = null,
 ) {
     private val book = memories?.let { MemoryBook(it, clock) }
     private val loreBook = lore?.let { LoreBook(it) }
@@ -619,6 +633,7 @@ class ToolBox(
         val today = Instant.ofEpochMilli(clock()).atZone(zone()).toLocalDate()
         return try {
             when (spec.name) {
+                ToolSpecs.readFeed.name -> (feed ?: throw ToolFailure("当前无法读取 App 内朋友圈，请让对方转发帖子到聊天。", "暂时读不到")).read(args, companionId, settings.userName)
                 ToolSpecs.addTodo.name -> addTodo(args, today)
                 ToolSpecs.listTodos.name -> listTodos(args, today)
                 ToolSpecs.updateTodo.name -> updateTodo(args, today)

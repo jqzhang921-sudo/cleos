@@ -984,7 +984,7 @@ class ChatRepository(
         // No outside services and no pictures: nobody is there to allow a call, and deciding
         // whether to say something shouldn't cost what answering a picture does. No music either:
         // a song is paused or skipped when the person asks, and a wake is nobody asking.
-        var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta) - ToolGroup.Music
+        var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta) - ToolGroup.Music - ToolGroup.Feed
         if (!freeVisit) groups = groups - ToolGroup.FreeVisit
         var thinking = ta.deepThinking && endpointKey !in refusesThinking
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()

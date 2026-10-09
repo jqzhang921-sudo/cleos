@@ -98,6 +98,13 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
 
     ListCard("聊天时") {
         ExplainedSwitch(
+            "看朋友圈",
+            "聊到时查看 App 内的帖子和评论",
+            "你问起或让 TA 看时，TA 可以读取这个 App 内共享的朋友圈和资讯话题。需要模型支持工具调用。这个入口只读，不会点赞、评论或发帖；与每位 TA 的「主动逛朋友圈」开关独立。图片需转发到聊天才能交给支持图片的模型查看。",
+            on(ToolGroup.Feed),
+        ) { vm.setTool(ToolGroup.Feed, it) }
+        RowDivider(inset = 0.dp)
+        ExplainedSwitch(
             "分条消息与表情回应",
             "分开发消息，也能给你的消息贴表情",
             "TA 可以分成几条消息说，也能偶尔给你的消息贴表情，或者只用一个表情回应。关掉后这两项能力都停用。",

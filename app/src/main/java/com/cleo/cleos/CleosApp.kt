@@ -127,6 +127,7 @@ class AppContainer(context: Context) {
         patBack = { id, suffix -> chat.patBack(id, suffix) },
         reactBack = { conversation, message, emoji, remove -> chat.reactBack(conversation, message, emoji, remove) },
         planVisit = { conversation, minutes -> freeTopics.propose(conversation, minutes) },
+        feed = com.cleo.cleos.ai.FeedBook(db.feed()) { id -> db.companions().get(id)?.name },
     )
     val recaps = Recaps(db, settings, secrets, chatClient, appScope)
     val mcp = McpHub(
