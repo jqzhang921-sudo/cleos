@@ -297,6 +297,16 @@ object ForeignFile {
         if (body.isEmpty()) throw ImportException("文件是空的")
         val json = runCatching { Json.parseToJsonElement(body) }.getOrNull()
         // One JSON document: an object is a module, an array is a list of memory entries (as ever).
+        // Older Operit exports are a bare array of ChatHistory objects, not memory entries.
+        val legacy = json as? JsonArray
+        if (legacy != null && legacy.isNotEmpty() && legacy.all { element ->
+                val messages = (element as? JsonObject)?.get("messages") as? JsonArray
+                messages != null && messages.all { it is JsonObject && text(it["sender"]) != null }
+            }) {
+            val logs = legacy.mapNotNull { chat(it as JsonObject, operit = true) }
+            if (logs.isEmpty()) throw ImportException("这个 Operit 归档里没有可导入的文字聊天")
+            return ForeignExport(chats = logs)
+        }
         val one = (json as? JsonObject)?.let { module(it, 0) }?.takeIf { !it.empty }
         if (one != null) return one
         // Not one document: a file with several modules in it, one after another.
@@ -306,7 +316,7 @@ object ForeignFile {
                 cards = blocks.flatMap { cardBodies(it) }.map(::aCard),
                 lore = blocks.flatMap { lore(it) },
                 memories = blocks.flatMap { memories(it) },
-                chats = blocks.mapNotNull { chat(it) },
+                chats = blocks.flatMap { chats(it) },
             )
             if (!many.empty) return many
         }
@@ -329,7 +339,7 @@ object ForeignFile {
 
     /** One object as one module; null when it is none of the four (it is then read as memory). */
     private fun module(o: JsonObject, position: Int): ForeignExport? {
-        chat(o)?.let { return ForeignExport(chats = listOf(it)) }
+        chats(o).takeIf { it.isNotEmpty() }?.let { return ForeignExport(chats = it) }
         lore(o, position).takeIf { it.isNotEmpty() }?.let { return ForeignExport(lore = it) }
         val cards = cardBodies(o)
         if (cards.isNotEmpty()) {
@@ -341,18 +351,50 @@ object ForeignFile {
         return null
     }
 
-    private fun chat(o: JsonObject): ImportedChat? {
+    /** Operit's current archive holds several conversations and wraps messages in baseMessage. */
+    private fun chats(o: JsonObject): List<ImportedChat> {
+        if (text(o["archiveType"]) != "operit_chat_archive") return listOfNotNull(chat(o))
+        val version = number(o["formatVersion"])
+        if (version != 2L)
+            throw ImportException("这个 Operit 聊天归档版本暂不支持，请重新导出为 v2 JSON 后再导入")
+        val entries = o["chats"] as? JsonArray
+            ?: throw ImportException("这个 Operit 归档缺少 chats 会话列表")
+        val out = entries.map { element ->
+            val entry = element as? JsonObject
+                ?: throw ImportException("这个 Operit 归档里有无法读取的会话，请重新导出")
+            if (entry["messages"] !is JsonArray)
+                throw ImportException("这个 Operit 归档里的会话缺少 messages 消息列表")
+            chat(entry, operit = true, wrapped = true)
+        }.filterNotNull()
+        if (out.isEmpty()) throw ImportException("这个 Operit 归档里没有可导入的文字聊天")
+        return out
+    }
+
+    private fun chat(o: JsonObject, operit: Boolean = false, wrapped: Boolean = false): ImportedChat? {
         val list = o["messages"] as? JsonArray ?: return null
         val messages = list.mapNotNull { element ->
-            val e = element as? JsonObject
+            if (operit && element !is JsonObject)
+                throw ImportException("这个 Operit 归档里有无法读取的消息，请重新导出")
+            val raw = element as? JsonObject
                 ?: return@mapNotNull (element as? JsonPrimitive)?.contentOrNull?.trim()
                     ?.takeIf { it.isNotEmpty() }?.let { ImportedMessage(fromMe = false, content = it, at = 0L) }
-            val content = text(e["content"]).orEmpty()
+            val e = if (wrapped) raw["baseMessage"] as? JsonObject
+                ?: throw ImportException("这个 Operit 归档里的消息缺少 baseMessage 正文，请重新导出") else raw
+            // The archive keeps the original answer plus alternatives. Import only the answer
+            // the user selected in Operit, using the base message's sender and timestamp.
+            val selected = if (wrapped) number(e["selectedVariantIndex"]) ?: 0L else 0L
+            val selectedMessage = if (selected > 0L) {
+                (raw["variants"] as? JsonArray)?.mapNotNull { it as? JsonObject }
+                    ?.firstOrNull { number(it["variantIndex"]) == selected }
+                    ?: throw ImportException("这个 Operit 归档缺少已选中的回复版本，请重新导出")
+            } else e
+            val content = text(selectedMessage["content"]).orEmpty()
             if (content.isEmpty()) return@mapNotNull null
             // What the app itself wrote into the log (its own prompt, a tool's answer) is not a line
             // anyone said.
-            val role = text(e["role"])?.lowercase().orEmpty()
+            val role = text(e[if (operit) "sender" else "role"])?.lowercase().orEmpty()
             if (role == "system" || role == "tool") return@mapNotNull null
+            if (operit && role !in listOf("user", "ai", "assistant")) return@mapNotNull null
             ImportedMessage(fromMe = role == "user", content = content, at = number(e["timestamp"]) ?: 0L)
         }
         if (messages.isEmpty()) return null
@@ -628,21 +670,27 @@ class ForeignImport(
         }
         val memories = if (file.memories.isEmpty()) MemoryImport(0, 0) else merge(file.memories, target, now)
         val lore = addLore(file.lore, target, now)
-        // The card's opening line, or the log itself: one conversation, whichever the file had.
-        val log = file.chats.firstOrNull()
-        val said = log?.messages.orEmpty()
+        // Keep archive conversations separate; never silently discard all but the first.
         val greeting = file.card?.greeting.orEmpty()
+        val logs = file.chats.ifEmpty {
+            if (greeting.isBlank()) emptyList() else listOf(
+                ImportedChat(file.card?.name.orEmpty(), listOf(ImportedMessage(false, greeting, 0L))),
+            )
+        }
         var title: String? = null
         var written = 0
         var cut = false
-        if (said.isNotEmpty() || greeting.isNotBlank()) {
-            val lines = if (said.isEmpty()) listOf(ImportedMessage(fromMe = false, content = greeting, at = 0L)) else said
-            cut = lines.size > MAX_MESSAGES
-            val kept = if (cut) lines.takeLast(MAX_MESSAGES) else lines
-            title = log?.title?.trim().takeUnless { it.isNullOrEmpty() }
-                ?: file.card?.name?.takeIf { it.isNotBlank() }
-                ?: ChatRepository.DEFAULT_TITLE
-            written = writeChat(target, title, kept, now)
+        db.withTransaction {
+            for (log in logs) {
+                if (log.messages.isEmpty()) continue
+                cut = cut || log.messages.size > MAX_MESSAGES
+                val kept = log.messages.takeLast(MAX_MESSAGES)
+                val logTitle = log.title.trim().ifEmpty {
+                    file.card?.name?.takeIf { it.isNotBlank() } ?: ChatRepository.DEFAULT_TITLE
+                }
+                if (title == null) title = logTitle
+                written += writeChat(target, logTitle, kept, now)
+            }
         }
         ForeignImportResult(
             newTas = made.map { it.second },
@@ -652,6 +700,7 @@ class ForeignImport(
             books = file.books,
             chatTitle = title,
             chatMessages = written,
+            chatConversations = logs.count { it.messages.isNotEmpty() },
             chatTruncated = cut,
         )
     }
@@ -844,6 +893,7 @@ data class ForeignImportResult(
     val books: List<String> = emptyList(),
     val chatTitle: String? = null,
     val chatMessages: Int = 0,
+    val chatConversations: Int = 0,
     /** The log was longer than one conversation takes, and its beginning was left out. */
     val chatTruncated: Boolean = false,
 ) {
@@ -882,7 +932,9 @@ data class ForeignImportResult(
         if (memories.moved > 0) {
             parts += "还有 ${memories.moved} 条同类满了，放进了「设定」（那边要用才查，随时能删）"
         }
-        if (chatMessages > 0) parts += "接上 ${chatMessages} 句聊天"
+        if (chatMessages > 0) parts += if (chatConversations > 1) {
+            "搬来 ${chatConversations} 段对话，共 ${chatMessages} 句聊天"
+        } else "接上 ${chatMessages} 句聊天"
         // Nothing to say means everything the file held was already here: it read fine, there was
         // just nothing new in it. (A file that could not be read at all throws instead.)
         if (parts.isEmpty()) return "这个文件读下来了，里面的东西这边都已经有了，没有新的。"
