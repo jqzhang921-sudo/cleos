@@ -35,7 +35,7 @@ class DocxTextTest {
             ${paragraph("约定：周末散步")}
         """.trimIndent())
         assertEquals("喜好：猫 & 茶🐈\n\n约定：周末散步", DocxText.read(bytes))
-        val out = ForeignFile.read(bytes)
+        val out = ForeignFile.read(bytes, "image/jpeg") // Content detection wins over incorrect provider metadata.
         assertEquals(listOf("喜好", "约定"), out.memories.map { it.name })
         assertEquals(listOf("猫 & 茶🐈", "周末散步"), out.memories.map { it.summary })
         assertTrue(out.cards.isEmpty())

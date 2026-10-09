@@ -175,7 +175,7 @@ fun LoreScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                         Text(
                             "从别的 app 搬过来：选一个文件，角色卡（PNG 图片卡也认）、世界书、记忆库、聊天记录都认。" +
                                 "文件里有角色卡，一张就新开一个 TA，里面的东西都归第一个；只是设定的话，搬进现在这个 TA。" +
-                                "已经有的条目不会重复进来。",
+                                "已经有的条目不会重复进来。普通截图需要先提取文字；可直接导入的 PNG 角色卡要内嵌角色资料。",
                             color = palette.contentSecondary,
                             fontSize = 12.sp,
                             lineHeight = 18.sp,

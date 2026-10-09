@@ -240,13 +240,35 @@ object ForeignMemory {
  */
 object ForeignFile {
     /** Detect the container from its content, including files with an incorrect MIME type/name. */
-    fun read(bytes: ByteArray): ForeignExport {
+    fun read(bytes: ByteArray, mimeType: String? = null): ForeignExport {
         PngCard.json(bytes)?.let { return read(it) }
         if (DocxText.isZip(bytes)) return ForeignExport(memories = ForeignMemory.parse(DocxText.read(bytes)))
         val ole = byteArrayOf(0xd0.toByte(), 0xcf.toByte(), 0x11, 0xe0.toByte(), 0xa1.toByte(), 0xb1.toByte(), 0x1a, 0xe1.toByte())
         if (bytes.size >= ole.size && ole.indices.all { bytes[it] == ole[it] })
             throw ImportException("旧版 DOC 或加密 Word 文档暂不支持，请另存为未加密的 .docx 再导入")
+        if (isImage(bytes) || mimeType?.substringBefore(';')?.trim()?.startsWith("image/", ignoreCase = true) == true)
+            throw ImportException("这是一张普通图片，没有可导入的角色卡资料。请先提取图片里的文字，复制到设定，或另存为 TXT / DOCX 再导入。只有内嵌角色资料的 PNG 角色卡可以直接导入。")
         return read(bytes.decodeToString())
+    }
+
+    /** Check content as well as MIME: gallery providers may label images as generic files. */
+    private fun isImage(bytes: ByteArray): Boolean {
+        fun signature(offset: Int, vararg expected: Int) = bytes.size >= offset + expected.size &&
+            expected.indices.all { (bytes[offset + it].toInt() and 0xff) == expected[it] }
+        fun ascii(offset: Int, text: String) = signature(offset, *text.map { it.code }.toIntArray())
+        if (signature(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a) ||
+            signature(0, 0xff, 0xd8, 0xff) || ascii(0, "GIF87a") || ascii(0, "GIF89a") ||
+            (ascii(0, "RIFF") && ascii(8, "WEBP")) ||
+            signature(0, 0x49, 0x49, 0x2a, 0x00) || signature(0, 0x4d, 0x4d, 0x00, 0x2a) ||
+            signature(0, 0x49, 0x49, 0x2b, 0x00) || signature(0, 0x4d, 0x4d, 0x00, 0x2b) ||
+            (bytes.size >= 14 && ascii(0, "BM") && signature(6, 0, 0, 0, 0))) return true
+        // HEIF/HEIC/AVIF use an ISO media container. Inspect only its bounded file-type box.
+        if (!ascii(4, "ftyp") || bytes.size < 16) return false
+        val boxSize = (0..3).fold(0L) { size, index -> (size shl 8) or (bytes[index].toLong() and 0xff) }
+        if (boxSize < 16) return false
+        val end = minOf(boxSize, bytes.size.toLong(), 128L).toInt()
+        val brands = listOf("heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1", "avif", "avis")
+        return brands.any { ascii(8, it) } || (16 until end - 3 step 4).any { offset -> brands.any { ascii(offset, it) } }
     }
 
     /** The keys only a character card has. A bare "description" is not one: every world book has that. */
@@ -591,7 +613,7 @@ class ForeignImport(
     /** What one import made, for the line the page shows. */
     suspend fun import(uri: Uri, companionId: Long): ForeignImportResult = withContext(Dispatchers.IO) {
         val bytes = resolver.openInputStream(uri)?.use { readAtMost(it, MAX_BYTES) } ?: throw ImportException("打不开这个文件")
-        val file = ForeignFile.read(bytes)
+        val file = ForeignFile.read(bytes, runCatching { resolver.getType(uri) }.getOrNull())
         val now = System.currentTimeMillis()
         var target = companionId
         val made = mutableListOf<Pair<Long, String>>()
