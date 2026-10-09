@@ -77,6 +77,7 @@ internal fun MessageActionMenu(expanded: Boolean, onDismiss: () -> Unit, actions
                         pair.forEach { action ->
                             val icon = when (action.label) {
                                 "复制" -> Icons.Rounded.ContentCopy
+                                "选择文字" -> Icons.Rounded.TextFields
                                 "编辑" -> Icons.Rounded.Edit
                                 "引用" -> Icons.AutoMirrored.Rounded.Reply
                                 "朗读", "停止朗读" -> Icons.Rounded.VolumeUp

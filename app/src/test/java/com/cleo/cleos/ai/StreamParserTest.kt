@@ -270,6 +270,8 @@ class RequestBodyTest {
 
     @Test
     fun modelsThatThinkUnlessToldNotTo() {
+        assertTrue(Thinking.canSwitchOff("deepseek-flash"))
+        assertTrue(Thinking.canSwitchOff(" DeepSeek/deepseek-flash "))
         assertTrue(Thinking.canSwitchOff("deepseek-v4-flash"))
         assertTrue(Thinking.canSwitchOff(" DeepSeek-V4-Pro "))
         assertTrue(Thinking.canSwitchOff("deepseek/deepseek-v4-flash"))
@@ -285,5 +287,18 @@ class RequestBodyTest {
         assertTrue(Thinking.thinksAlways("zai/glm-5.3-flashx"))
         assertFalse(Thinking.thinksAlways("glm-5.2"))
         assertFalse(Thinking.canSwitchOff("mock"))
+    }
+
+    @Test
+    fun deepSeekToolRequestsCarryReasoningEvenOnEarlierPlainReplies() {
+        val messages = listOf(ApiMessage("assistant", "old", reasoning = "old reasoning"), ApiMessage("user", "new"),
+            ApiMessage("assistant", "", listOf(call), reasoning = "new reasoning"))
+        for (thinking in listOf<Boolean?>(null, true)) {
+            val sent = requestBody("deepseek-flash", messages, listOf(ToolSpecs.addTodo), thinking)["messages"]!!.jsonArray
+            assertEquals("old reasoning", sent[0].jsonObject["reasoning_content"]!!.jsonPrimitive.content)
+            assertEquals("new reasoning", sent[2].jsonObject["reasoning_content"]!!.jsonPrimitive.content)
+        }
+        val off = requestBody("deepseek-flash", messages, listOf(ToolSpecs.addTodo), thinking = false)["messages"]!!.jsonArray
+        assertTrue(off.none { "reasoning_content" in it.jsonObject })
     }
 }

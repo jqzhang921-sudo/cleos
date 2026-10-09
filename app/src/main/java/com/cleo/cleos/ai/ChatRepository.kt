@@ -740,6 +740,7 @@ class ChatRepository(
         fun build() = Prompt.messages(
             s, ta, history, ZonedDateTime.now(), groups, false, memories, conversation.recap, stickers = stickers, call = callId, calls = calls,
             lore = lore,
+            preserveReasoning = Thinking.keepsToolReasoning(use.model),
         ).let { if (instruction != null) Prompt.withWake(it, instruction) else it }
         var messages = build()
         val said = StringBuilder()
@@ -750,7 +751,7 @@ class ChatRepository(
                 say(it)
             }
             when (step) {
-                Step.Refused -> {
+                is Step.Refused -> {
                     groups = emptySet()
                     messages = build()
                 }
@@ -807,7 +808,8 @@ class ChatRepository(
                 }
             }
         } catch (e: ChatException) {
-            if (mayRefuse && text.isEmpty() && e.status in REFUSED_STATUSES) return Step.Refused
+            if (mayRefuse && text.isEmpty()) ChatCompatibility.fallback(e, tools = specs.isNotEmpty(), images = false, thinking = false)
+                ?.let { return Step.Refused(it) }
             throw e
         } catch (e: CancellationException) {
             throw e
@@ -990,7 +992,8 @@ class ChatRepository(
         val (stickers, sendStickers) = stickersFor(s)
         val calls = callsOutside(history)
         fun build() = Prompt.withWake(
-            Prompt.messages(s, ta, history, now, groups, false, memories, conversation.recap, stickers = stickers, sendStickers = sendStickers, calls = calls, lore = lore),
+            Prompt.messages(s, ta, history, now, groups, false, memories, conversation.recap, stickers = stickers, sendStickers = sendStickers, calls = calls, lore = lore,
+                preserveReasoning = Thinking.keepsToolReasoning(endpoint.model)),
             instruction,
         )
         var messages = build()
@@ -1021,6 +1024,7 @@ class ChatRepository(
                                     content = text,
                                     createdAt = at,
                                     thought = step.thought?.let(MessageThoughts::encode),
+                                    reasoning = step.reasoning,
                                     proactive = true,
                                 ),
                             )
@@ -1028,10 +1032,8 @@ class ChatRepository(
                         }
                         return result("")
                     }
-                    Step.Refused -> {
-                        // As in a reply: the thinking switch goes first, then the tools. The chat is told
-                        // about it at the next reply, not by a line appearing out of nowhere.
-                        if (thinking) thinking = false else groups = emptySet()
+                    is Step.Refused -> {
+                        if (step.feature == RequestFeature.Thinking) thinking = false else groups = emptySet()
                         messages = build()
                     }
                     is Step.Called -> {
@@ -1116,6 +1118,7 @@ class ChatRepository(
             fun build() = Prompt.messages(
                 s, ta, history, now, groups, withImages, memories, recap, outside, due.map { it.what }, heard, stickers, sendStickers, calls = calls,
                 lore = lore,
+                preserveReasoning = Thinking.keepsToolReasoning(endpoint.model),
             )
             var messages = prepare(build())
             var rounds = 0
@@ -1137,13 +1140,11 @@ class ChatRepository(
                     }
                     // Only in a wake.
                     is Step.Said -> return
-                    Step.Refused -> {
-                        // The thinking switch goes first: it was asked for on top of the rest. Then
-                        // pictures: many more models take tools than take pictures.
-                        val what = when {
-                            thinking -> Left.Thinking
-                            withImages -> Left.Images
-                            else -> Left.Tools
+                    is Step.Refused -> {
+                        val what = when (step.feature) {
+                            RequestFeature.Thinking -> Left.Thinking
+                            RequestFeature.Images -> Left.Images
+                            RequestFeature.Tools -> Left.Tools
                         }
                         leftOut = LeftOut(what, at = System.currentTimeMillis())
                         when (what) {
@@ -1215,13 +1216,12 @@ class ChatRepository(
         class Ended(val ok: Boolean) : Step
 
         /** A wake's answer without calls, not stored: it may be SKIP, and the caller decides. */
-        class Said(val text: String, val error: String?, val thought: MessageThought?) : Step
+        class Said(val text: String, val error: String?, val thought: MessageThought?, val reasoning: String? = null) : Step
 
         /**
-         * The first request failed the way requests fail on a model that can't take what
-         * was in them: tools, or pictures.
+         * The service explicitly rejected this feature; malformed requests aren't capabilities.
          */
-        data object Refused : Step
+        class Refused(val feature: RequestFeature) : Step
 
         /**
          * [savedId]: the row the text said before the calls went into, if there was any to store.
@@ -1261,7 +1261,7 @@ class ChatRepository(
         var thoughtShown = ""
         var calls = emptyList<ToolCall>()
         var error: String? = null
-        var status: Int? = null
+        var failure: ChatException? = null
         fun doneThinking() {
             if (thinkingText.isNotEmpty() && thinkingMs == null) {
                 thinkingMs = System.currentTimeMillis() - thinkingFrom
@@ -1302,13 +1302,14 @@ class ChatRepository(
             throw e
         } catch (e: ChatException) {
             error = e.message
-            status = e.status
+            failure = e
         } catch (e: Exception) {
             error = "出错了：${e.message ?: e.javaClass.simpleName}"
         }
-        // A model that can't take tools, pictures or the thinking switch turns the first
-        // request down before writing a word. The caller asks again without them.
-        if (error != null && mayRefuse && text.isEmpty() && status in REFUSED_STATUSES) return Step.Refused
+        if (mayRefuse && text.isEmpty()) failure?.let {
+            ChatCompatibility.fallback(it, tools = specs.isNotEmpty(), images = messages.any { m -> m.images.isNotEmpty() }, thinking = thinking)
+                ?.let { feature -> return Step.Refused(feature) }
+        }
 
         return withContext(NonCancellable) {
             val shown = thought()
@@ -1340,6 +1341,7 @@ class ChatRepository(
                             role = "assistant",
                             content = body,
                             createdAt = startedAt,
+                            reasoning = sentBack,
                             thought = shown?.let(MessageThoughts::encode),
                             proactive = wake,
                         ),
@@ -1349,9 +1351,9 @@ class ChatRepository(
                 // Nothing stored yet: the first message sent takes the thinking along.
                 Step.Called(ApiMessage("assistant", body, calls, reasoning = sentBack), savedId = id, thought = shown.takeIf { id == null })
             } else if (wake) {
-                Step.Said(text.toString(), error, shown)
+                Step.Said(text.toString(), error, shown, reasoning.toString().ifEmpty { null })
             } else {
-                finish(conversationId, startedAt, text.toString(), error, keepEmpty = true, shown)
+                finish(conversationId, startedAt, text.toString(), error, keepEmpty = true, shown, reasoning.toString().ifEmpty { null })
                 Step.Ended(ok = error == null)
             }
         }
@@ -1430,6 +1432,7 @@ class ChatRepository(
                                 createdAt = at,
                                 audio = voice?.let(MessageAudios::encode),
                                 thought = thought,
+                                reasoning = step.message.reasoning.takeIf { sent == 0 && step.savedId == null },
                                 quote = quote?.let(MessageQuotes::encode),
                                 proactive = wake,
                                 call = inCall,
@@ -1567,6 +1570,7 @@ class ChatRepository(
         error: String?,
         keepEmpty: Boolean,
         thought: MessageThought? = null,
+        reasoning: String? = null,
     ) {
         if (body.isNotEmpty() || (keepEmpty && error != null)) {
             val id = db.messages().insert(
@@ -1577,6 +1581,7 @@ class ChatRepository(
                     createdAt = startedAt,
                     error = error,
                     thought = thought?.let(MessageThoughts::encode),
+                    reasoning = reasoning,
                 ),
             )
             db.conversations().touch(conversationId, System.currentTimeMillis())
@@ -1628,12 +1633,6 @@ class ChatRepository(
         private const val ASK_WAIT = 10 * 60_000L
 
         /**
-         * How endpoints turn down tools or pictures a model can't take: 400 (SiliconFlow,
-         * vLLM), 404 (OpenRouter finds no endpoint for it), 422 (strict validators).
-         */
-        private val REFUSED_STATUSES = setOf(400, 404, 422)
-
-        /**
          * What a TA can do on the phone: what needs no picture, card or message of its own in the
          * chat, and leaves the sound alone (music_control would talk over the call).
          */
@@ -1641,7 +1640,7 @@ class ChatRepository(
             ToolGroup.Todos, ToolGroup.Diary, ToolGroup.AiDiary, ToolGroup.Memory, ToolGroup.Letters, ToolGroup.Weather,
             ToolGroup.Location, ToolGroup.Later, ToolGroup.Alarm, ToolGroup.Calendar,
         )
-        private const val TOOLS_REFUSED = "这个模型不接受工具调用，这次没带工具。想让 TA 记待办、查天气，换一个支持工具的模型。"
+        private const val TOOLS_REFUSED = "接口明确表示不支持工具调用，本次已改成文字回复。闹钟、待办和外部服务这次都没有执行。"
         private const val IMAGES_REFUSED = "这个模型看不了图片，这次只发了文字。想让 TA 看图，换一个能看图的模型。"
         private const val THINKING_REFUSED = "这个模型不认深度思考的开关，这次照常回复了，之后也不再带这个开关。"
         private const val TOO_MANY_ROUNDS = "连着用了太多次工具，先停在这里。"

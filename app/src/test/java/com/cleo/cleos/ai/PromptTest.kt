@@ -187,6 +187,33 @@ class PromptTest {
     }
 
     @Test
+    fun deepSeekCanKeepEarlierCallsAndPlainReplyReasoning() {
+        val out = Prompt.messages(AppSettings(), ta(), listOf(msg("user", "first"), calling("", add, reasoning = "call reasoning"),
+            result("c1", "done"), msg("assistant", "done").copy(reasoning = "reply reasoning"), msg("user", "next")),
+            now, allTools, preserveReasoning = true)
+        assertEquals("call reasoning", out[2].reasoning)
+        assertEquals("reply reasoning", out[4].reasoning)
+    }
+
+    @Test
+    fun splitMessageBubblesKeepReasoningOnTheirRebuiltSendCalls() {
+        val out = Prompt.messages(AppSettings(), ta(), listOf(msg("user", "first"),
+            msg("assistant", "one").copy(reasoning = "original reasoning"), msg("assistant", "two"), msg("user", "next")),
+            now, setOf(ToolGroup.Messages), preserveReasoning = true)
+        val calls = out.single { it.toolCalls.isNotEmpty() }
+        assertEquals(2, calls.toolCalls.size)
+        assertEquals("original reasoning", calls.reasoning)
+    }
+
+    @Test
+    fun mergedPlainRepliesDoNotLoseTheFirstReasoning() {
+        val out = Prompt.messages(AppSettings(), ta(), listOf(msg("user", "first"),
+            msg("assistant", "one").copy(reasoning = "original reasoning"), msg("assistant", "two"), msg("user", "next")),
+            now, allTools, preserveReasoning = true)
+        assertEquals("original reasoning", out.single { it.role == "assistant" }.reasoning)
+    }
+
+    @Test
     fun unansweredCallsAndStrayResultsAreDropped() {
         val out = Prompt.messages(
             AppSettings(),

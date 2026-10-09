@@ -1,5 +1,6 @@
 package com.cleo.cleos.ai
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -126,6 +127,7 @@ class ChatException(
     val status: Int? = null,
     override val wrongEndpoint: Boolean = false,
     override val serviceSpoke: Boolean = false,
+    val rejectedFeature: RequestFeature? = null,
 ) : Exception(message), EndpointFailure
 
 /** Whether [code] is one of the two that say the path itself is not there. */
@@ -213,7 +215,10 @@ internal object AddressMemory {
  * both halves of such a line, which shows up as characters missing from the middle of
  * long replies. readUtf8Line() waits for the whole line.
  */
-class ChatClient(private val http: OkHttpClient) {
+class ChatClient(
+    private val http: OkHttpClient,
+    private val diagnostic: (String) -> Unit = { Log.i("CleosTools", it) },
+) {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
@@ -236,22 +241,24 @@ class ChatClient(private val http: OkHttpClient) {
     ): Flow<ChatEvent> = callbackFlow {
         val key = endpoint.chatUrl + "|" + endpoint.model
         val always = Thinking.thinksAlways(endpoint.model)
-        fun request(to: ApiEndpoint, off: Boolean) = http.newCall(
+        fun request(to: ApiEndpoint, off: Boolean): Call {
+            val body = requestBody(
+                to.model, messages, tools,
+                thinking = if (thinking) true else if (off && !always) false else null,
+                effort = if (off && always) Thinking.LITTLE else null,
+            )
+            diagnostic(ChatCompatibility.diagnostic(body))
+            return http.newCall(
             Request.Builder()
                 .url(to.chatUrl)
                 .header("Authorization", "Bearer ${to.apiKey}")
                 .header("Accept", "text/event-stream")
                 .post(
-                    requestBody(
-                        to.model,
-                        messages,
-                        tools,
-                        thinking = if (thinking) true else if (off && !always) false else null,
-                        effort = if (off && always) Thinking.LITTLE else null,
-                    ).toString().toRequestBody(JSON_TYPE),
+                    body.toString().toRequestBody(JSON_TYPE),
                 )
                 .build(),
         )
+        }
         val off = !thinking && (always || Thinking.canSwitchOff(endpoint.model)) && key !in refusesOff
         var call: Call? = null
 
@@ -260,20 +267,30 @@ class ChatClient(private val http: OkHttpClient) {
             // throws, which is what lets atRightAddress run it a second time at another address.
             suspend fun sendFrom(to: ApiEndpoint, off: Boolean) {
                 if (!isActive) return
-                var c = request(to, off)
-                call = c
-                var answer = c.execute()
-                if (off && answer.code in REFUSED) {
-                    answer.close()
-                    refusesOff += key
-                    c = request(to, off = false)
+                fun execute(disableThinking: Boolean): okhttp3.Response {
+                    val c = request(to, disableThinking)
                     call = c
-                    answer = c.execute()
+                    val answer = c.execute()
+                    if (!answer.isSuccessful) {
+                        answer.use {
+                            val body = it.body.string()
+                            val sent = requestBody(to.model, messages, tools,
+                                thinking = if (thinking) true else if (disableThinking && !always) false else null,
+                                effort = if (disableThinking && always) Thinking.LITTLE else null)
+                            diagnostic(ChatCompatibility.diagnostic(sent, it.code, body))
+                            throw httpFailure(it.code, body)
+                        }
+                    }
+                    return answer
+                }
+                val answer = try {
+                    execute(off)
+                } catch (e: ChatException) {
+                    if (!off || e.status !in REFUSED || e.rejectedFeature != RequestFeature.Thinking) throw e
+                    refusesOff += key
+                    execute(disableThinking = false)
                 }
                 answer.use { response ->
-                    if (!response.isSuccessful) {
-                        throw httpFailure(response.code, response.body.string())
-                    }
                     val source = response.body.source()
                     val parser = StreamParser()
                     // What isn't a `data:` line is kept (a little of it): if the answer turns out not to be a stream at all, it is the answer.
@@ -402,6 +419,7 @@ class ChatClient(private val http: OkHttpClient) {
         // An error code with a complaint written into it is a service that was found
         // ("no such model: …"); the same code with a page for a body is not.
         serviceSpoke = complainedIn(body),
+        rejectedFeature = ChatCompatibility.rejectedFeature(body),
     )
 
     /** Whether [body] is JSON with the service's own complaint in it. */
@@ -448,7 +466,10 @@ class ChatClient(private val http: OkHttpClient) {
  * anyway, so a TA with thinking off would still keep the person waiting and cost the tokens.
  */
 object Thinking {
-    private val SWITCHABLE = listOf("deepseek-v4", "glm-4.5", "glm-4.6", "glm-4.7", "glm-5")
+    private val SWITCHABLE = listOf("deepseek-flash", "deepseek-v4", "glm-4.5", "glm-4.6", "glm-4.7", "glm-5")
+
+    /** DeepSeek's thinking tool requests require reasoning from earlier turns too. */
+    fun keepsToolReasoning(model: String): Boolean = name(model).let { it == "deepseek-flash" || it.startsWith("deepseek-v4") }
 
     /**
      * Models that always think: told not to, they fail the request (GLM from 5.3 on: its docs say
@@ -528,6 +549,7 @@ internal fun requestBody(
     thinking: Boolean? = null,
     effort: String? = null,
 ): JsonObject = buildJsonObject {
+    val allReasoning = tools.isNotEmpty() && thinking != false && Thinking.keepsToolReasoning(model)
     put("model", model)
     put("stream", true)
     if (thinking != null) putJsonObject("thinking") { put("type", if (thinking) "enabled" else "disabled") }
@@ -556,7 +578,7 @@ internal fun requestBody(
                     put("content", m.content)
                 } else {
                     if (m.content.isEmpty()) put("content", JsonNull) else put("content", m.content)
-                    if (thinking == null) m.reasoning?.let { put("reasoning_content", it) }
+                    if (thinking == null && !allReasoning) m.reasoning?.let { put("reasoning_content", it) }
                     putJsonArray("tool_calls") {
                         for (c in m.toolCalls) {
                             addJsonObject {
@@ -570,7 +592,7 @@ internal fun requestBody(
                         }
                     }
                 }
-                if (thinking == true && m.role == "assistant") put("reasoning_content", m.reasoning ?: "")
+                if ((thinking == true || allReasoning) && m.role == "assistant") put("reasoning_content", m.reasoning ?: "")
                 m.toolCallId?.let { put("tool_call_id", it) }
             }
         }

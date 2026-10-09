@@ -217,6 +217,7 @@ object Prompt {
         call: Long? = null,
         calls: Map<Long, CallRecord> = emptyMap(),
         lore: List<LoreEntity> = emptyList(),
+        preserveReasoning: Boolean = false,
     ): List<ApiMessage> {
         val withTools = tools.isNotEmpty() || outside.isNotEmpty()
         val attached = if (images) attachedPictures(history) else emptySet()
@@ -253,15 +254,16 @@ object Prompt {
                 merged[merged.lastIndex] = m.copy(
                     content = listOf(last.content, m.content).filter { it.isNotEmpty() }.joinToString("\n\n"),
                     images = last.images + m.images,
+                    reasoning = if (preserveReasoning) listOfNotNull(last.reasoning, m.reasoning).distinct().joinToString("\n").ifEmpty { null } else m.reasoning,
                 )
             } else {
                 merged += m
             }
         }
         val lastUser = merged.indexOfLast { it.role == "user" }
-        // Reasoning goes back only within the turn still under way; earlier turns' is
-        // dropped (DeepSeek asks for exactly this, and it is dead weight anywhere else).
-        for (i in 0 until lastUser) {
+        // DeepSeek thinking with tools needs reasoning from every turn. Other providers
+        // keep the existing within-turn behaviour.
+        for (i in 0 until (if (preserveReasoning) 0 else lastUser)) {
             if (merged[i].reasoning != null) merged[i] = merged[i].copy(reasoning = null)
         }
         if (lastUser >= 0) {
@@ -361,7 +363,7 @@ object Prompt {
                 }
                 ToolCall("send_$id", name, args.toString())
             }
-            out += ApiMessage("assistant", "", calls)
+            out += ApiMessage("assistant", "", calls, reasoning = list.subList(i, j).mapNotNull { it.second.reasoning }.distinct().joinToString("\n").ifEmpty { null })
             calls.forEach { out += ApiMessage("tool", ToolSpecs.SENT, toolCallId = it.id) }
             i = j
         }
@@ -435,7 +437,7 @@ object Prompt {
                 // A half reply ending mid-sentence invites the model to continue it.
                 error != null -> null
                 calls.isNotEmpty() -> ApiMessage("assistant", content, calls, reasoning = reasoning)
-                content.isNotBlank() -> ApiMessage("assistant", content, spoken = audio != null, quoted = MessageQuotes.decode(quote)?.text)
+                content.isNotBlank() -> ApiMessage("assistant", content, reasoning = reasoning, spoken = audio != null, quoted = MessageQuotes.decode(quote)?.text)
                 else -> null
             }
         }

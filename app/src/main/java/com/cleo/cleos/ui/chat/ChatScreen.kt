@@ -1413,6 +1413,7 @@ private fun MessageBubble(
     val glow by animateColorAsState(if (highlighted) palette.accent.copy(alpha = 0.14f) else Color.Transparent, label = "found")
     val audio = remember(message.audio) { MessageAudios.decode(message.audio) }
     var menu by remember { mutableStateOf(false) }
+    var selectingText by remember(message.id) { mutableStateOf(false) }
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val faces = LocalFaces.current
@@ -1481,7 +1482,7 @@ private fun MessageBubble(
                                         ),
                                     mine = mine,
                                 ) { bubbleInk ->
-                                    Text(
+                                    MessageText(
                                         piece.text,
                                         color = bubbleInk,
                                         style = LocalChatType.current.body,
@@ -1499,6 +1500,7 @@ private fun MessageBubble(
                     if (words.isNotBlank()) add(MessageMenuAction("复制") {
                         scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", words))) }
                     })
+                    if (words.isNotBlank()) add(MessageMenuAction("选择文字") { selectingText = true })
                     onEdit?.let { add(MessageMenuAction("编辑", it)) }
                     if (!mine && message.error == null && audio == null && words.isNotBlank())
                         add(MessageMenuAction(if (playingFile == readingMark(message.id)) "停止朗读" else "朗读") { onRead(words) })
@@ -1512,6 +1514,7 @@ private fun MessageBubble(
                 }
                 MessageActionMenu(menu, { menu = false }, actions,
                     if (!mine && message.error == null) reactions.map { it.emoji }.toSet() else null, onReact)
+                if (selectingText) SelectMessageTextDialog(words, LocalChatType.current.body) { selectingText = false }
             }
             val error = message.error
             if (error != null) {
@@ -1615,7 +1618,7 @@ private fun VoiceBubble(
                         Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                             contentDescription = null, tint = ink.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
                     }
-                    if (expanded) Text(transcript, color = ink.copy(alpha = 0.85f), style = LocalChatType.current.small)
+                    if (expanded) MessageText(transcript, color = ink.copy(alpha = 0.85f), style = LocalChatType.current.small)
                 }
                 transcribing -> Text("转文字中…", color = ink.copy(alpha = 0.7f), fontSize = 13.sp)
             }
@@ -2132,12 +2135,11 @@ private fun ToolDetailBlock(label: String, text: String) {
         TextButton(onClick = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText(label, text))) } }) { Text("复制") }
     }
     SelectionContainer {
-        Text(
+        MessageText(
             shown,
             color = palette.content,
-            fontSize = 12.sp,
-            lineHeight = 18.sp,
-            fontFamily = FontFamily.Monospace,
+            style = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, lineHeight = 18.sp,
+                fontFamily = FontFamily.Monospace),
             modifier = Modifier
                 .fillMaxWidth()
                 .background(palette.contentSecondary.copy(alpha = 0.08f), RoundedCornerShape(10.dp))
