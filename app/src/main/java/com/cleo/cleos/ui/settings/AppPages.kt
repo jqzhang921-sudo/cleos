@@ -590,10 +590,10 @@ internal fun AboutPage() {
         )
     }
 
-    Section("用到的别人的东西") {
+    Section("许可与版权") {
         // Credit the data's licence asks for, where the people who get the app can see it.
         Text(
-            "语音条「在耳边」用的是 J. M. Arend、A. Neidhardt、C. Pörschmann 发布的 Neumann KU100 近场 HRIR 数据" +
+            "Cleos 原创代码与已授权贡献采用 Apache-2.0；第三方内容保留各自的许可。语音条「在耳边」用的是 J. M. Arend、A. Neidhardt、C. Pörschmann 发布的 Neumann KU100 近场 HRIR 数据" +
                 "（Zenodo，doi:10.5281/zenodo.4297951，CC BY 4.0；Cleos 只留了三档距离、换了存法），" +
                 "做法移植自 binaural-voice（github.com/Saekisui/binaural-voice，MIT）。",
             color = palette.contentSecondary,
@@ -612,7 +612,7 @@ internal fun AboutPage() {
         }
         AlertDialog(
             onDismissRequest = { showNotices = false },
-            title = { Text("用到的别人的东西") },
+            title = { Text("许可与版权") },
             text = {
                 Text(
                     notices,

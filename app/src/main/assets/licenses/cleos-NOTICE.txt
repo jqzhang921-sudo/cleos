@@ -1,0 +1,38 @@
+Cleos
+Copyright 2026 jqzhang921-sudo and the Cleos contributors.
+Project: https://github.com/jqzhang921-sudo/cleos
+
+The Cleos original code and contributions authorized for this migration
+are licensed under the Apache License, Version 2.0. See LICENSE.
+Third-party works retain their own licenses and copyright notices.
+
+Contributor attribution
+123456jznb: original contributions in PR #1 to foreign-memory import,
+the memory import interface, and ForeignMemory tests. The contributor
+confirmed Apache-2.0 authorization for those original contributions.
+This acknowledgment does not transfer copyright or attribute entire
+files to a single contributor.
+
+Third-party attribution
+binaural-voice: Copyright (c) 2026 Saekisui. MIT License.
+Source: https://github.com/Saekisui/binaural-voice
+Cleos ports voice movement behavior to its Kotlin/Android binaural
+implementation. The original MIT notice is preserved in
+app/src/main/assets/licenses/binaural-voice.txt.
+
+Neumann KU100 near-field HRIR data:
+J. M. Arend, A. Neidhardt, C. Pörschmann,
+Spherical Near-Field (NF) HRIR Compilation of the Neumann KU100,
+Zenodo, 2020. https://doi.org/10.5281/zenodo.4297951
+Licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+Cleos retains three horizontal-plane distances, applies the documented
+distance gains, and converts the data to 16-bit integer storage.
+See app/src/main/assets/hrir/README.txt for the conversion provenance.
+
+AndroidX DataStore's repackaged Protocol Buffers dependency retains its
+BSD-3-Clause license. Other resolved release dependency licenses are
+listed in docs/DEPENDENCY_LICENSES.md; upstream notices remain applicable.
+
+See THIRD_PARTY_NOTICES.md for license scope, resources, and service data.
+This NOTICE is informational and does not modify any license.

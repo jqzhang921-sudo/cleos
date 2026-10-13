@@ -2,12 +2,15 @@
 
 ## 源码使用与分发
 
-本项目采用 **[Cleos 源码可见许可](LICENSE)**（source-available）。
+Cleos 有权授权的原创代码及已获确认授权的贡献采用 **[Apache License 2.0](LICENSE)**。
+你可以学习、修改、编译、分发和商业使用这些代码，按许可证保留适用声明、提供许可副本，并注明对文件的改动。
 
-- **允许**：查看与学习源码、为个人学习和测试在本地修改、编译和运行，以及 Fork 后向原项目提交 PR。
-- **未经维护者明确书面许可，不得**向他人分发原版或修改版 APK、AAB 等安装包，创建提供这些产物的 Release，或将本项目作为自己的版本对外传播。免费分发、注明作者或标注“非官方”也不替代许可。
-- 如需分发，请通过本仓库 Issue 向维护者 **jqzhang921-sudo** 申请并取得明确书面许可。
-- 本条款从首次加入 `LICENSE` 的提交起适用，不追溯撤销已有合法授权；第三方内容和既有贡献的权利以其各自授权为准。提交新 PR 时，请确认有权提交并同意 `LICENSE` 中的贡献条款。
+- 第三方代码、HRIR 数据、依赖和其他素材继续遵守各自的许可，见 [第三方声明](THIRD_PARTY_NOTICES.md) 与 [依赖清单](docs/DEPENDENCY_LICENSES.md)。
+- 作者和贡献者的归属信息见 [NOTICE](NOTICE)；源码及贡献的具体范围、历史版本边界见 [许可说明](docs/LICENSING.md)。
+- [旧源码可见许可](licenses/history/README.md) 仅为历史归档，不对当前 Apache 代码增加禁止商用或禁止分发安装包的条件。
+- 新贡献按 [贡献说明](CONTRIBUTING.md) 和 Apache-2.0 第 5 节处理，贡献者保留版权。
+
+**社区倡议**：欢迎二创作者在项目介绍中注明「基于 Cleos 开发」并链接本仓库。这是自愿倡议，**不是 Apache-2.0 的额外强制条件**。许可证、版权和适用 NOTICE 的保留要求仍须遵守。
 
 一个安卓原生（Kotlin + Jetpack Compose）的陪伴聊天 App，界面是自己写的液态玻璃。
 除了和 TA 聊天（自己填 API），也能写日记（可以贴图）、记待办。数据都只存在手机上。
@@ -248,12 +251,12 @@ keyPassword=...
   Zenodo 2020, [doi:10.5281/zenodo.4297951](https://doi.org/10.5281/zenodo.4297951)，**CC BY 4.0**。
   `app/src/main/assets/hrir/ku100_near.bin` 由 [binaural-voice](https://github.com/Saekisui/binaural-voice) 里的
   `ku100_nearfield_circ360.npz` 转来（`tools/convert_hrir.py`）：只留水平面 0.25 / 0.5 / 0.75 米三档，乘上数据集给的距离增益，改成 16 位整数存。
-  说明在同目录的 `README.txt`，App 的「关于 → 看许可全文」里也有。
+  说明在同目录的 `README.txt`，App 的「关于 → 许可与版权 → 看许可全文」里也有。
 - 语音绕着头走的做法移植自 [binaural-voice](https://github.com/Saekisui/binaural-voice)，MIT 许可，Copyright (c) 2026 Saekisui；
   许可全文在 `app/src/main/assets/licenses/binaural-voice.txt`，App 里同样能看到。
 - 表情包的做法参考了 [cute-chat-stickers](https://github.com/Anko3o/cute-chat-stickers) 的思路（没用它的代码和数据）。
 
-© 2026 jqzhang921-sudo. All rights reserved
+© 2026 jqzhang921-sudo 与 Cleos 贡献者；源码许可及第三方范围见上方声明。
 
 气泡实验室支持从相册导入小脸或星点图片，保持原比例，可选原图、圆形或圆角显示；自选装饰适用于所有主题，并随备份保存。
 

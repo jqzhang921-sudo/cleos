@@ -14,4 +14,4 @@ Cleos 做了这些改动：
 - 改成 16 位整数存；播放前按语音条自己的采样率重新采样。
 转换脚本在仓库的 tools/convert_hrir.py。
 
-语音绕着头走的方式（只在出声时挪、几种随机走法、快慢和轻微晃动）移植自 binaural-voice，许可见下一段。
+语音绕着头走的方式（只在出声时挪、几种随机走法、快慢和轻微晃动）移植自 binaural-voice，MIT 许可全文见 assets/licenses/binaural-voice.txt。数据本身仍采用上述 CC BY 4.0。

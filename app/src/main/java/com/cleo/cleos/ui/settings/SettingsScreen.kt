@@ -259,8 +259,16 @@ internal fun Chip(text: String, selected: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** What 「看许可全文」 shows: where the ear's data comes from, and the licence of the code it was ported from. */
-internal val NOTICES = listOf("hrir/README.txt", "licenses/binaural-voice.txt")
+/** Project license, attribution, resource scope, and the original third-party licenses shipped in assets. */
+internal val NOTICES = listOf(
+    "licenses/cleos-apache-2.0.txt",
+    "licenses/cleos-NOTICE.txt",
+    "licenses/third-party-notices.txt",
+    "licenses/dependency-licenses.txt",
+    "hrir/README.txt",
+    "licenses/binaural-voice.txt",
+    "licenses/datastore-protobuf.txt",
+)
 
 /** How much of the persona the profile page shows: a few lines' worth, never all of it. */
 internal const val PERSONA_PREVIEW = 200
