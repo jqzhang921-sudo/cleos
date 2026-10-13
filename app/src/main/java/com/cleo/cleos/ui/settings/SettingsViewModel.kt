@@ -817,6 +817,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(expandVoiceText = on) } }
     }
 
+    /** Whether the TA's thinking shows as a card in the chat. Only the drawing changes. */
+    fun setShowThought(on: Boolean) {
+        viewModelScope.launch { c.settings.update { it.copy(showThought = on) } }
+    }
+
     var backupBusy by mutableStateOf(false)
         private set
     var backupMessage by mutableStateOf<String?>(null)
