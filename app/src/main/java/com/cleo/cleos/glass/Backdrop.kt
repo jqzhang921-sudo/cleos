@@ -183,8 +183,9 @@ private class BackdropSourceNode(
             comp.record(recordSize) {
                 translate(e.toFloat(), e.toFloat()) {
                     if (behindLayer != null && behindCoords != null && behindCoords.isAttached) {
-                        val offset = behindCoords.localPositionOf(requireLayoutCoordinates(), Offset.Zero)
-                        translate(-offset.x, -offset.y) { drawLayer(behindLayer) }
+                        backdropOffset(behindCoords, requireLayoutCoordinates())?.let { offset ->
+                            translate(-offset.x, -offset.y) { drawLayer(behindLayer) }
+                        }
                     }
                     drawLayer(c)
                 }

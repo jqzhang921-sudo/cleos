@@ -19,7 +19,8 @@ import kotlin.random.Random
 /** Independent opt-in feed opportunities; claims survive process death and settings changes. */
 class FeedVisits(context: Context, private val db: AppDatabase, private val ai: FeedAi,
     private val chat: ChatRepository, private val secrets: SecretStore,
-    private val scope: CoroutineScope, private val activities: WakeActivities) {
+    private val scope: CoroutineScope, private val activities: WakeActivities,
+    private val groupBusy: (Long) -> Boolean = { false }) {
     private val work = WorkManager.getInstance(context)
     private val schedules = Mutex()
     @Volatile private var paused = false
@@ -96,7 +97,7 @@ class FeedVisits(context: Context, private val db: AppDatabase, private val ai: 
         val day = now.toLocalDate().toEpochDay()
         val attempts = if (state.attemptDay == day) state.attempts else 0
         val conversations = db.conversations().idsFor(id).toSet()
-        fun occupied() = ai.busy || conversations.any { chat.busy(it) || chat.isTyping(it) }
+        fun occupied() = ai.busy || groupBusy(id) || conversations.any { chat.busy(it) || chat.isTyping(it) }
         val reason = FeedVisitRules.held(ta, now, occupied(), attempts, !secrets.key(ta.apiBaseUrl).isNullOrBlank())
         val next = FeedVisitRules.next(ta, now, Random.nextDouble(), attempts >= FeedVisitRules.level(ta.feedVisitLevel).dailyMax)
         if (reason != null) {
@@ -118,7 +119,7 @@ class FeedVisits(context: Context, private val db: AppDatabase, private val ai: 
                     // Profile/model changes, input, a replacement schedule, or quiet hours invalidate this output.
                     !paused && current == ta && current.feedVisitEnabled && db.feedVisits().get(id)?.nextAt == next &&
                         ZonedDateTime.now().toLocalDate().toEpochDay() == day && !FeedVisitRules.quiet(current, ZonedDateTime.now()) &&
-                        !conversations.any { chat.busy(it) || chat.isTyping(it) }
+                        !groupBusy(id) && !conversations.any { chat.busy(it) || chat.isTyping(it) }
                 },
                 onRequest = { requested = true; activities.request(activity) },
                 claimPost = { db.feedVisits().posted(id, next, day) == 1 })

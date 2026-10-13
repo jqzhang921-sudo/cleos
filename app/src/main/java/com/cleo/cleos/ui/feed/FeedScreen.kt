@@ -51,6 +51,7 @@ import com.cleo.cleos.data.db.FeedPostEntity
 import com.cleo.cleos.data.db.isTopic
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.*
+import com.cleo.cleos.ui.chat.PhotoAttribution
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CancellationException
@@ -279,6 +280,7 @@ fun FeedScreen(onBack: () -> Unit, onOpenImage: (String) -> Unit) {
                             if (post.content.isNotBlank()) Text(post.content, color = palette.content, fontSize = 15.sp, lineHeight = 22.sp)
                             val postPhotos = remember(post.images) { MessageImages.decode(post.images) }
                             if (postPhotos.isNotEmpty()) FeedPhotos(postPhotos, onOpenImage, Modifier.padding(vertical = 5.dp))
+                            postPhotos.mapNotNull { it.credit }.distinct().forEach { PhotoAttribution(it) }
                             post.sourceUrl?.let { link ->
                                 Text(post.sourceTitle ?: "查看来源", color = palette.accentContent, fontSize = 12.sp,
                                     modifier = Modifier.clickable { runCatching { uri.openUri(link) }.onFailure { problem = "无法打开来源" } })

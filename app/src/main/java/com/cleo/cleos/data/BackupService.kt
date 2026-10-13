@@ -18,6 +18,7 @@ import com.cleo.cleos.data.db.StickerEntity
 import com.cleo.cleos.data.db.TodoEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.BufferedInputStream
@@ -58,6 +59,9 @@ data class BackupSettings(
     val glassTuning: String? = null,
     /** Tool groups by name, comma-separated; absent in backups from before tools. */
     val tools: String? = null,
+    val photoLibrary: String? = null,
+    val feedPhotoTas: List<Long> = emptyList(),
+    val selectedGroupId: Long? = null,
     val weatherCity: String = "",
     /** File names under images/; absent in backups from before the home page. */
     val userAvatar: String? = null,
@@ -69,6 +73,7 @@ data class BackupSettings(
     val myBubbleTheme: String = "glass",
     val bubblePaddingX: Int = 10,
     val bubblePaddingY: Int = 6,
+    val messageSpacing: Int = BubbleSpacing.DEFAULT,
     val bubblePresets: List<BubblePreset> = emptyList(),
     val bubbleDecoration: BubbleDecoration = BubbleDecoration(),
     val bubbleBackgrounds: Map<String, BubbleBackground> = emptyMap(),
@@ -116,10 +121,16 @@ data class BackupFile(
     /** Absent in backups from before a TA had 设定 (a world book brought over from elsewhere). */
     val lore: List<LoreEntity> = emptyList(),
     val feedPosts: List<com.cleo.cleos.data.db.FeedPostEntity> = emptyList(),
+    val groups: List<com.cleo.cleos.data.db.ChatGroupEntity> = emptyList(),
+    val groupMembers: List<com.cleo.cleos.data.db.GroupMemberEntity> = emptyList(),
+    val groupTurns: List<com.cleo.cleos.data.db.GroupTurnEntity> = emptyList(),
+    val groupMessages: List<com.cleo.cleos.data.db.GroupMessageEntity> = emptyList(),
+    val groupMemories: List<com.cleo.cleos.data.db.GroupMemoryEntity> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "cleos-backup"
-        const val VERSION = 1
+        // Older readers must not re-activate former members or drop shared conversations.
+        const val VERSION = 6
     }
 }
 
@@ -136,6 +147,9 @@ data class BackupSummary(
     val favorites: Int = 0,
     val lore: Int = 0,
     val feedPosts: Int = 0,
+    val groups: Int = 0,
+    val groupMessages: Int = 0,
+    val groupMemories: Int = 0,
 ) {
     override fun toString() =
         "$tas 个 TA、$conversations 段对话（$messages 条消息）、$diary 篇日记、$letters 封信、$todos 条待办、$images 张图" +
@@ -143,7 +157,9 @@ data class BackupSummary(
             (if (stickers > 0) "、$stickers 个表情包" else "") +
             (if (favorites > 0) "、$favorites 条收藏" else "") +
             (if (lore > 0) "、$lore 条设定" else "") +
-            (if (feedPosts > 0) "、$feedPosts 条动态" else "")
+            (if (feedPosts > 0) "、$feedPosts 条动态" else "") +
+            (if (groups > 0) "、$groups 个群聊（$groupMessages 条群消息）" else "") +
+            (if (groupMemories > 0) "、$groupMemories 条群内记录" else "")
 }
 
 /** Recordings are named voice_…, among the pictures (VoiceRecorder). */
@@ -202,12 +218,13 @@ class BackupService(
         val s = settings.current()
         val companions = db.companions().all()
         val lead = companions.firstOrNull()
-        val data = BackupFile(
+        val data = db.withTransaction { BackupFile(
             format = BackupFile.FORMAT,
             version = BackupFile.VERSION,
             exportedAt = System.currentTimeMillis(),
             settings = BackupSettings(
                 apiBaseUrl = lead?.apiBaseUrl ?: ApiPresets.DeepSeek.baseUrl,
+                selectedGroupId = settings.currentGroup.first(),
                 apiModel = lead?.apiModel ?: ApiPresets.DeepSeek.defaultModel,
                 aiName = lead?.name.orEmpty(),
                 userName = s.userName,
@@ -227,6 +244,8 @@ class BackupService(
                 wallpaperPeak = s.wallpaperPeak,
                 glassTuning = s.glassTuning.takeIf { it.isNotEmpty() }?.let { encodeTuning(it) },
                 tools = encodeTools(s.tools),
+                photoLibrary = s.photoLibrary.name,
+                feedPhotoTas = s.feedPhotoTas.sorted(),
                 weatherCity = s.weatherCity,
                 userAvatar = s.userAvatar,
                 aiAvatar = lead?.avatar,
@@ -237,6 +256,7 @@ class BackupService(
                 myBubbleTheme = s.myBubbleTheme,
                 bubblePaddingX = s.bubblePaddingX,
                 bubblePaddingY = s.bubblePaddingY,
+                messageSpacing = s.messageSpacing,
                 bubblePresets = s.bubblePresets,
                 bubbleDecoration = s.bubbleDecoration,
                 bubbleBackgrounds = s.bubbleBackgrounds,
@@ -268,15 +288,21 @@ class BackupService(
             favorites = db.favorites().all(),
             lore = db.lore().all(),
             feedPosts = db.feed().all(),
-        )
+            groups = db.groups().allGroups(),
+            groupMembers = db.groups().allMembers(),
+            groupTurns = db.groups().allTurns(),
+            groupMessages = db.groups().allMessages(),
+            groupMemories = db.groups().allMemories(),
+        ) }
         val stickerFiles = data.stickers.map { it.file }.toSet()
         val favoriteFiles = data.favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) }
         val pictures = (favoriteFiles + data.diary.flatMap { e -> DiaryBlocks.images(DiaryBlocks.decode(e.blocks)).map { it.file } } +
             data.feedPosts.flatMap { MessageImages.decode(it.images).map { picture -> picture.file } } +
             data.messages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
+            data.groupMessages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
             // Recordings live with the pictures and travel the same way.
             data.messages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +
-            companions.mapNotNull { it.avatar } +
+            companions.mapNotNull { it.avatar } + data.groupMembers.mapNotNull { it.avatar } + data.groupMessages.mapNotNull { it.speakerAvatar } +
             stickerFiles +
             s.bubblePresets.flatMap { it.decoration.imageFiles() } + s.bubbleDecoration.components.mapNotNull { it.image } + listOfNotNull(s.wallpaper, s.feedCover, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
 
@@ -303,6 +329,8 @@ class BackupService(
         return BackupSummary(
             companions.size, data.conversations.size, data.messages.size, data.diary.size, data.letters.size, data.todos.size,
             written, voices, stickers, data.favorites.size, data.lore.size, data.feedPosts.size,
+            groups = data.groups.size, groupMessages = data.groupMessages.count { it.content.isNotBlank() || it.images != null },
+            groupMemories = data.groupMemories.size,
         )
     }
 
@@ -332,6 +360,8 @@ class BackupService(
             val d = data ?: throw BackupException("这不是 Cleos 的备份文件")
             if (d.format != BackupFile.FORMAT) throw BackupException("这不是 Cleos 的备份文件")
             if (d.version > BackupFile.VERSION) throw BackupException("这份备份来自更新版本的 Cleos，先更新 App 再恢复")
+            try { GroupBackupRules.validate(d.groups, d.groupMembers, d.groupTurns, d.groupMessages, d.groupMemories) }
+            catch (e: IllegalArgumentException) { throw BackupException(e.message ?: "群聊备份不完整") }
 
             if (takeSnapshot) {
                 snapshot.parentFile?.mkdirs()
@@ -373,6 +403,7 @@ class BackupService(
                 // What TAs noted to come back to, and what came of it: not in backups, and about
                 // conversations that are about to go.
                 db.favorites().clear()
+                db.groups().clear()
                 db.later().clear()
                 db.wakes().clear()
                 db.messages().clear()
@@ -396,6 +427,11 @@ class BackupService(
                 db.feed().insertAll(d.feedPosts)
                 db.stickers().insertAll(stickers)
                 db.favorites().insertAll(d.favorites)
+                db.groups().restoreGroups(d.groups)
+                db.groups().insertMembers(d.groupMembers.map { it.copy(avatar = picture(it.avatar)) })
+                db.groups().restoreTurns(d.groupTurns.map(GroupBackupRules::restored))
+                db.groups().restoreMessages(d.groupMessages.map { com.cleo.cleos.ai.GroupPhotoRules.restored(GroupBackupRules.restored(it)) { name -> picture(name) != null }.copy(speakerAvatar = picture(it.speakerAvatar)) })
+                db.groups().restoreMemories(d.groupMemories)
             }
             // A backup from before each voice service had its own place says "api" for all of them.
             val (speechEngine, speechVoices) = Speech.migrate(bs.speechEngine, bs.speechBaseUrl, bs.speechVoice, bs.speechVoices)
@@ -417,6 +453,8 @@ class BackupService(
                     wallpaperPeak = bs.wallpaperPeak,
                     glassTuning = decodeTuning(bs.glassTuning),
                     tools = bs.tools?.let(::decodeTools) ?: AppSettings().tools,
+                    photoLibrary = PhotoLibrary.decode(bs.photoLibrary),
+                    feedPhotoTas = bs.feedPhotoTas.filter { id -> companions.any { ta -> ta.id == id } }.toSet(),
                     weatherCity = bs.weatherCity,
                     userAvatar = picture(bs.userAvatar),
                     chatAvatars = bs.chatAvatars,
@@ -425,6 +463,7 @@ class BackupService(
                     myBubbleTheme = bs.myBubbleTheme,
                     bubblePaddingX = bs.bubblePaddingX.coerceIn(6, 24),
                     bubblePaddingY = bs.bubblePaddingY.coerceIn(4, 16),
+                    messageSpacing = BubbleSpacing.normalized(bs.messageSpacing),
                     bubblePresets = bs.bubblePresets.distinctBy { it.id }.take(50).map { it.normalized().let { p -> p.copy(decoration = p.decoration.mapImages(::picture)) } },
                     bubbleDecoration = bs.bubbleDecoration.normalized().let { it.copy(faceImage = picture(it.faceImage), starImage = picture(it.starImage), components = it.components.map { item -> item.copy(image = picture(item.image)) }).normalized() },
                     bubbleBackgrounds = bs.bubbleBackgrounds.mapValues { it.value.normalized() },
@@ -447,11 +486,14 @@ class BackupService(
             }
             settings.setCurrentCompanion(companions.first().id)
             settings.setCurrentConversation(null)
+            settings.setCurrentGroup(bs.selectedGroupId?.takeIf { id -> d.groups.any { it.id == id } })
             return BackupSummary(
                 companions.size, d.conversations.size, d.messages.size, d.diary.size, d.letters.size, d.todos.size,
                 pictures.count { !it.name.startsWith(VOICE_PREFIX) && it.name !in stickers.map { s -> s.file }.toSet() },
                 voices = pictures.count { it.name.startsWith(VOICE_PREFIX) },
                 stickers = stickers.size, favorites = d.favorites.size, lore = d.lore.size, feedPosts = d.feedPosts.size,
+                groups = d.groups.size, groupMessages = d.groupMessages.count { it.content.isNotBlank() || it.images != null },
+                groupMemories = d.groupMemories.size,
             )
         } finally {
             staging.deleteRecursively()

@@ -117,6 +117,8 @@ internal fun ChatPage(vm: SettingsViewModel) {
         }
     }
 
+    Section("消息间距") { MessageSpacingControls(settings.messageSpacing, vm::setMessageSpacing) }
+
     // Moved here from the home page, where they sat among the TA's things.
     ListCard("头像") {
         ExplainedSwitch("聊天里显示头像", "消息旁边放上各自的头像", null, settings.chatAvatars) { vm.setChatAvatars(it) }
@@ -416,9 +418,10 @@ private suspend fun saveTipCode(context: Context): String = withContext(Dispatch
 internal fun AboutPage() {
     val palette = LocalGlassPalette.current
     val context = LocalContext.current
+    val c = com.cleo.cleos.ui.common.appContainer()
     val version = remember { runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull() }
     var releasesHint by remember { mutableStateOf<String?>(null) }
-    val updates = com.cleo.cleos.ui.common.appContainer().updates
+    val updates = c.updates
     val checkingUpdate by updates.checking.collectAsStateWithLifecycle()
     val updateFeedback by updates.feedback.collectAsStateWithLifecycle()
     var showNotices by remember { mutableStateOf(false) }
@@ -470,6 +473,58 @@ internal fun AboutPage() {
         Chip("看收款码", selected = false) { showTip = true }
     }
     if (showTip) TipDialog { showTip = false }
+
+    var diagnosticHint by remember { mutableStateOf<String?>(null) }
+    var diagnosticBusy by remember { mutableStateOf(false) }
+    fun copyDiagnostic(pinned: Boolean) {
+        if (diagnosticBusy) return
+        diagnosticBusy = true
+        scope.launch {
+            try {
+                val report = withContext(Dispatchers.IO) { c.toolDiagnostics.report(pinned) }
+                if (report == null) {
+                    diagnosticHint = if (pinned) "还没有保留的异常。若刚才出现了问题，可以先点「标记刚才的问题」。" else "还没有记录，正常聊一次后再看。"
+                } else {
+                    context.getSystemService(ClipboardManager::class.java)?.setPrimaryClip(ClipData.newPlainText("Cleos 工具诊断", report))
+                    diagnosticHint = "复制好了，发送前可以先看一眼。"
+                }
+            } finally { diagnosticBusy = false }
+        }
+    }
+    Section("工具诊断") {
+        Text("自动在这台手机上保留最近的精简记录，以及首次接口或 MCP 异常。下次偶发时不用连电脑，在这里复制就行；" +
+            "如果没有报错、但 TA 说不能用工具，可以立即标记刚才的问题。",
+            color = palette.content, fontSize = 12.sp, lineHeight = 18.sp)
+        Text("记录模型名、工具名、数量和错误类别；不记录 Key、聊天正文、工具参数或原始响应。只占约 192 KB，循环更新，不自动上传，也不进入备份。异常保留到你清除或重新标记。",
+            color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Chip("复制异常记录", selected = false) { copyDiagnostic(true) }
+            Chip("复制最近记录", selected = false) { copyDiagnostic(false) }
+            Chip("标记刚才的问题", selected = false) {
+                if (!diagnosticBusy) {
+                    diagnosticBusy = true
+                    scope.launch {
+                        try {
+                            val kept = withContext(Dispatchers.IO) { c.toolDiagnostics.pin(); c.toolDiagnostics.report(true) != null }
+                            diagnosticHint = if (kept) "已保留当前现场，可以复制异常记录。" else "还没有记录，正常聊一次后再看。"
+                        } finally { diagnosticBusy = false }
+                    }
+                }
+            }
+            Chip("清除记录", selected = false) {
+                if (!diagnosticBusy) {
+                    diagnosticBusy = true
+                    scope.launch {
+                        try {
+                            withContext(Dispatchers.IO) { c.toolDiagnostics.clear() }
+                            diagnosticHint = "已清除；之后会重新记录并捕获首次异常。"
+                        } finally { diagnosticBusy = false }
+                    }
+                }
+            }
+        }
+        diagnosticHint?.let { Text(it, color = palette.contentSecondary, fontSize = 12.sp) }
+    }
 
     // The last crash, to send to whoever makes the app (CrashLog): there only after one.
     var crash by remember { mutableStateOf(CrashLog.read(context)) }

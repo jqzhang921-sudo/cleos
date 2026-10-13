@@ -41,7 +41,10 @@ class ReplyKeeper : Service() {
             watching = container.appScope.launch {
                 // Until nothing is being written, or a while at most: a reply stuck on a model that
                 // never answers must not keep the app up for good.
-                withTimeoutOrNull(LIMIT_MS) { container.chat.working.first { it.isEmpty() } }
+                withTimeoutOrNull(LIMIT_MS) {
+                    kotlinx.coroutines.flow.combine(container.chat.working, container.groupChat.working) { private, groups -> private.isEmpty() && groups.isEmpty() }
+                        .first { it }
+                }
                 withContext(Dispatchers.Main) { done() }
             }
         }

@@ -123,6 +123,7 @@ class Companions(
             db.companions().delete(id)
         }
         images.delete(pictures + keptFiles + listOfNotNull(gone.avatar))
+        settings.update { it.copy(feedPhotoTas = it.feedPhotoTas - id) }
         val talkingTo = settings.currentCompanion.first() ?: list.first().id
         if (talkingTo == id) select(list.first { it.id != id }.id)
     }

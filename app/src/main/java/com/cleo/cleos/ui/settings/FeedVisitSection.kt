@@ -18,6 +18,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cleo.cleos.ai.FeedVisitRules
 import com.cleo.cleos.ai.FreeTopicRules
 import com.cleo.cleos.data.db.CompanionEntity
+import com.cleo.cleos.data.AppSettings
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.appContainer
 import kotlinx.coroutines.launch
@@ -63,6 +64,7 @@ private fun FeedVisitControls(ta: CompanionEntity) {
     val c = appContainer()
     val palette = LocalGlassPalette.current
     val context = LocalContext.current
+    val settings by c.settings.settings.collectAsStateWithLifecycle(AppSettings())
     var saving by remember(ta.id) { mutableStateOf(false) }
     var problem by remember(ta.id) { mutableStateOf<String?>(null) }
     var sources by rememberSaveable { mutableStateOf(false) }
@@ -76,6 +78,18 @@ private fun FeedVisitControls(ta: CompanionEntity) {
                 c.feedVisits.configure(ta.id)
                 problem = null
             } catch (e: Exception) { problem = e.message ?: "设置没保存，请重试" }
+            finally { saving = false }
+        }
+    }
+    fun changePhotos(value: Boolean) {
+        if (saving) return
+        saving = true
+        c.appScope.launch {
+            try {
+                c.settings.update { it.copy(feedPhotoTas = if (value) it.feedPhotoTas + ta.id else it.feedPhotoTas - ta.id) }
+                c.feedVisits.configure(ta.id)
+                problem = null
+            } catch (e: Exception) { problem = e.message ?: "配图设置没保存，请重试" }
             finally { saving = false }
         }
     }
@@ -93,13 +107,19 @@ private fun FeedVisitControls(ta: CompanionEntity) {
             }
         }
         val level = FeedVisitRules.level(ta.feedVisitLevel)
-        Text("约每 ${level.minMinutes / 60}–${level.maxMinutes / 60} 小时一次，每天最多 ${level.dailyMax} 次考虑机会。有新内容时最多请求一次模型，选择安静也会消耗 token。", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+        Text("约每 ${level.minMinutes / 60}–${level.maxMinutes / 60} 小时一次，每天最多 ${level.dailyMax} 次考虑机会。通常请求一次模型；想配图时再请求一次挑图，选择安静也会消耗 token。", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("也可以自己发动态", color = palette.content, modifier = Modifier.weight(1f))
             Switch(ta.feedVisitPosts, { value -> change { it.copy(feedVisitPosts = value) } }, enabled = !saving)
         }
         if (ta.feedVisitPosts) {
             Text("每位 TA 每天最多自动发 1 条；由 TA 决定，也可以不发。手动「让 TA 逛逛」另算。", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("动态偶尔配图", color = palette.content, modifier = Modifier.weight(1f))
+                Switch(ta.id in settings.feedPhotoTas, ::changePhotos, enabled = !saving)
+            }
+            Text("由 TA 自己决定纯文字还是配一张图库照片，保留来源与许可。只发送搜索关键词；配图没准备好，这次先不发这条动态。手动逛逛也可配图。", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+            if (ta.id in settings.feedPhotoTas) Text("配图来源：${settings.photoLibrary.title}。可在「能做的事 → 找照片」切换或测试图库。", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("也看看资讯话题", color = palette.content, modifier = Modifier.weight(1f))
                 Switch(ta.feedVisitNews, { value -> change { it.copy(feedVisitNews = value) } }, enabled = !saving)

@@ -159,14 +159,7 @@ private class LiquidGlassNode(
             return
         }
         val glassCoords = requireLayoutCoordinates()
-        // Popups have their own layout root. Screen coordinates bridge the windows;
-        // localPositionOf remains preferable within a root (it accounts for transforms).
-        val offset = if (sourceCoords.findRootCoordinates() == glassCoords.findRootCoordinates()) {
-            sourceCoords.localPositionOf(glassCoords, Offset.Zero)
-        } else {
-            glassCoords.localToScreen(Offset.Zero) - sourceCoords.localToScreen(Offset.Zero)
-        }
-        if (!offset.x.isFinite() || !offset.y.isFinite()) return
+        val offset = backdropOffset(sourceCoords, glassCoords) ?: return
 
         val blurPx = style.blur.toPx()
         val refractionPx = style.refraction.toPx()

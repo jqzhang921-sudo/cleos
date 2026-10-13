@@ -10,6 +10,9 @@ import kotlinx.serialization.json.contentOrNull
 enum class RequestFeature { Tools, Images, Thinking }
 
 internal object ChatCompatibility {
+    private val contentType = Regex("""\bmessages(?:\[\d+\]|\.\d+)?\.content(?:\[\d+\]|\.\d+)?\.type\b""")
+    private val textOnlyRange = Regex("""(?:取值范围|allowed values|supported values)\s*[:：]?\s*\[\s*['"]text['"]\s*]""")
+
     private fun error(body: String): JsonObject? = runCatching {
         (Json.parseToJsonElement(body) as? JsonObject)?.get("error") as? JsonObject
     }.getOrNull()
@@ -19,6 +22,7 @@ internal object ChatCompatibility {
     fun rejectedFeature(body: String): RequestFeature? {
         val e = error(body) ?: return null
         val message = e.text("message").lowercase()
+        if (ToolSchemaCompatibility.rejectedKeyword(body) != null) return null
         // A malformed history/schema is not proof of an unsupported capability.
         if (listOf("reasoning_content", "schema", "properties", "arguments", "tool_call_id").any { it in message }) return null
         val param = e.text("param").trim('\'', '"').lowercase()
@@ -36,6 +40,11 @@ internal object ChatCompatibility {
                 "no endpoints found that support tool use", "不支持工具调用", "不支持函数调用",
             ).any { it in message }) return RequestFeature.Tools
         if (listOf("does not support image", "image input is not supported", "images are not supported", "不支持图片", "不支持图像").any { it in message }) return RequestFeature.Images
+        // Some text-only services reject the content-part enum rather than saying "no images".
+        // Only the exact message content type and a sole allowed value of text qualify;
+        // an invalid URL, tool schema or another enum must retain its original error.
+        if ((contentType.containsMatchIn(message) || contentType.matches(param)) &&
+            listOf("参数非法", "invalid").any { it in message } && textOnlyRange.containsMatchIn(message)) return RequestFeature.Images
         if (listOf("thinking is not supported", "does not support thinking", "不支持深度思考").any { it in message }) return RequestFeature.Thinking
         return null
     }
@@ -55,13 +64,20 @@ internal object ChatCompatibility {
     fun diagnostic(body: JsonObject, status: Int? = null, errorBody: String? = null): String {
         fun safe(value: String): String = value.takeIf { it.length <= 100 && it.matches(Regex("[A-Za-z0-9_./\\[\\]-]+")) } ?: "[redacted]"
         val tools = body["tools"] as? JsonArray
+        val imageParts = (body["messages"] as? JsonArray).orEmpty().sumOf { message ->
+            ((message as? JsonObject)?.get("content") as? JsonArray).orEmpty()
+                .count { (it as? JsonObject)?.text("type") == "image_url" }
+        }
         val names = tools.orEmpty().mapNotNull { ((it as? JsonObject)?.get("function") as? JsonObject)?.text("name") }
         val assistants = (body["messages"] as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }.filter { it.text("role") == "assistant" }
         val absent = assistants.mapIndexedNotNull { i, m -> i.takeIf { "reasoning_content" !in m } }
         val thinking = (body["thinking"] as? JsonObject)?.text("type").orEmpty().ifEmpty { "omitted" }
         val e = errorBody?.let(::error)
         val message = e?.text("message").orEmpty().lowercase()
+        val rejectedIndex = errorBody?.let(ToolSchemaCompatibility::rejectedToolIndex)
+        val rejectedName = rejectedIndex?.let { names.getOrNull(it) }?.let(::safe) ?: "none"
         val category = when {
+            errorBody != null && ToolSchemaCompatibility.rejectedKeyword(errorBody) != null -> "tool_schema_keyword_error"
             "reasoning_content" in message && listOf("missing", "required", "must be provided").any { it in message } -> "missing_reasoning_content"
             "reasoning_content" in message -> "reasoning_content_error"
             "schema" in message || "properties" in message -> "tool_schema_error"
@@ -70,11 +86,11 @@ internal object ChatCompatibility {
             status == null -> "request"
             else -> "other_http_error"
         }
-        return "model=${safe(body.text("model"))} thinking=$thinking toolsPresent=${tools != null} tools=${tools?.size ?: 0} " +
+        return "model=${safe(body.text("model"))} thinking=$thinking imageParts=$imageParts toolsPresent=${tools != null} tools=${tools?.size ?: 0} " +
             "send_message=${"send_message" in names} mcp=${names.count { it.startsWith("mcp_") }} " +
             "names=${names.take(40).joinToString(",") { safe(it) }} assistants=${assistants.size} " +
             "reasoningAbsent=${absent.take(40).joinToString(",")} status=${status ?: "pending"} category=$category " +
-            "type=${errorLabel(e?.text("type").orEmpty())} code=${errorLabel(e?.text("code").orEmpty())} " +
+            "rejectedTool=$rejectedName type=${errorLabel(e?.text("type").orEmpty())} code=${errorLabel(e?.text("code").orEmpty())} " +
             "param=${e?.text("param")?.takeIf { it.matches(Regex("(?:messages|tools|thinking|reasoning_effort|model|max_tokens)(?:\\[\\d+\\]|\\.[a-z_]+)*")) } ?: "redacted_or_absent"}"
     }
 

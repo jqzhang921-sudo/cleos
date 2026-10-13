@@ -273,7 +273,9 @@ private fun foldTools(rows: List<ChatRow>): List<ChatRow> {
     var i = 0
     while (i < rows.size) {
         var j = i
-        while (j < rows.size && (rows[j] as? ChatRow.Message)?.message?.isToolLine() == true) j++
+        while (j < rows.size && (rows[j] as? ChatRow.Message)?.message?.let {
+            it.isToolLine() && MessageImages.decode(it.images).isEmpty()
+        } == true) j++
         if (j - i >= 2) {
             val run = rows.subList(i, j).map { it as ChatRow.Message }.reversed()
             out += ChatRow.ToolGroup(run.map { it.message }, run.map { it.tool ?: ToolKind.Other })
@@ -1009,6 +1011,7 @@ fun ChatTab(
         CompositionLocalProvider(LocalFaces provides faces, LocalStickers provides stickerBook, LocalChatType provides chatType, LocalPat provides patActions,
             LocalBubbleThemes provides (appSettings.myBubbleTheme to (appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass")),
             LocalBubblePadding provides (appSettings.bubblePaddingX to appSettings.bubblePaddingY),
+            LocalMessageSpacing provides appSettings.messageSpacing,
             LocalBubbleDecoration provides appSettings.bubbleDecoration,
             LocalBubbleBackgrounds provides (appSettings.bubbleBackgrounds[com.cleo.cleos.data.BubbleBackground.key(true, state.companionId, appSettings.myBubbleTheme)] to
                 appSettings.bubbleBackgrounds[com.cleo.cleos.data.BubbleBackground.key(false, state.companionId, appSettings.taBubbleThemes[state.companionId.toString()] ?: "glass")])) {
@@ -1040,7 +1043,7 @@ fun ChatTab(
                 // Bottom: a short conversation should sit just above the input, where the
                 // newest message is, not float up under the title. spacedBy without an
                 // alignment would put it at the top even in a reversed list.
-                verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.Bottom),
+                verticalArrangement = Arrangement.spacedBy(com.cleo.cleos.data.BubbleSpacing.normalized(appSettings.messageSpacing).dp, Alignment.Bottom),
             ) {
                 state.streaming?.let { live ->
                     item(key = "live") { LiveBubble(live, state.aiName, vm::answerAsk) }
@@ -1089,7 +1092,8 @@ fun ChatTab(
                                         Text("查看这篇小秘密  ›", color = LocalGlassPalette.current.accentContent, fontSize = 16.sp)
                                     }
                                 }
-                                m.role == "tool" || m.role == "note" -> Box(Modifier.fillMaxWidth().combinedClickable(
+                                m.role == "tool" || m.role == "note" -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Box(Modifier.fillMaxWidth().combinedClickable(
                                     onClick = { if (selecting) toggleFavorite(m.id) else if (m.role == "tool") readingTool = m.id },
                                     onLongClick = { selected = setOf(m.id); selecting = true })) {
                                     ToolNote(
@@ -1099,6 +1103,14 @@ fun ChatTab(
                                         onClick = null,
                                     )
                                     if (selecting) Checkbox(m.id in selected, null, modifier = Modifier.align(Alignment.CenterStart))
+                                    }
+                                    val pictures = remember(m.images) { MessageImages.decode(m.images) }
+                                    if (pictures.isNotEmpty()) Box {
+                                        ToolPictureCard(pictures, onOpenImage) {
+                                            selected = setOf(m.id); selecting = true
+                                        }
+                                        if (selecting) Box(Modifier.matchParentSize().clickable { toggleFavorite(m.id) })
+                                    }
                                 }
                                 m.role == "request" -> RequestCard(m, state.aiName, enabled = !state.replying) { grant ->
                                     vm.answerSecret(m.id, grant)
@@ -1706,7 +1718,7 @@ private fun MicButton(button: Modifier, recording: Boolean, onStart: () -> Boole
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PictureGroup(pictures: List<MessageImage>, onOpen: (String) -> Unit, onLongPress: () -> Unit) {
+internal fun PictureGroup(pictures: List<MessageImage>, onOpen: (String) -> Unit, onLongPress: () -> Unit) {
     val c = appContainer()
     val maxWidth = minOf(bubbleMaxWidth(), 240.dp)
     fun Modifier.picture(file: String) = clip(RoundedCornerShape(18.dp)).combinedClickable(
@@ -1739,6 +1751,30 @@ private fun PictureGroup(pictures: List<MessageImage>, onOpen: (String) -> Unit,
                             modifier = Modifier.size(cell).picture(p.file),
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+/** Shares the actual stored files, alongside their tool result rather than interrupting the API tool chain. */
+@Composable
+private fun ToolPictureCard(pictures: List<MessageImage>, onOpen: (String) -> Unit, onLongPress: () -> Unit) {
+    val faces = LocalFaces.current
+    val palette = LocalGlassPalette.current
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        if (faces != null) {
+            Avatar(faces.ai.file, faces.ai.letter, AvatarSize)
+            Spacer(Modifier.width(AvatarGap))
+        }
+        GlassSurface(shape = GlassShape.Rounded(22.dp), contentPadding = PaddingValues(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PictureGroup(pictures, onOpen, onLongPress)
+                Text("来自 " + pictures.mapNotNull { it.source }.distinct().joinToString("、").ifBlank { "外部服务" },
+                    modifier = Modifier.widthIn(max = minOf(bubbleMaxWidth(), 240.dp)),
+                    color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+                pictures.mapNotNull { it.credit }.distinct().forEach { credit ->
+                    PhotoAttribution(credit, Modifier.widthIn(max = minOf(bubbleMaxWidth(), 240.dp)))
                 }
             }
         }

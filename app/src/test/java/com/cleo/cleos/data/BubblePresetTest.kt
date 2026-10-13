@@ -27,7 +27,7 @@ class BubblePresetTest {
         assertEquals("🥹", restored.bubbleDecoration.faceEmoji)
     }
     @Test fun packageWithoutImagesRoundTrips() {
-        val preset = BubblePreset(name = "Emoji", decoration = BubbleDecoration(faceEmoji = "👩🏽‍🚀"))
+        val preset = BubblePreset(name = "Emoji", messageSpacing = 24, decoration = BubbleDecoration(faceEmoji = "👩🏽‍🚀"))
         val result = BubblePackageReader.read(ByteArrayInputStream(pack(listOf("theme.json" to manifest(preset)))))
         assertEquals(preset, result.first)
     }

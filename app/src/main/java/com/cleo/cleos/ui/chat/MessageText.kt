@@ -28,6 +28,33 @@ import androidx.compose.ui.window.Dialog
 import com.cleo.cleos.glass.GlassShape
 import com.cleo.cleos.glass.GlassSurface
 import com.cleo.cleos.glass.LocalGlassPalette
+import com.cleo.cleos.data.PhotoCredit
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+
+@Composable
+internal fun PhotoAttribution(credit: PhotoCredit, modifier: Modifier = Modifier) {
+    val palette = LocalGlassPalette.current
+    val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val links = buildAnnotatedString {
+        listOf("查看来源" to credit.pageUrl, credit.license to credit.licenseUrl).forEachIndexed { index, (label, url) ->
+            if (index > 0) append(" · ")
+            val valid = url.toHttpUrlOrNull()?.let { it.isHttps && it.username.isEmpty() && it.password.isEmpty() } == true
+            if (valid) withLink(LinkAnnotation.Url(url,
+                TextLinkStyles(SpanStyle(textDecoration = TextDecoration.Underline))) {
+                runCatching { uriHandler.openUri(url) }.onFailure {
+                    Toast.makeText(context, "链接暂时打不开", Toast.LENGTH_SHORT).show()
+                }
+            }) { append(label) } else append(label)
+        }
+    }
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(credit.title, color = palette.content, fontSize = 12.sp, lineHeight = 17.sp)
+        Text("作者：${credit.creator}", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+        Text(links, color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+        credit.previewNote?.let { Text(it, color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 17.sp) }
+    }
+}
 
 /** A tap opens only the URL span; the rest of the bubble retains its message menu. */
 @Composable

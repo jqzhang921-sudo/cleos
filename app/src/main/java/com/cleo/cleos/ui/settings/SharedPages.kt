@@ -43,6 +43,7 @@ import com.cleo.cleos.ai.Speech
 import com.cleo.cleos.ai.ToolGroup
 import com.cleo.cleos.ai.VoiceOption
 import com.cleo.cleos.ai.VoiceService
+import com.cleo.cleos.data.PhotoLibrary
 import com.cleo.cleos.glass.LocalGlassPalette
 
 /**
@@ -97,6 +98,34 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
     }
 
     ListCard("聊天时") {
+        ExplainedSwitch(
+            "找照片",
+            "从公开图库找猫、风景、美食，发成图片卡片",
+            "开启后，支持工具调用的 TA 可从你选择的公开图库找真实照片，选择并分享，卡片保留作者、来源和许可。无需填写 Key；只把找图关键词交给图库，不上传聊天或私人相册。网络和限流可能影响加载，失败会提示。照片是图库预览，不是 TA 自拍或 AI 生图。这里的来源也用于已开启「动态偶尔配图」的 TA；主动发帖和配图需在朋友圈中为每位 TA 单独开启。",
+            on(ToolGroup.Photos),
+        ) { vm.setTool(ToolGroup.Photos, it) }
+        Under {
+            Text("照片来源", color = palette.contentSecondary, fontSize = 12.sp)
+            FlowRow {
+                PhotoLibrary.entries.forEach { library ->
+                    TextButton(onClick = { vm.setPhotoLibrary(library) },
+                        enabled = !vm.photoTesting && !vm.photoSelectionSaving) {
+                        Text((if (settings.photoLibrary == library) "✓ " else "") + library.title,
+                            color = palette.content,
+                            fontWeight = if (settings.photoLibrary == library) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
+            }
+            Text(if (settings.photoLibrary == PhotoLibrary.WordPress)
+                "无需 Key，可尝试直连。优先清晰预览，加载失败会注明并换成小图；英文关键词更容易找到。连接效果取决于网络。"
+                else "图库内容更丰富；部分网络需要代理。也可以切换到 WordPress 照片库试试。",
+                color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+            TextButton(onClick = vm::testPhotos, enabled = !vm.photoTesting && !vm.photoSelectionSaving) {
+                Text(if (vm.photoTesting) "正在测试图库…" else "测试图库", color = palette.content)
+            }
+            vm.photoResult?.let { Text(it, color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp) }
+        }
+        RowDivider(inset = 0.dp)
         ExplainedSwitch(
             "看朋友圈",
             "聊到时查看 App 内的帖子和评论",

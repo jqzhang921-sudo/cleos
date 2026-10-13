@@ -12,7 +12,8 @@ data class FeedVisitTarget(val post: FeedPostEntity, val replyTo: String?)
 
 @Serializable
 data class FeedVisitDraft(val action: String, val content: String = "", val postId: Long? = null,
-    val replyTo: String? = null, val like: Boolean = false, val sourceIndex: Int? = null)
+    val replyTo: String? = null, val like: Boolean = false, val sourceIndex: Int? = null,
+    val photoQuery: String? = null)
 
 object FeedVisitRules {
     private val json = Json { ignoreUnknownKeys = true }
@@ -45,15 +46,16 @@ object FeedVisitRules {
                 else -> null
             }
         }.take(4)
-    fun decode(raw: String, targets: List<FeedVisitTarget>, sources: List<FeedNewsItem>, allowPost: Boolean): FeedVisitDraft {
+    fun decode(raw: String, targets: List<FeedVisitTarget>, sources: List<FeedNewsItem>, allowPost: Boolean,
+        allowPhoto: Boolean = false): FeedVisitDraft {
         val draft = json.decodeFromString<FeedVisitDraft>(raw.trim()
             .removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
         val text = draft.content.trim()
         when (draft.action) {
-            "skip" -> require(text.isBlank() && !draft.like && draft.postId == null && draft.sourceIndex == null && draft.replyTo == null) { "TA 的安静结果包含多余动作" }
+            "skip" -> require(text.isBlank() && !draft.like && draft.postId == null && draft.sourceIndex == null && draft.replyTo == null && draft.photoQuery == null) { "TA 的安静结果包含多余动作" }
             "reply" -> {
                 require(targets.any { it.post.id == draft.postId && it.replyTo == draft.replyTo }) { "TA 没有选到有效的回复对象" }
-                require(text.length <= 200 && draft.sourceIndex == null) { "TA 的回复过长或来源不符" }
+                require(text.length <= 200 && draft.sourceIndex == null && draft.photoQuery == null) { "TA 的回复过长或来源不符" }
             }
             "post" -> {
                 require(allowPost && text.isNotBlank() && draft.postId == null && draft.replyTo == null && !draft.like) { "本次不能发新动态" }
@@ -61,16 +63,17 @@ object FeedVisitRules {
             }
             else -> error("TA 没有返回有效的逛逛动作")
         }
-        return draft.copy(content = text)
+        return draft.copy(content = text, photoQuery = FeedPhotoRules.query(draft.photoQuery, allowPhoto && draft.action == "post"))
     }
-    fun system(ta: CompanionEntity, interests: String, allowPost: Boolean): String = FeedAiRules.system(ta, interests)
+    fun system(ta: CompanionEntity, interests: String, allowPost: Boolean, allowPhoto: Boolean = false): String = FeedAiRules.system(ta, interests)
         .substringBefore("只输出 JSON：") + """
         这是你独立逛朋友圈的一次机会，不是聊天消息，不需要发消息提醒对方，也不要因没人回复而催促。
         每个阅读对象都标明了作者和要回应的评论。你的正文和评论属于你自己，不能当成别人写的或无缘无故反驳自己。
         只在给出的阅读对象中选一个，用 reply 点赞或回应；回复对象必须原样使用给出的 postId 和 replyTo。
         也可以只是看看，选择 skip。没有收到图片时，不编造照片内容；不重复自己最近发过的动态和评论。
         ${if (allowPost) "允许选择 post 分享一条新动态。日常限 80 字；仅依据给出的资讯才可写话题，并填写对应 sourceIndex，限 600 字。" else "这次不允许发新动态，只能 reply 或 skip。"}
-        一次最多一个动作。只输出 JSON：{"action":"skip|reply|post","content":"正文或空字符串","postId":null,"replyTo":null,"like":false,"sourceIndex":null}。
+        ${if (allowPost && allowPhoto) "发新动态时可以自行决定偶尔配一张公开图库照片。只在照片能表达你想分享的内容时填写 photoQuery（简短英文关键词，不含朋友的个人信息或整段聊天）；纯文字也很好，不要每次都配图。图库图不是你自拍，不编造真实出游或拍照经历。是否发、发什么、要不要配图都由你决定，可以给朋友一点轻松的惊喜。" else "这次不搜索配图，photoQuery 必须为 null。"}
+        一次最多一个动作。只输出 JSON：{"action":"skip|reply|post","content":"正文或空字符串","postId":null,"replyTo":null,"like":false,"sourceIndex":null,"photoQuery":null}。
         skip 的正文为空且不携带其他动作；reply 时 sourceIndex 为 null；post 时 postId、replyTo 为 null，like 为 false。
     """.trimIndent()
 }

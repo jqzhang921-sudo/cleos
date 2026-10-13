@@ -52,6 +52,7 @@ object BubbleThemes {
 
 val LocalBubbleThemes = compositionLocalOf { "glass" to "glass" }
 val LocalBubblePadding = compositionLocalOf { 10 to 6 }
+val LocalMessageSpacing = compositionLocalOf { com.cleo.cleos.data.BubbleSpacing.DEFAULT }
 val LocalBubbleDecoration = compositionLocalOf { BubbleDecoration() }
 val LocalBubbleBackgrounds = compositionLocalOf<Pair<BubbleBackground?, BubbleBackground?>> { null to null }
 
@@ -71,6 +72,7 @@ fun ChatBubbleSurface(
     selectedComponent: String? = null,
     onDecorationDragEnd: (() -> Unit)? = null,
     onBodyWidth: ((Float) -> Unit)? = null,
+    messageSpacing: Int = LocalMessageSpacing.current,
     content: @Composable (Color) -> Unit,
 ) {
     val palette = LocalGlassPalette.current
@@ -175,8 +177,8 @@ fun ChatBubbleSurface(
     val extraBottom = extra.filter { extraCorner(it.corner).startsWith("b") }.maxOfOrNull { extraRaised(it) } ?: 0f
     val extraLeft = extra.filter { extraCorner(it.corner).endsWith("l") }.maxOfOrNull { -it.offsetX.coerceIn(-24, 0) } ?: 0
     val extraRight = extra.filter { extraCorner(it.corner).endsWith("r") }.maxOfOrNull { it.offsetX.coerceIn(0, 24) } ?: 0
-    Box(modifier.padding(top = maxOf(extraTop, if (faceShown && faceCorner.startsWith("t")) raised else 4f, if (customStar && starCorner.startsWith("t")) starRaised else 0f).dp,
-        bottom = maxOf(extraBottom, if (faceShown && faceCorner.startsWith("b")) raised else 7f, if (customStar && starCorner.startsWith("b")) starRaised else 0f).dp, start = maxOf(outerLeft, extraLeft).dp, end = maxOf(outerRight, extraRight).dp).onSizeChanged { bodyWidth = it.width / density.density; onBodyWidth?.invoke(bodyWidth) }) {
+    Box(modifier.padding(top = maxOf(extraTop, if (faceShown && faceCorner.startsWith("t")) raised else com.cleo.cleos.data.BubbleSpacing.top(messageSpacing), if (customStar && starCorner.startsWith("t")) starRaised else 0f).dp,
+        bottom = maxOf(extraBottom, if (faceShown && faceCorner.startsWith("b")) raised else com.cleo.cleos.data.BubbleSpacing.bottom(messageSpacing), if (customStar && starCorner.startsWith("b")) starRaised else 0f).dp, start = maxOf(outerLeft, extraLeft).dp, end = maxOf(outerRight, extraRight).dp).onSizeChanged { bodyWidth = it.width / density.density; onBodyWidth?.invoke(bodyWidth) }) {
         if ((id == "clear" || id == "glass") && background == null) {
             GlassSurface(style = style, shape = GlassShape.Rounded(16.dp),
                 contentPadding = padding) { content(ink) }

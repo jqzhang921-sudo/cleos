@@ -27,6 +27,9 @@ enum class GlassMode { Auto, Light, Dark }
  * avatar) lives in their CompanionEntity.
  */
 data class AppSettings(
+    val photoLibrary: PhotoLibrary = PhotoLibrary.Openverse,
+    /** Per-TA opt-in for gallery photos in their own feed posts. */
+    val feedPhotoTas: Set<Long> = emptySet(),
     val feedInterests: String = "",
     val feedRssUrl: String = "",
     val feedNewsSources: String = "",
@@ -88,6 +91,7 @@ data class AppSettings(
     val myBubbleTheme: String = "glass",
     val bubblePaddingX: Int = 10,
     val bubblePaddingY: Int = 6,
+    val messageSpacing: Int = BubbleSpacing.DEFAULT,
     val bubblePresets: List<BubblePreset> = emptyList(),
     val bubbleDecoration: BubbleDecoration = BubbleDecoration(),
     val bubbleBackgrounds: Map<String, BubbleBackground> = emptyMap(),
@@ -185,6 +189,8 @@ class SettingsRepository(private val context: Context) {
         val wallpaperPeak = floatPreferencesKey("wallpaper_peak")
         val glassTuning = stringPreferencesKey("glass_tuning")
         val tools = stringPreferencesKey("tools")
+        val photoLibrary = stringPreferencesKey("photo_library")
+        val feedPhotoTas = stringPreferencesKey("feed_photo_tas")
         val weatherCity = stringPreferencesKey("weather_city")
         val userAvatar = stringPreferencesKey("user_avatar")
         val chatAvatars = booleanPreferencesKey("chat_avatars")
@@ -203,6 +209,7 @@ class SettingsRepository(private val context: Context) {
         val myBubbleTheme = stringPreferencesKey("my_bubble_theme")
         val bubblePaddingX = intPreferencesKey("bubble_padding_x")
         val bubblePaddingY = intPreferencesKey("bubble_padding_y")
+        val messageSpacing = intPreferencesKey("message_spacing")
         val bubblePresets = stringPreferencesKey("bubble_presets")
         val bubbleDecoration = stringPreferencesKey("bubble_decoration")
         val bubbleBackgrounds = stringPreferencesKey("bubble_backgrounds")
@@ -222,6 +229,7 @@ class SettingsRepository(private val context: Context) {
         val minimaxGlobal = booleanPreferencesKey("minimax_global")
         val earVoice = booleanPreferencesKey("ear_voice")
         val currentConversation = stringPreferencesKey("current_conversation")
+        val currentGroup = longPreferencesKey("current_group")
         val currentCompanion = longPreferencesKey("current_companion")
         val morningGreeted = longPreferencesKey("morning_greeted")
         val nightGreeted = longPreferencesKey("night_greeted")
@@ -257,6 +265,8 @@ class SettingsRepository(private val context: Context) {
             wallpaperPeak = this[Keys.wallpaperPeak],
             glassTuning = decodeTuning(this[Keys.glassTuning]),
             tools = this[Keys.tools]?.let(::decodeTools) ?: d.tools,
+            photoLibrary = PhotoLibrary.decode(this[Keys.photoLibrary]),
+            feedPhotoTas = decodeFeedPhotoTas(this[Keys.feedPhotoTas]),
             weatherCity = this[Keys.weatherCity] ?: d.weatherCity,
             userAvatar = this[Keys.userAvatar],
             chatAvatars = this[Keys.chatAvatars] ?: d.chatAvatars,
@@ -270,6 +280,7 @@ class SettingsRepository(private val context: Context) {
             myBubbleTheme = this[Keys.myBubbleTheme] ?: "glass",
             bubblePaddingX = (this[Keys.bubblePaddingX] ?: 10).coerceIn(6, 24),
             bubblePaddingY = (this[Keys.bubblePaddingY] ?: 6).coerceIn(4, 16),
+            messageSpacing = BubbleSpacing.normalized(this[Keys.messageSpacing] ?: BubbleSpacing.DEFAULT),
             bubblePresets = runCatching { tuningJson.decodeFromString<List<BubblePreset>>(this[Keys.bubblePresets] ?: "[]").distinctBy { it.id }.take(50).map { it.normalized() } }.getOrDefault(emptyList()),
             bubbleDecoration = runCatching { tuningJson.decodeFromString<BubbleDecoration>(this[Keys.bubbleDecoration] ?: "{}").normalized() }.getOrDefault(BubbleDecoration()),
             bubbleBackgrounds = runCatching { tuningJson.decodeFromString<Map<String, BubbleBackground>>(this[Keys.bubbleBackgrounds] ?: "{}").mapValues { it.value.normalized() } }.getOrDefault(emptyMap()),
@@ -306,6 +317,8 @@ class SettingsRepository(private val context: Context) {
             if (next.glassTuning.isNotEmpty()) prefs[Keys.glassTuning] = encodeTuning(next.glassTuning) else prefs.remove(Keys.glassTuning)
             // Always written, even when empty: "none" must not read back as "never set".
             prefs[Keys.tools] = encodeTools(next.tools)
+            prefs[Keys.photoLibrary] = next.photoLibrary.name
+            prefs[Keys.feedPhotoTas] = tuningJson.encodeToString(next.feedPhotoTas.filter { it > 0 }.sorted())
             prefs[Keys.weatherCity] = next.weatherCity
             if (next.userAvatar != null) prefs[Keys.userAvatar] = next.userAvatar else prefs.remove(Keys.userAvatar)
             prefs[Keys.chatAvatars] = next.chatAvatars
@@ -314,6 +327,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.myBubbleTheme] = next.myBubbleTheme
             prefs[Keys.bubblePaddingX] = next.bubblePaddingX.coerceIn(6, 24)
             prefs[Keys.bubblePaddingY] = next.bubblePaddingY.coerceIn(4, 16)
+            prefs[Keys.messageSpacing] = BubbleSpacing.normalized(next.messageSpacing)
             prefs[Keys.bubblePresets] = tuningJson.encodeToString(next.bubblePresets.distinctBy { it.id }.take(50).map { it.normalized() })
             prefs[Keys.bubbleDecoration] = tuningJson.encodeToString(next.bubbleDecoration.normalized())
             prefs[Keys.bubbleBackgrounds] = tuningJson.encodeToString(next.bubbleBackgrounds.mapValues { it.value.normalized() })
@@ -376,6 +390,11 @@ class SettingsRepository(private val context: Context) {
     val currentConversation: Flow<Long?> =
         context.settingsStore.data.map { it[Keys.currentConversation]?.toLongOrNull() }
 
+    val currentGroup: Flow<Long?> = context.settingsStore.data.map { it[Keys.currentGroup] }
+    suspend fun setCurrentGroup(id: Long?) {
+        context.settingsStore.edit { if (id == null) it.remove(Keys.currentGroup) else it[Keys.currentGroup] = id }
+    }
+
     suspend fun setCurrentConversation(id: Long?) {
         context.settingsStore.edit {
             if (id == null) it.remove(Keys.currentConversation) else it[Keys.currentConversation] = id.toString()
@@ -393,6 +412,11 @@ class SettingsRepository(private val context: Context) {
 }
 
 private val tuningJson = Json { ignoreUnknownKeys = true }
+
+internal fun decodeFeedPhotoTas(raw: String?): Set<Long> =
+    if (raw.isNullOrBlank()) emptySet() else runCatching {
+        tuningJson.decodeFromString<List<Long>>(raw).filter { it > 0 }.toSet()
+    }.getOrDefault(emptySet())
 
 /** The voice picked on each service, as JSON: {"minimax": "female-shaonv", …}. */
 internal fun encodeVoices(voices: Map<String, String>): String = tuningJson.encodeToString(voices)

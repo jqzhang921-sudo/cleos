@@ -104,6 +104,47 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         private set
     var voiceResult by mutableStateOf<String?>(null)
         private set
+    var photoTesting by mutableStateOf(false)
+        private set
+    var photoResult by mutableStateOf<String?>(null)
+        private set
+    var photoSelectionSaving by mutableStateOf(false)
+        private set
+
+    fun setPhotoLibrary(library: com.cleo.cleos.data.PhotoLibrary) {
+        if (photoTesting || photoSelectionSaving) return
+        photoSelectionSaving = true
+        photoResult = null
+        viewModelScope.launch {
+            try { c.settings.update { it.copy(photoLibrary = library) }
+            } catch (e: CancellationException) { throw e
+            } catch (_: Exception) { photoResult = "图库选择未保存，请重试。"
+            } finally { photoSelectionSaving = false }
+        }
+    }
+
+    fun testPhotos() {
+        if (photoTesting || photoSelectionSaving) return
+        photoTesting = true
+        photoResult = null
+        viewModelScope.launch {
+            try {
+                val source = c.photoSource.forLibrary(c.settings.current().photoLibrary)
+                photoResult = com.cleo.cleos.ai.PhotoCheck.run(source, progress = { photoResult = it }) { photo ->
+                    withContext(kotlinx.coroutines.NonCancellable) {
+                        val stored = c.images.import(photo.bytes, photo.mime, com.cleo.cleos.ai.McpImages.MAX_EDGE)
+                        try { stored.width to stored.height } finally { c.images.delete(listOf(stored.file)) }
+                    }
+                }
+                c.toolDiagnostics.record("event=photo_test_ok")
+            } catch (e: CancellationException) { throw e
+            } catch (e: Exception) {
+                c.toolDiagnostics.record("event=photo_test_failed failed=true reason=${(e.cause ?: e).javaClass.simpleName}")
+                val failure = e as? com.cleo.cleos.ai.ToolFailure ?: com.cleo.cleos.ai.PhotoFailures.of(e)
+                photoResult = "测试未通过：${failure.note}"
+            } finally { photoTesting = false }
+        }
+    }
     /** The service the TA's voice comes from; null while none is picked. */
     var voiceService by mutableStateOf<VoiceService?>(null)
         private set
@@ -754,6 +795,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(bubblePaddingX = horizontal.coerceIn(6, 24), bubblePaddingY = vertical.coerceIn(4, 16)) } }
     }
 
+    fun setMessageSpacing(value: Int) {
+        viewModelScope.launch { c.settings.update { it.copy(messageSpacing = com.cleo.cleos.data.BubbleSpacing.normalized(value)) } }
+    }
+
     fun setBubbleDecoration(value: com.cleo.cleos.data.BubbleDecoration) {
         viewModelScope.launch { c.settings.update { it.copy(bubbleDecoration = value.normalized()) } }
     }
@@ -783,15 +828,19 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
 
     // A reply still running would write into conversations that are about to be replaced.
     fun restoreBackup(uri: Uri) = runBackup("恢复了") {
-        c.chat.stopAll()
-        c.feedVisits.stopAll()
-        try { c.backup.restore(uri) } finally { c.freeTopics.restore(); c.feedVisits.restore() }
+        c.groupChat.stopAll()
+        try {
+            c.chat.stopAll(); c.feedVisits.stopAll()
+            c.backup.restore(uri)
+        } finally { c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
     }
 
     fun undoRestore() = runBackup("撤销了，回到恢复前：") {
-        c.chat.stopAll()
-        c.feedVisits.stopAll()
-        try { c.backup.undoRestore() } finally { c.freeTopics.restore(); c.feedVisits.restore() }
+        c.groupChat.stopAll()
+        try {
+            c.chat.stopAll(); c.feedVisits.stopAll()
+            c.backup.undoRestore()
+        } finally { c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
     }
 
     /** A memory file being read in, and the word on how it went. */

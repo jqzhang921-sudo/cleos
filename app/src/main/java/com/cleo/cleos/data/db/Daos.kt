@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
@@ -442,6 +443,17 @@ interface LoreDao {
 
     @Query("DELETE FROM lore WHERE id = :id")
     suspend fun delete(id: Long)
+
+    @Query("DELETE FROM lore WHERE companionId = :companionId AND id IN (:ids)")
+    suspend fun deleteBatch(companionId: Long, ids: List<Long>): Int
+
+    /** One atomic deletion, even for large imports; stay below older SQLite bind limits. */
+    @Transaction
+    suspend fun deleteSelected(companionId: Long, ids: List<Long>): Int {
+        var deleted = 0
+        for (batch in ids.distinct().chunked(500)) deleted += deleteBatch(companionId, batch)
+        return deleted
+    }
 
     @Query("DELETE FROM lore WHERE companionId = :companionId")
     suspend fun deleteFor(companionId: Long)

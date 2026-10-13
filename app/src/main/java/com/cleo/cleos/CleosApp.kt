@@ -102,9 +102,14 @@ class AppContainer(context: Context) {
     internal val updates = Updates(context, http, version)
 
     val companions = Companions(db, settings, secrets, images)
-    val chatClient = ChatClient(http)
+    val toolDiagnostics = com.cleo.cleos.diagnostics.ToolDiagnostics(context)
+    val chatClient = ChatClient(http, diagnostic = { toolDiagnostics.record(it) })
     val feedNews = com.cleo.cleos.ai.FeedNews(http.newBuilder().callTimeout(18, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build())
-    val feedAi = com.cleo.cleos.ai.FeedAi(db, settings, secrets, chatClient, feedNews, feed, images)
+    val photoSource = com.cleo.cleos.ai.PhotoLibraries(
+        com.cleo.cleos.ai.OpenversePhotos(http, version) { toolDiagnostics.record(it) },
+        com.cleo.cleos.ai.WordPressPhotos(http, version) { toolDiagnostics.record(it) },
+    ) { settings.current().photoLibrary }
+    val feedAi = com.cleo.cleos.ai.FeedAi(db, settings, secrets, chatClient, feedNews, feed, images, photoSource)
     private val calendar = PhoneCalendar(context)
 
     /** What the phone is playing, and its words: the chat's 一起听 bar, a reply's line about it, music_control. */
@@ -131,11 +136,13 @@ class AppContainer(context: Context) {
         feed = com.cleo.cleos.ai.FeedBook(db.feed()) { id -> db.companions().get(id)?.name },
         feedActions = com.cleo.cleos.ai.FeedActions(db.feed(), { id -> db.companions().get(id) != null },
             { action -> db.withTransaction { action() } }),
+        photos = com.cleo.cleos.ai.PhotoBook(photoSource, diagnostic = { toolDiagnostics.record(it) }),
     )
     val recaps = Recaps(db, settings, secrets, chatClient, appScope)
     val mcp = McpHub(
         McpServers(secrets),
         McpClient(http, version),
+        diagnostic = { toolDiagnostics.record(it) },
     )
     val transcriber = Transcriber(http, secrets)
     val speaker = Speaker(images, http, secrets)
@@ -156,6 +163,11 @@ class AppContainer(context: Context) {
         listening = { Listening(music, lyrics).line() },
     )
     val stickers = Stickers(context, db, images)
+    val groupChat = com.cleo.cleos.ai.GroupChatRepository(db, settings, secrets, chatClient, images, appScope,
+        groupTools = com.cleo.cleos.ai.GroupTools(tools) { settings.current() },
+        diagnostic = { toolDiagnostics.record(it) }) { id ->
+        db.conversations().idsFor(id).any { chat.busy(it) || chat.isTyping(it) }
+    }
     val favorites = com.cleo.cleos.data.Favorites(db, settings, images)
     val backup = BackupService(context, db, settings, images)
     val imports = ForeignImport(context, db, companions)
@@ -198,7 +210,7 @@ class AppContainer(context: Context) {
         showing = { id -> visible && chatOnScreen == id },
         onEnabled = { later.wantsNotifications.value = true })
     val letters = Letters(db, settings, secrets, chatClient, appScope, written = { later.letterWritten(it) })
-    val feedVisits = com.cleo.cleos.ai.FeedVisits(context, db, feedAi, chat, secrets, appScope, wakeActivities)
+    val feedVisits = com.cleo.cleos.ai.FeedVisits(context, db, feedAi, chat, secrets, appScope, wakeActivities, groupChat::busyMember)
 
     /** Where a tapped notification leads, until a screen has gone there. */
     val opening = MutableStateFlow<Opening?>(null)
@@ -239,7 +251,8 @@ class AppContainer(context: Context) {
         // these phones freeze the process and the start never lands. It takes itself down again
         // when nothing is being written (ReplyKeeper).
         appScope.launch {
-            chat.working.collect { if (it.isNotEmpty()) ReplyKeeper.start(context) }
+            kotlinx.coroutines.flow.combine(chat.working, groupChat.working) { private, groups -> private.isNotEmpty() || groups.isNotEmpty() }
+                .collect { if (it) ReplyKeeper.start(context) }
         }
     }
 }

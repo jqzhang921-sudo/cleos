@@ -35,6 +35,8 @@ internal object ToolKinds {
         ToolSpecs.updateEvent.name to ToolKind.Calendar,
         ToolSpecs.deleteEvent.name to ToolKind.Calendar,
         ToolSpecs.musicControl.name to ToolKind.Music,
+        ToolSpecs.searchPhotos.name to ToolKind.Outside,
+        ToolSpecs.sharePhoto.name to ToolKind.Outside,
     )
 
     /** The kind of a tool by the name the model called it: services the person added (mcp_…) are all one kind. */

@@ -255,7 +255,7 @@ class McpClient(http: OkHttpClient, private val version: String) {
     suspend fun callTool(server: McpServer, name: String, arguments: JsonObject): String = Mcp.text(callToolRaw(server, name, arguments))
 
     /** Calls [name] with [arguments]; the result as the service sent it. */
-    private suspend fun callToolRaw(server: McpServer, name: String, arguments: JsonObject): JsonObject = withSession(server) { s ->
+    suspend fun callToolRaw(server: McpServer, name: String, arguments: JsonObject): JsonObject = withSession(server) { s ->
         send(server, s, "tools/call", buildJsonObject {
             put("name", name)
             put("arguments", arguments)
@@ -280,7 +280,7 @@ class McpClient(http: OkHttpClient, private val version: String) {
         val session = Session(sessionId, (result["protocolVersion"] as? JsonPrimitive)?.contentOrNull ?: Mcp.PROTOCOL)
         // Only an acknowledgment comes back (202); a service that answers otherwise still works.
         runCatching { post(server, session, Mcp.notification("notifications/initialized"), null) }
-            .onFailure { Log.w(TAG, "initialized: ${it.message}") }
+            .onFailure { Log.w(TAG, "initialized notification failed") }
         return session
     }
 
@@ -303,15 +303,17 @@ class McpClient(http: OkHttpClient, private val version: String) {
         try {
             http.newCall(request).execute().use { response ->
                 if (response.code == 404 && session?.id != null) throw SessionGone()
-                if (!response.isSuccessful) throw McpException(describe(response.code, response.body.string()))
+                if (!response.isSuccessful) throw McpException(describe(response.code,
+                    McpPayloadStream(response.body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }))
                 val sessionId = response.header("Mcp-Session-Id") ?: session?.id
                 if (id == null) return JsonObject(emptyMap()) to sessionId
                 val type = response.header("Content-Type").orEmpty()
-                val message = if (type.startsWith("text/event-stream", ignoreCase = true)) {
-                    val source = response.body.source()
-                    Mcp.fromEvents(generateSequence { source.readUtf8Line() }.iterator(), id)
-                } else {
-                    Mcp.fromJson(response.body.string(), id)
+                val message = McpPayloadStream(response.body.byteStream()).bufferedReader(Charsets.UTF_8).use { reader ->
+                    if (type.startsWith("text/event-stream", ignoreCase = true)) {
+                        Mcp.fromEvents(generateSequence { reader.readLine() }.iterator(), id)
+                    } else {
+                        Mcp.fromJson(reader.readText(), id)
+                    }
                 }
                 return message to sessionId
             }
@@ -364,6 +366,7 @@ class McpHub(
     val servers: McpServers,
     private val client: McpClient,
     private val clock: () -> Long = System::currentTimeMillis,
+    private val diagnostic: (String) -> Unit = {},
 ) {
     private class Listed(val connection: String, val tools: List<McpTool>, val at: Long, val failed: Boolean)
 
@@ -371,24 +374,33 @@ class McpHub(
 
     /** The tools of every service switched on. A service that can't be reached brings none. */
     suspend fun tools(): List<McpTool> = coroutineScope {
-        servers.current().filter { it.enabled && it.url.isNotBlank() }.map { async { toolsOf(it) } }.awaitAll().flatten()
+        val enabled = servers.current().filter { it.enabled && it.url.isNotBlank() }
+        enabled.map { async { toolsOf(it) } }.awaitAll().flatten().also {
+            diagnostic("event=mcp_discovery enabled=${enabled.size} tools=${it.size}")
+        }
     }
 
     private suspend fun toolsOf(server: McpServer): List<McpTool> {
         val cached = listed[server.id]
         val age = cached?.let { clock() - it.at }
         if (cached != null && cached.connection == server.connection && age!! < if (cached.failed) RETRY else FRESH) {
+            listed(server, cached.tools.size, cached.failed, cache = true)
             return cached.tools.withNames(server)
         }
         return try {
-            client.listTools(server).also { listed[server.id] = Listed(server.connection, it, clock(), failed = false) }
+            client.listTools(server).also { listed[server.id] = Listed(server.connection, it, clock(), failed = false); listed(server, it.size, false, cache = false) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.w(TAG, "${server.name}: ${e.message}")
+            // Exception prose can include the service URL/token. Keep only structural metadata.
+            listed(server, 0, true, cache = false)
             listed[server.id] = Listed(server.connection, emptyList(), clock(), failed = true)
             emptyList()
         }
+    }
+
+    private fun listed(server: McpServer, count: Int, failed: Boolean, cache: Boolean) {
+        diagnostic("event=${if (failed) "mcp_list_failed" else "mcp_list"} server=${com.cleo.cleos.diagnostics.ToolDiagnosticStore.fingerprint(server.id)} tools=$count failed=$failed cache=$cache")
     }
 
     /** A service renamed since it was listed shows under its new name. */
@@ -398,10 +410,29 @@ class McpHub(
     /** Lists [server]'s tools now, for the settings screen: the tools, or what went wrong. */
     suspend fun test(server: McpServer): Result<List<McpTool>> =
         runCatching { client.listTools(server) }
-            .onSuccess { listed[server.id] = Listed(server.connection, it, clock(), failed = false) }
-            .onFailure { if (it is CancellationException) throw it }
+            .onSuccess { listed[server.id] = Listed(server.connection, it, clock(), failed = false); listed(server, it.size, false, cache = false) }
+            .onFailure { if (it is CancellationException) throw it; listed(server, 0, true, cache = false) }
 
-    suspend fun call(server: McpServer, tool: McpTool, arguments: JsonObject): String = client.callTool(server, tool.name, arguments)
+    suspend fun call(server: McpServer, tool: McpTool, arguments: JsonObject): String = Mcp.text(callRaw(server, tool, arguments))
+
+    suspend fun callRaw(server: McpServer, tool: McpTool, arguments: JsonObject): JsonObject {
+        val name = com.cleo.cleos.diagnostics.ToolDiagnosticStore.label(tool.fnName)
+        val missing = ToolSchemaCompatibility.missingDependencies(tool.inputSchema, arguments)
+        if (missing.isNotEmpty()) diagnostic("event=mcp_call_failed reason=missing_dependency names=$name")
+        require(missing.isEmpty()) { "工具参数缺少依赖字段：${missing.joinToString("、")}。本次没有执行。" }
+        diagnostic("event=mcp_call names=$name")
+        return try {
+            client.callToolRaw(server, tool.name, arguments).also {
+                diagnostic("event=${if ((it["isError"] as? JsonPrimitive)?.booleanOrNull == true) "mcp_call_failed" else "mcp_call_done"} names=$name")
+            }
+        } catch (e: CancellationException) {
+            diagnostic("event=cancelled names=$name")
+            throw e
+        } catch (e: Exception) {
+            diagnostic("event=mcp_call_failed names=$name")
+            throw e
+        }
+    }
 
     private companion object {
         const val TAG = "McpHub"

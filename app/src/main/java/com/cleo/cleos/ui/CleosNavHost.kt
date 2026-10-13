@@ -54,6 +54,9 @@ object BubbleLabRoute
 @Serializable
 object ConversationsRoute
 
+@Serializable
+data class GroupRoute(val id: Long)
+
 /** Finding what was said with the current TA. */
 @Serializable
 object SearchRoute
@@ -196,7 +199,8 @@ fun CleosNavHost() {
         composable<LabRoute> { GlassLabScreen(onBack = nav::back) }
         composable<BubbleLabRoute> { com.cleo.cleos.ui.settings.BubbleLabScreen(onBack = nav::back) }
         composable<McpEditRoute> { entry -> McpEditScreen(entry.toRoute<McpEditRoute>().id, onBack = nav::back) }
-        composable<ConversationsRoute> { ConversationsScreen(onBack = nav::back, onSearch = { nav.go(SearchRoute) }) }
+        composable<ConversationsRoute> { ConversationsScreen(onBack = nav::back, onSearch = { nav.go(SearchRoute) }, onGroup = { nav.go(GroupRoute(it)) }) }
+        composable<GroupRoute> { entry -> com.cleo.cleos.ui.chat.GroupChatScreen(entry.toRoute<GroupRoute>().id, nav::back, onOpenImage = { nav.go(ImageRoute(it)) }) }
         // A result opens in the chat: back past the conversation list too.
         composable<SearchRoute> { SearchScreen(onBack = nav::back, onFound = { nav.popBackStack(MainRoute, inclusive = false) }) }
         composable<DiaryRoute> { entry ->

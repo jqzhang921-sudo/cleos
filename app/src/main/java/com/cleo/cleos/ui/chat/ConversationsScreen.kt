@@ -56,7 +56,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ConversationsScreen(onBack: () -> Unit, onSearch: () -> Unit) {
+fun ConversationsScreen(onBack: () -> Unit, onSearch: () -> Unit, onGroup: (Long) -> Unit) {
     val c = appContainer()
     val palette = LocalGlassPalette.current
     // Only the current TA's: each TA's conversations are theirs alone.
@@ -66,6 +66,15 @@ fun ConversationsScreen(onBack: () -> Unit, onSearch: () -> Unit) {
     }.collectAsStateWithLifecycle(emptyList())
     val current by remember { c.settings.currentConversation }.collectAsStateWithLifecycle(null)
     var confirm by remember { mutableStateOf<ConversationEntity?>(null) }
+    val groups by remember { c.db.groups().observeGroups() }.collectAsStateWithLifecycle(emptyList())
+    val currentGroup by c.settings.currentGroup.collectAsStateWithLifecycle(null)
+    val tas by c.companions.all.collectAsStateWithLifecycle(emptyList())
+    var groupTab by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var newGroup by remember { mutableStateOf(false) }
+    var confirmGroup by remember { mutableStateOf<com.cleo.cleos.data.db.ChatGroupEntity?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    var groupProblem by remember { mutableStateOf<String?>(null) }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -73,18 +82,19 @@ fun ConversationsScreen(onBack: () -> Unit, onSearch: () -> Unit) {
     GlassPage(
         overlay = { page ->
             GlassTopBar(
-                title = ta?.name?.takeIf { it.isNotBlank() }?.let { "和${it}的对话" } ?: "对话记录",
+                title = if (groupTab) "大家的群聊" else ta?.name?.takeIf { it.isNotBlank() }?.let { "和${it}的对话" } ?: "对话记录",
                 subtitle = "长按可以删除",
                 backdrop = page,
                 leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
                 trailing = {
-                    GlassIconButton(Icons.Rounded.Search, "查找聊天记录", onSearch, page)
+                    if (!groupTab) GlassIconButton(Icons.Rounded.Search, "查找聊天记录", onSearch, page)
                     Spacer(Modifier.width(10.dp))
-                    GlassIconButton(Icons.Rounded.AddComment, "新对话", {
-                        ta?.let { t ->
+                    GlassIconButton(Icons.Rounded.AddComment, if (groupTab) "新建群聊" else "新对话", {
+                        if (groupTab) { groupProblem = null; newGroup = true } else { ta?.let { t ->
                             c.appScope.launch { c.settings.setCurrentConversation(c.chat.newConversation(t.id)) }
                         }
                         onBack()
+                        }
                     }, page)
                 },
             )
@@ -97,7 +107,32 @@ fun ConversationsScreen(onBack: () -> Unit, onSearch: () -> Unit) {
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = statusTop + TopBarHeight + 10.dp, bottom = navBottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(conversations, key = { it.id }) { conv ->
+            item(key = "conversation-tabs") {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    com.cleo.cleos.ui.settings.Chip("私聊", !groupTab) { groupTab = false }
+                    com.cleo.cleos.ui.settings.Chip("群聊", groupTab) { groupTab = true }
+                }
+            }
+            if (groupTab) {
+                groupProblem?.takeIf { !newGroup }?.let { error -> item { Text(error, color = palette.error) } }
+                if (groups.isEmpty()) item { Text("还没有群聊。点右上角，选几位 TA 一起聊聊。", color = palette.contentSecondary, modifier = Modifier.padding(16.dp)) }
+                items(groups, key = { "group-${it.id}" }) { group ->
+                    val members by remember(group.id) { c.db.groups().observeMembers(group.id) }.collectAsStateWithLifecycle(emptyList())
+                    GlassSurface(Modifier.fillMaxWidth().combinedClickable(onClick = { onGroup(group.id) }, onLongClick = { confirmGroup = group }),
+                        shape = GlassShape.Rounded(22.dp), contentPadding = PaddingValues(18.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) { members.filter { it.active }.take(4).forEach { member ->
+                                com.cleo.cleos.ui.common.Avatar(member.avatar, member.emoji ?: com.cleo.cleos.ui.common.avatarLetter(member.name, "TA"), 24.dp)
+                            } }
+                            Column(Modifier.weight(1f)) {
+                                Text(group.title, color = palette.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Text("${members.count { it.active }} 位 TA · ${Dates.chatStamp(group.updatedAt)}", color = palette.contentSecondary, fontSize = 12.sp)
+                            }
+                            if (group.id == currentGroup) Box(Modifier.size(8.dp).background(palette.accentContent, CircleShape))
+                        }
+                    }
+                }
+            } else items(conversations, key = { it.id }) { conv ->
                 GlassSurface(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -125,6 +160,23 @@ fun ConversationsScreen(onBack: () -> Unit, onSearch: () -> Unit) {
             }
         }
     }
+
+    if (newGroup) NewGroupDialog(tas, creating, groupProblem, { if (!creating) newGroup = false }) { name, ids ->
+        scope.launch {
+            creating = true; groupProblem = null
+            try { val id = c.groupChat.create(name, ids); newGroup = false; onGroup(id) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { groupProblem = e.message ?: "群聊没有建好，请重试" }
+            finally { creating = false }
+        }
+    }
+    confirmGroup?.let { group -> DeleteGroupDialog(group.title, { confirmGroup = null }) {
+        scope.launch {
+            try { c.groupChat.delete(group.id); confirmGroup = null }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { groupProblem = e.message }
+        }
+    } }
 
     confirm?.let { conv ->
         AlertDialog(

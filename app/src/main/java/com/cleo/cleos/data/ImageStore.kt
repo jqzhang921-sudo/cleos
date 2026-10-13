@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
@@ -38,7 +39,22 @@ class ImageStore(context: Context) {
      */
     suspend fun import(uri: Uri, maxEdge: Int = 2048, prefix: String = ""): StoredImage = withContext(Dispatchers.IO) {
         val bitmap = decode(uri, maxEdge)
-        StoredImage(write(bitmap, prefix), bitmap.width, bitmap.height).also { bitmap.recycle() }
+        try { StoredImage(write(bitmap, prefix), bitmap.width, bitmap.height) } finally { bitmap.recycle() }
+    }
+
+    /** A bounded inline image from an external service; the decoder checks the real file format. */
+    suspend fun import(bytes: ByteArray, mimeType: String, maxEdge: Int = 1536): StoredImage = withContext(Dispatchers.IO) {
+        require(bytes.isNotEmpty() && bytes.size <= 2 * 1024 * 1024)
+        val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
+            require(info.mimeType == mimeType && mimeType in setOf("image/png", "image/jpeg", "image/webp"))
+            val w = info.size.width
+            val h = info.size.height
+            require(w > 0 && h > 0 && w <= 20_000 && h <= 20_000 && w.toLong() * h <= 40_000_000)
+            val scale = min(1f, maxEdge.coerceIn(1, 1536) / max(w, h).toFloat())
+            if (scale < 1f) decoder.setTargetSize((w * scale).roundToInt().coerceAtLeast(1), (h * scale).roundToInt().coerceAtLeast(1))
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+        try { StoredImage(write(bitmap, "mcp-"), bitmap.width, bitmap.height) } finally { bitmap.recycle() }
     }
 
     /**
@@ -65,10 +81,14 @@ class ImageStore(context: Context) {
         val png = bitmap.hasAlpha()
         val name = prefix + UUID.randomUUID().toString() + if (png) ".png" else ".jpg"
         val tmp = File(dir, "$name.tmp")
-        tmp.outputStream().use {
-            bitmap.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 88, it)
+        try {
+            tmp.outputStream().use {
+                check(bitmap.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 88, it)) { "图片未能保存" }
+            }
+            check(tmp.renameTo(File(dir, name))) { "图片未能保存" }
+        } finally {
+            tmp.delete()
         }
-        tmp.renameTo(File(dir, name))
         return name
     }
 

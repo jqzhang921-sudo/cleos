@@ -29,8 +29,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FreeTopicStateEntity::class,
         FeedVisitStateEntity::class,
         FeedPostEntity::class,
+        ChatGroupEntity::class,
+        GroupMemberEntity::class,
+        GroupTurnEntity::class,
+        GroupMessageEntity::class,
+        GroupMemoryEntity::class,
     ],
-    version = 31,
+    version = 36,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -84,9 +89,16 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 28, to = 29),
         AutoMigration(from = 29, to = 30),
         AutoMigration(from = 30, to = 31),
+        AutoMigration(from = 31, to = 32),
+        // Keep former members as historical authors while excluding them from new replies.
+        AutoMigration(from = 32, to = 33),
+        AutoMigration(from = 33, to = 34),
+        AutoMigration(from = 34, to = 35),
+        AutoMigration(from = 35, to = 36),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun groups(): GroupDao
     abstract fun feed(): FeedDao
     abstract fun freeTopics(): FreeTopicDao
     abstract fun feedVisits(): FeedVisitDao

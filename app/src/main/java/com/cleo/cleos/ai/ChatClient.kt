@@ -128,6 +128,8 @@ class ChatException(
     override val wrongEndpoint: Boolean = false,
     override val serviceSpoke: Boolean = false,
     val rejectedFeature: RequestFeature? = null,
+    /** Only an allowlisted schema keyword, never the raw response or a secret. */
+    val rejectedSchemaKeyword: String? = null,
 ) : Exception(message), EndpointFailure
 
 /** Whether [code] is one of the two that say the path itself is not there. */
@@ -239,15 +241,18 @@ class ChatClient(
         tools: List<ToolSpec> = emptyList(),
         thinking: Boolean = false,
     ): Flow<ChatEvent> = callbackFlow {
+        val requestId = java.util.UUID.randomUUID().toString()
+        fun trace(metadata: String) = diagnostic("requestId=$requestId $metadata")
         val key = endpoint.chatUrl + "|" + endpoint.model
         val always = Thinking.thinksAlways(endpoint.model)
+        var requestTools = tools
         fun request(to: ApiEndpoint, off: Boolean): Call {
             val body = requestBody(
-                to.model, messages, tools,
+                to.model, messages, requestTools,
                 thinking = if (thinking) true else if (off && !always) false else null,
                 effort = if (off && always) Thinking.LITTLE else null,
             )
-            diagnostic(ChatCompatibility.diagnostic(body))
+            trace("route=${com.cleo.cleos.diagnostics.ToolDiagnosticStore.fingerprint(to.chatUrl)} " + ChatCompatibility.diagnostic(body))
             return http.newCall(
             Request.Builder()
                 .url(to.chatUrl)
@@ -267,21 +272,35 @@ class ChatClient(
             // throws, which is what lets atRightAddress run it a second time at another address.
             suspend fun sendFrom(to: ApiEndpoint, off: Boolean) {
                 if (!isActive) return
+                var schemaRetried = false
                 fun execute(disableThinking: Boolean): okhttp3.Response {
-                    val c = request(to, disableThinking)
-                    call = c
-                    val answer = c.execute()
-                    if (!answer.isSuccessful) {
-                        answer.use {
-                            val body = it.body.string()
-                            val sent = requestBody(to.model, messages, tools,
-                                thinking = if (thinking) true else if (disableThinking && !always) false else null,
-                                effort = if (disableThinking && always) Thinking.LITTLE else null)
-                            diagnostic(ChatCompatibility.diagnostic(sent, it.code, body))
-                            throw httpFailure(it.code, body)
+                    while (true) {
+                        if (!isActive) throw kotlinx.coroutines.CancellationException()
+                        val c = request(to, disableThinking)
+                        call = c
+                        val answer = c.execute()
+                        if (!answer.isSuccessful) {
+                            val failure = answer.use {
+                                val body = it.body.string()
+                                val sent = requestBody(to.model, messages, requestTools,
+                                    thinking = if (thinking) true else if (disableThinking && !always) false else null,
+                                    effort = if (disableThinking && always) Thinking.LITTLE else null)
+                                trace(ChatCompatibility.diagnostic(sent, it.code, body))
+                                httpFailure(it.code, body)
+                            }
+                            if (!schemaRetried && failure.status == 400 && failure.rejectedSchemaKeyword == ToolSchemaCompatibility.DEPENDENCIES) {
+                                val adapted = ToolSchemaCompatibility.adapt(requestTools)
+                                if (adapted != requestTools) {
+                                    requestTools = adapted
+                                    schemaRetried = true
+                                    trace("schemaRetry=dependentRequired tools=${requestTools.size}")
+                                    continue
+                                }
+                            }
+                            throw failure
                         }
+                        return answer
                     }
-                    return answer
                 }
                 val answer = try {
                     execute(off)
@@ -296,31 +315,41 @@ class ChatClient(
                     // What isn't a `data:` line is kept (a little of it): if the answer turns out not to be a stream at all, it is the answer.
                     val stray = StringBuilder()
                     var streamed = false
-                    while (true) {
-                        val line = source.readUtf8Line() ?: break
-                        if (!line.startsWith("data:")) {
-                            if (stray.length < STRAY_MAX) stray.append(line).append('\n')
-                            continue
+                    try {
+                        while (true) {
+                            val line = source.readUtf8Line() ?: break
+                            if (!line.startsWith("data:")) {
+                                if (stray.length < STRAY_MAX) stray.append(line).append('\n')
+                                continue
+                            }
+                            streamed = true
+                            val data = line.substring(5).trim()
+                            if (data.isEmpty()) continue
+                            if (data == "[DONE]") break
+                            for (event in parser.feed(data)) send(event)
                         }
-                        streamed = true
-                        val data = line.substring(5).trim()
-                        if (data.isEmpty()) continue
-                        if (data == "[DONE]") break
-                        for (event in parser.feed(data)) send(event)
+                        if (!streamed) for (event in parser.wholeReply(stray.toString())) send(event)
+                        for (event in parser.finish()) send(event)
+                        val calls = parser.toolCalls()
+                        trace("event=response status=${response.code} calls=${calls.size} streamed=$streamed names=${calls.take(40).joinToString(",") { com.cleo.cleos.diagnostics.ToolDiagnosticStore.label(it.name) }}")
+                        calls.takeIf { it.isNotEmpty() }?.let { send(ChatEvent.ToolCalls(it)) }
+                    } finally {
+                        trace("event=response_structure " + parser.diagnostic())
                     }
-                    if (!streamed) for (event in parser.wholeReply(stray.toString())) send(event)
-                    for (event in parser.finish()) send(event)
-                    parser.toolCalls().takeIf { it.isNotEmpty() }?.let { send(ChatEvent.ToolCalls(it)) }
                 }
             }
             try {
                 atRightAddress(endpoint) { to -> sendFrom(to, off) }
                 close()
             } catch (e: ChatException) {
+                trace("event=stream_failure reason=http status=${e.status ?: "none"}")
+                e.rejectedFeature?.let { trace("event=feature_refusal reason=${it.name.lowercase()}") }
                 close(e)
             } catch (e: IOException) {
+                trace("event=${if (call?.isCanceled() == true) "cancelled" else "stream_failure"} reason=network")
                 close(if (call?.isCanceled() == true) e else ChatException(describeNetworkError(e)))
             } catch (e: Exception) {
+                trace("event=${if (e is kotlinx.coroutines.CancellationException) "cancelled" else "stream_failure"} reason=processing")
                 close(e)
             }
         }
@@ -420,6 +449,7 @@ class ChatClient(
         // ("no such model: …"); the same code with a page for a body is not.
         serviceSpoke = complainedIn(body),
         rejectedFeature = ChatCompatibility.rejectedFeature(body),
+        rejectedSchemaKeyword = ToolSchemaCompatibility.rejectedKeyword(body),
     )
 
     /** Whether [body] is JSON with the service's own complaint in it. */
@@ -461,15 +491,17 @@ class ChatClient(
 }
 
 /**
- * Models that think unless told not to, and take being told: DeepSeek V4 (DeepSeek's own
- * OpenClaw plugin sends the same switch) and GLM from 4.5 on. Asked plainly they would think
+ * Models that think unless told not to, and take being told: DeepSeek V4, MiMo and GLM
+ * from 4.5 on. Asked plainly they would think
  * anyway, so a TA with thinking off would still keep the person waiting and cost the tokens.
  */
 object Thinking {
     private val SWITCHABLE = listOf("deepseek-flash", "deepseek-v4", "glm-4.5", "glm-4.6", "glm-4.7", "glm-5")
+    // Explicit documented models; do not apply this parameter to MiMo ASR/TTS/vision-only models.
+    private val MIMO = setOf("mimo-v2.5", "mimo-v2.5-pro", "mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed")
 
-    /** DeepSeek's thinking tool requests require reasoning from earlier turns too. */
-    fun keepsToolReasoning(model: String): Boolean = name(model).let { it == "deepseek-flash" || it.startsWith("deepseek-v4") }
+    /** DeepSeek and MiMo thinking tool requests require earlier assistant reasoning too. */
+    fun keepsToolReasoning(model: String): Boolean = name(model).let { it == "deepseek-flash" || it.startsWith("deepseek-v4") || it in MIMO }
 
     /**
      * Models that always think: told not to, they fail the request (GLM from 5.3 on: its docs say
@@ -482,7 +514,8 @@ object Thinking {
     const val LITTLE = "low"
 
     /** By the model's own name, also behind a relay's prefix (deepseek/deepseek-v4-flash). */
-    fun canSwitchOff(model: String): Boolean = !thinksAlways(model) && SWITCHABLE.any { name(model).startsWith(it) }
+    fun canSwitchOff(model: String): Boolean = !thinksAlways(model) &&
+        (name(model) in MIMO || SWITCHABLE.any { name(model).startsWith(it) })
 
     fun thinksAlways(model: String): Boolean = ALWAYS.any { name(model).startsWith(it) }
 
@@ -495,9 +528,9 @@ object Thinking {
  * canonical shape, what the OpenAI SDK itself sends); each result follows as a "tool"
  * message naming its call.
  *
- * [thinking] is the switch DeepSeek and GLM take for thinking before answering: true turns it
- * on, false off, null leaves it out. On, DeepSeek wants every earlier reply to carry its
- * reasoning too: the turn under way sends its own back, earlier turns an empty one. Off, no
+ * [thinking] is the switch DeepSeek, MiMo and GLM take: true turns it
+ * on, false off, null leaves it out. Thinking tool calls on DeepSeek and MiMo carry earlier
+ * reasoning too: preserve it when available, otherwise supply an empty field. Off, no
  * reasoning goes back at all (as DeepSeek's own plugin does it). [effort]: how hard a model that
  * always thinks should (reasoning_effort); its reasoning goes back as with the switch left out.
  */

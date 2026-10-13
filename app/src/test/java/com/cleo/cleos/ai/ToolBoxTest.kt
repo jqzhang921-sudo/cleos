@@ -52,6 +52,24 @@ class ToolBoxTest {
         runBlocking { box.run(ToolCall("c", name, args), settings, companionId = companionId) }
 
     @Test
+    fun disabledPhotoToolsCannotSearchOrDownloadEvenWhenModelCallsThem() {
+        var networkCalls = 0
+        val photos = PhotoBook(object : PhotoSource {
+            override suspend fun search(query: String): List<PhotoCandidate> { networkCalls++; return emptyList() }
+            override suspend fun download(candidate: PhotoCandidate): DownloadedPhoto = error("must not download")
+        })
+        val photoBox = ToolBox(todos, diary, weather, photos = photos)
+        val settings = AppSettings(tools = emptySet())
+        for (call in listOf(ToolCall("a", "search_photos", """{"query":"cat"}"""),
+            ToolCall("b", "share_photo", """{"id":"145e0b37-0577-416b-8d05-27c0b0bdde46"}"""))) {
+            val out = runBlocking { photoBox.run(call, settings, 1, 2) }
+            assertNull(out.photo)
+            assertTrue(out.note.contains("设置里关着"))
+        }
+        assertEquals(0, networkCalls)
+    }
+
+    @Test
     fun partialShareKeepsTheRestLockedAndRejectsInventedExcerpts() {
         run("write_diary", """{"text":"愿意分享这句。后面的事还想留给自己。","secret":true}""", companionId = 2)
         val id = diary.rows.single().id

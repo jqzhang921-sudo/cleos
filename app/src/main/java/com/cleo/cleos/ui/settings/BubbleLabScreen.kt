@@ -44,6 +44,7 @@ fun BubbleLabScreen(onBack: () -> Unit) {
     var sample by rememberSaveable { mutableStateOf("short") }
     var x by remember(settings.bubblePaddingX) { mutableFloatStateOf(settings.bubblePaddingX.toFloat()) }
     var y by remember(settings.bubblePaddingY) { mutableFloatStateOf(settings.bubblePaddingY.toFloat()) }
+    var gap by remember(settings.messageSpacing) { mutableIntStateOf(settings.messageSpacing) }
     var decor by remember(settings.bubbleDecoration) { mutableStateOf(settings.bubbleDecoration) }
     var bodyWidth by remember { mutableFloatStateOf(0f) }
     val chosen = BubbleThemes.valid(if (mine) settings.myBubbleTheme else settings.taBubbleThemes[vm.companionId.toString()] ?: "glass")
@@ -68,12 +69,16 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                     Chip("短句", sample == "short") { sample = "short" }
                     Chip("长消息", sample == "long") { sample = "long" }
                     Chip("语音", sample == "voice") { sample = "voice" }
+                    Chip("间距", sample == "spacing") { sample = "spacing" }
                 }
                 Text("点选装饰后单独编辑，也可拖动微调，松手保存。", color = palette.contentSecondary, fontSize = 12.sp)
                 // Size is bounded on small/landscape screens; only the specimen scrolls if needed.
                 Box(Modifier.fillMaxWidth().heightIn(min = 80.dp, max = 170.dp).verticalScroll(rememberScrollState()),
                     contentAlignment = if (mine) Alignment.CenterEnd else Alignment.CenterStart) {
+                    Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+                        verticalArrangement = Arrangement.spacedBy(com.cleo.cleos.data.BubbleSpacing.normalized(gap).dp)) {
                     ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen, x.roundToInt(), y.roundToInt(), decor, background,
+                        messageSpacing = gap,
                         selectedComponent = selectedComponent,
                         onBodyWidth = { bodyWidth = it },
                         onComponentSelect = { selectedComponent = it; decorationDetails = true },
@@ -99,6 +104,11 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                         else Text(if (sample == "long") "刚刚想起一件小事，想慢慢讲给你听。你在的话，我会很开心。" else "你在呀。",
                             color = ink, style = type.body)
                     }
+                    if (sample == "spacing") ChatBubbleSurface(Modifier.widthIn(max = 280.dp), mine, chosen,
+                        x.roundToInt(), y.roundToInt(), decor, background, messageSpacing = gap) { ink ->
+                        Text("想和你说件小事。", color = ink, style = type.body)
+                    }
+                    }
                 }
             }
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
@@ -122,6 +132,9 @@ fun BubbleLabScreen(onBack: () -> Unit) {
                         Text("上下留白：${y.roundToInt()}", color = palette.contentSecondary, fontSize = 12.sp)
                         Slider(y, { y = it }, valueRange = 4f..16f, steps = 11, onValueChangeFinished = { vm.setBubblePadding(x.roundToInt(), y.roundToInt()) })
                     }
+                }
+                Section("消息间距") {
+                    MessageSpacingControls(settings.messageSpacing, vm::setMessageSpacing) { gap = it; sample = "spacing" }
                 }
                 Section("换装饰") {
                     Text("选择内置装饰，或展开后使用 Emoji、自选图片。", color = palette.contentSecondary, fontSize = 12.sp)

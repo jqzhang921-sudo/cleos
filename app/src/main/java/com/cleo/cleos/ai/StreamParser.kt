@@ -28,9 +28,14 @@ internal class StreamParser {
 
     private val calls = sortedMapOf<Int, Pending>()
     private val think = ThinkSplitter()
+    private val structure = StreamStructure()
+
+    fun diagnostic(): String = structure.diagnostic(calls.size)
 
     fun feed(data: String): List<ChatEvent> {
-        val obj = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return emptyList()
+        val obj = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull()
+            ?: return emptyList<ChatEvent>().also { structure.invalidChunk() }
+        structure.record(obj)
         obj["error"]?.let { throw ChatException("服务端报错：" + errorText(it)) }
         // A relay that ignores stream:true sends the whole reply as one JSON, under "message".
         val choice = obj["choices"]?.jsonArray?.firstOrNull()?.jsonObject

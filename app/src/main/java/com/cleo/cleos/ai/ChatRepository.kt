@@ -151,12 +151,6 @@ class ChatRepository(
     val transcribing: StateFlow<Set<Long>> = _transcribing.asStateFlow()
     private val jobs = ConcurrentHashMap<Long, Job>()
 
-    /**
-     * Endpoint and model pairs that turned down a request with tools, in this run of the
-     * app. They are asked without tools from then on instead of failing every message.
-     */
-    private val refusesTools = ConcurrentHashMap.newKeySet<String>()
-
     /** The same for pictures: models that can't look at images are sent the text only. */
     private val refusesImages = ConcurrentHashMap.newKeySet<String>()
 
@@ -731,7 +725,7 @@ class ChatRepository(
         val endpoint = ApiEndpoint(use.baseUrl, key, use.model)
         val endpointKey = endpoint.chatUrl + "|" + endpoint.model
         val history = Recap.sent(recaps.live(conversation), s.historySize)
-        var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta) intersect CALL_TOOLS
+        var groups = groupsFor(s, ta) intersect CALL_TOOLS
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
         val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
         // The person's stickers in what came before, told in words: none are sent on the phone.
@@ -984,7 +978,7 @@ class ChatRepository(
         // No outside services and no pictures: nobody is there to allow a call, and deciding
         // whether to say something shouldn't cost what answering a picture does. No music either:
         // a song is paused or skipped when the person asks, and a wake is nobody asking.
-        var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta) - ToolGroup.Music - ToolGroup.Feed - ToolGroup.FeedActions
+        var groups = groupsFor(s, ta) - ToolGroup.Music - ToolGroup.Feed - ToolGroup.FeedActions - ToolGroup.Photos
         if (!freeVisit) groups = groups - ToolGroup.FreeVisit
         var thinking = ta.deepThinking && endpointKey !in refusesThinking
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
@@ -1097,9 +1091,9 @@ class ChatRepository(
             history.lastOrNull { it.role == "user" }?.let { m -> answeredUpTo.merge(conversationId, m.createdAt) { a, b -> maxOf(a, b) } }
             val recap = conversation?.recap
             val now = ZonedDateTime.now()
-            var groups = if (endpointKey in refusesTools) emptySet() else groupsFor(s, ta)
+            var groups = groupsFor(s, ta)
             // The tools of the MCP services switched on come along whenever tools do.
-            var outside = if (endpointKey in refusesTools) emptyList() else mcp.tools()
+            var outside = mcp.tools()
             var withImages = endpointKey !in refusesImages && history.any { it.role == "user" && it.images != null }
             var thinking = ta.deepThinking && endpointKey !in refusesThinking
             // What the TA remembers, read once for this reply.
@@ -1130,6 +1124,7 @@ class ChatRepository(
                 if (due.isNotEmpty()) db.later().delete(due.map { it.id })
                 db.messages().repliedSince(conversationId, startedAt).takeIf { it.isNotEmpty() }?.let { replied(ta, conversationId, it) }
             }
+            val imageBudget = McpImages.Budget()
             while (true) {
                 val mayRefuse = rounds == 0 && (groups.isNotEmpty() || outside.isNotEmpty() || withImages || thinking)
                 val specs = tools.specs(groups) + outside.map { it.spec }
@@ -1163,7 +1158,7 @@ class ChatRepository(
                             hide(conversationId)
                             return
                         }
-                        val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, outside, ta.name)
+                        val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, outside, ta.name, imageBudget = imageBudget)
                         // Only messages sent: that was the whole reply. Asking again would bring
                         // nothing new, or a "发好了".
                         val reactionOnly = step.message.toolCalls.all { call ->
@@ -1194,15 +1189,16 @@ class ChatRepository(
     private class LeftOut(val what: Left, val at: Long)
 
     /**
-     * Once a reply got through without what a refusal made it leave out, that is what the
-     * model can't take: it is left out from now on, and the chat says so.
+     * Report what this reply left out. A relay can reject tools temporarily or for one
+     * account/route, so that refusal must never disable tools on later replies or calls.
+     * Image/thinking compatibility keeps its existing session cache.
      */
     private suspend fun remember(out: LeftOut?, conversationId: Long, endpointKey: String) {
         if (out == null) return
         val line = when (out.what) {
             Left.Thinking -> THINKING_REFUSED.also { refusesThinking += endpointKey }
             Left.Images -> IMAGES_REFUSED.also { refusesImages += endpointKey }
-            Left.Tools -> TOOLS_REFUSED.also { refusesTools += endpointKey }
+            Left.Tools -> TOOLS_REFUSED
         }
         note(conversationId, line, at = out.at - 1)
     }
@@ -1375,6 +1371,7 @@ class ChatRepository(
         ai: String,
         wake: Boolean = false,
         inCall: Long? = null,
+        imageBudget: McpImages.Budget = McpImages.Budget(0),
     ): List<ApiMessage> {
         val quiet = wake || inCall != null
         val said = step.message.content
@@ -1480,8 +1477,13 @@ class ChatRepository(
                 activity = outer?.let { "在用${it.serverName}" } ?: tools.activity(call.name),
             )
             if (!quiet) show(live)
-            val outcome = try {
-                if (outer != null) runOutside(conversationId, outer, call, live, ai) else tools.run(call, s, conversationId, companionId)
+            var outcome = try {
+                if (outer != null) runOutside(conversationId, outer, call, live, ai)
+                else if (call.name in setOf(ToolSpecs.searchPhotos.name, ToolSpecs.sharePhoto.name) && (wake || inCall != null))
+                    ToolOutcome("找照片只在普通聊天时可用，后台唤醒和电话中不会找图或发送图片。", "找照片没成：当前场景不可用")
+                else if (call.name == ToolSpecs.sharePhoto.name && imageBudget.remaining <= 0)
+                    ToolOutcome("本次图片数量已达上限，没有下载或发出这张照片。", "分享照片没成：本次图片已达上限")
+                else tools.run(call, s, conversationId, companionId)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1490,8 +1492,27 @@ class ChatRepository(
             // The tool has acted (a todo exists now), so its result is stored even if
             // stop was pressed meanwhile: the history should match what happened.
             withContext(NonCancellable) {
+                val delivery = outcome.photo?.let { photo ->
+                    PhotoDelivery.deliver(photo, imageBudget.remaining) { bytes, mime ->
+                        val stored = images.import(bytes, mime, McpImages.MAX_EDGE)
+                        MessageImage(stored.file, stored.width, stored.height)
+                    }
+                } ?: outcome.imageResult?.let { raw ->
+                    McpImages.deliver(raw, outcome.imageSource.orEmpty(), imageBudget.remaining) { bytes, mime ->
+                        val stored = images.import(bytes, mime, McpImages.MAX_EDGE)
+                        MessageImage(stored.file, stored.width, stored.height)
+                    }
+                }
+                val pictures = delivery?.images.orEmpty()
+                if (delivery != null) outcome = outcome.copy(
+                    result = delivery.result(outcome.result),
+                    note = outcome.note + (if (pictures.isNotEmpty()) " · 分享了 ${pictures.size} 张图" else "") +
+                        (if (delivery.failures > 0) " · ${delivery.failures} 张图片未能显示" else ""),
+                    imageResult = null,
+                    photo = null,
+                )
                 val at = System.currentTimeMillis()
-                db.messages().insert(
+                try { db.messages().insert(
                     MessageEntity(
                         conversationId = conversationId,
                         role = "tool",
@@ -1499,10 +1520,15 @@ class ChatRepository(
                         createdAt = at,
                         toolCallId = call.id,
                         note = outcome.note,
+                        images = MessageImages.encode(pictures),
                         proactive = wake,
                         call = inCall,
                     ),
-                )
+                ) } catch (e: Exception) {
+                    images.delete(pictures.map { it.file })
+                    throw e
+                }
+                imageBudget.used(pictures.size)
                 outcome.sharedDiaryId?.let { id ->
                     db.messages().insert(MessageEntity(conversationId = conversationId, role = "note", content = outcome.sharedExcerpt?.let { "secret-excerpt:" + SecretShares.encode(SecretShare(id, it)) } ?: "shared-diary:$id", note = if (outcome.sharedExcerpt != null) "愿意告诉你一点" else "查看这篇小秘密", createdAt = at, call = inCall))
                 }
@@ -1540,7 +1566,9 @@ class ChatRepository(
             show(live)
         }
         return try {
-            ToolOutcome(mcp.call(server, tool, args), "用了$what")
+            val raw = mcp.callRaw(server, tool, args)
+            ToolOutcome(Mcp.text(raw), if (raw["isError"]?.toString() == "true") "用${what}没成" else "用了$what",
+                imageResult = raw, imageSource = "${tool.serverName} · ${tool.title}")
         } catch (e: McpException) {
             ToolOutcome("没有调用成功：${e.message}。照实告诉对方没成，别编结果。", "用${what}没成：${e.message.orEmpty().lineSequence().first()}")
         }
@@ -1640,7 +1668,7 @@ class ChatRepository(
             ToolGroup.Todos, ToolGroup.Diary, ToolGroup.AiDiary, ToolGroup.Memory, ToolGroup.Letters, ToolGroup.Weather,
             ToolGroup.Location, ToolGroup.Later, ToolGroup.Alarm, ToolGroup.Calendar,
         )
-        private const val TOOLS_REFUSED = "接口明确表示不支持工具调用，本次已改成文字回复。闹钟、待办和外部服务这次都没有执行。"
+        private const val TOOLS_REFUSED = "接口拒绝了本次工具请求，已改成文字回复。本次没有执行闹钟、待办或外部服务；下一次回复会重新尝试带上已开启的工具。"
         private const val IMAGES_REFUSED = "这个模型看不了图片，这次只发了文字。想让 TA 看图，换一个能看图的模型。"
         private const val THINKING_REFUSED = "这个模型不认深度思考的开关，这次照常回复了，之后也不再带这个开关。"
         private const val TOO_MANY_ROUNDS = "连着用了太多次工具，先停在这里。"

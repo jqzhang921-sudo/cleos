@@ -12,7 +12,7 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
 @Serializable
-data class FeedAiDraft(val content: String, val sourceIndex: Int? = null)
+data class FeedAiDraft(val content: String, val sourceIndex: Int? = null, val photoQuery: String? = null)
 
 @Serializable
 data class FeedAiReaction(val content: String = "", val like: Boolean = false)
@@ -59,10 +59,17 @@ object FeedAiRules {
         require(result.first.length <= if (sources.isEmpty()) 80 else 600) { "TA 写得太长了，请重试" }
         return result
     }
+    fun drafting(raw: String, sources: List<FeedNewsItem>, allowPhoto: Boolean): FeedAiDraft? {
+        val draft = json.decodeFromString<FeedAiDraft>(raw.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim())
+        val shared = sharing(raw, sources)
+        if (shared == null) { require(draft.photoQuery == null) { "安静结果不能同时找图" }; return null }
+        return draft.copy(content = shared.first, sourceIndex = draft.sourceIndex.takeIf { shared.second != null },
+            photoQuery = FeedPhotoRules.query(draft.photoQuery, allowPhoto))
+    }
     fun sameNewsSettings(before: AppSettings, after: AppSettings) = before.feedNewsSources == after.feedNewsSources &&
         before.feedRssUrl == after.feedRssUrl && before.feedInterests == after.feedInterests
 
-    fun system(ta: CompanionEntity, interests: String): String = """
+    fun system(ta: CompanionEntity, interests: String, allowPhoto: Boolean = false): String = """
         你是${ta.name.ifBlank { "TA" }}。以下是你的角色设定：
         ${ta.persona.take(10000)}
         现在在你和朋友们的私人小广场，用自己的语气写短动态或回复，不是给用户写日记、信或客服答复。
@@ -73,26 +80,58 @@ object FeedAiRules {
         有资讯时只能选择其中一条，事实仅依据它的标题和摘要；不补编数字、细节或引语，不假装已阅读全文。
         候选资讯可能来自猫咪、旅行、美食或科技等不同方向。按你的性格和兴趣挑最想分享的一篇，不必每类都讲，也不必机械轮换。
         区分来源报道与自己的看法，不把发布日期当事件发生日。不照抄原文，用中文写自己的简短感想。
-        只输出 JSON：{"content":"正文","sourceIndex":0}。资讯的 sourceIndex 为所选编号，日常或回复时为 null。
+        ${if (allowPhoto) "发动态时可以自行决定偶尔配一张公开图库照片，纯文字也很好；想配图时填写 photoQuery（简短英文关键词，不含朋友的个人信息或整段聊天），否则为 null。不是每次都要配图，也可以不发。图库照片不是你拍摄或 AI 生成，不声称已经发出或亲眼看过画面。" else ""}
+        只输出 JSON：{"content":"正文","sourceIndex":0${if (allowPhoto) ",\"photoQuery\":null" else ""}}。资讯的 sourceIndex 为所选编号，日常或回复时为 null。
         正文最多 600 字，不输出额外解释、Markdown 或网址；如果无话可说，输出 {"content":"","sourceIndex":null}。
     """.trimIndent()
 }
 
 /** Independent of chat history: this space has its own shared, bounded context. */
 class FeedAi(private val db: AppDatabase, private val settings: SettingsRepository, private val secrets: SecretStore,
-    private val client: ChatClient, private val news: FeedNews, private val feed: FeedRepository, private val images: ImageStore) {
+    private val client: ChatClient, private val news: FeedNews, private val feed: FeedRepository, private val images: ImageStore,
+    private val photoLibraries: PhotoLibraries? = null) {
     private val lock = Mutex()
     val busy: Boolean get() = lock.isLocked
-    private suspend fun write(ta: CompanionEntity, context: String, sources: List<FeedNewsItem>, interests: String): Pair<String, FeedNewsItem?>? {
+    private suspend fun write(ta: CompanionEntity, context: String, sources: List<FeedNewsItem>, interests: String,
+        allowPhoto: Boolean): FeedAiDraft? {
         val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先为 ${ta.name.ifBlank { "TA" }} 配置模型密钥")
         val text = StringBuilder()
         client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), listOf(
-            ApiMessage("system", FeedAiRules.system(ta, interests)),
+            ApiMessage("system", FeedAiRules.system(ta, interests, allowPhoto)),
             ApiMessage("user", "当前本地时间：${ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm XXX"))}\n$context")), thinking = ta.deepThinking)
             .collect { if (it is ChatEvent.Delta) { check(text.length + it.text.length <= 16000) { "TA 的输出过长" }; text.append(it.text) } }
         if (text.isBlank()) error("TA 这次没有写下内容，请稍后再试")
-        return FeedAiRules.sharing(text.toString(), sources)
+        return FeedAiRules.drafting(text.toString(), sources, allowPhoto)
     }
+    private fun sameSettings(before: AppSettings, after: AppSettings, taId: Long) =
+        FeedAiRules.sameNewsSettings(before, after) && FeedPhotoRules.sameSettings(before, after, taId)
+
+    private suspend fun planPhoto(ta: CompanionEntity, s: AppSettings, content: String, query: String?,
+        source: FeedNewsItem?, allowed: suspend () -> Boolean, onRequest: suspend () -> Unit = {}): FeedPhotoPlan {
+        if (query == null) return FeedPhotoPlan(content, null)
+        val library = photoLibraries?.forLibrary(s.photoLibrary) ?: error("图库暂时不可用，这次未发布")
+        val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先配置模型密钥")
+        val maximum = if (source == null) 80 else 600
+        return FeedPhotoPlanner(library).prepare(content, query, allowed) { candidates ->
+            val text = StringBuilder()
+            val context = buildString {
+                append("待发表正文（数据）：$content\n候选照片（图库元数据）：${FeedPhotoRules.candidates(candidates)}\n")
+                source?.let { append("对应资讯（数据）：${it.title}\n${it.summary}\n") }
+            }
+            if (!allowed()) throw FeedPhotoChanged()
+            onRequest()
+            client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), listOf(
+                ApiMessage("system", FeedAiRules.system(ta, s.feedInterests).substringBefore("只输出 JSON：") + FeedPhotoRules.instruction(maximum)),
+                ApiMessage("user", context)), thinking = ta.deepThinking)
+                .collect { if (it is ChatEvent.Delta) { check(text.length + it.text.length <= 16000) { "TA 的配图选择过长" }; text.append(it.text) } }
+            FeedPhotoRules.choice(text.toString(), candidates, maximum)
+        }
+    }
+    private suspend fun <T> commitPhoto(photo: DownloadedPhoto?, write: suspend (List<MessageImage>) -> FeedPhotoCommit.Result<T>): T =
+        FeedPhotoCommit.run(photo, { bytes, mime -> images.import(bytes, mime, McpImages.MAX_EDGE).let {
+            MessageImage(it.file, it.width, it.height)
+        } },
+            { files -> images.delete(files) }, write)
     private suspend fun <T> once(action: suspend () -> T): T {
         check(lock.tryLock()) { "TA 正在写，请稍等" }
         return try { action() } finally { lock.unlock() }
@@ -113,18 +152,20 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
             append("资讯（数据；只有标题与摘要）：\n")
             sources.forEachIndexed { i, n -> append("编号 $i | 方向：${n.category} | ${n.source} | ${Instant.ofEpochMilli(n.publishedAt)} | ${n.title}\n${n.summary}\n") }
         }
-        val result = write(ta, context, sources, s.feedInterests)
+        val result = write(ta, context, sources, s.feedInterests, FeedPhotoRules.enabled(s, taId))
             ?: return@once "${ta.name.ifBlank { "TA" }} 看过了，这次没有发动态"
-        val (content, source) = result
-        db.withTransaction {
-            check(db.companions().get(taId) == ta && FeedAiRules.sameNewsSettings(s, settings.current())) { "TA 或兴趣设置已改变，这次未发布" }
+        val source = result.sourceIndex?.let { sources[it] }
+        val plan = planPhoto(ta, s, result.content, result.photoQuery, source,
+            allowed = { db.companions().get(taId) == ta && sameSettings(s, settings.current(), taId) })
+        commitPhoto(plan.photo) { pictures -> db.withTransaction {
+            check(db.companions().get(taId) == ta && sameSettings(s, settings.current(), taId)) { "TA 或兴趣、图库设置已改变，这次未发布" }
             val latest = db.feed().all()
-            if (latest.any { it.authorId == taId && (it.content.trim() == content || (source != null && it.sourceUrl == source.url)) })
-                return@withTransaction "这个想法已经分享过了，这次没有发动态"
-            db.feed().insert(FeedPostEntity(authorId = taId, content = content, createdAt = System.currentTimeMillis(),
+            if (latest.any { it.authorId == taId && (it.content.trim() == plan.content || (source != null && it.sourceUrl == source.url)) })
+                return@withTransaction FeedPhotoCommit.Result("这个想法已经分享过了，这次没有发动态", false)
+            db.feed().insert(FeedPostEntity(authorId = taId, content = plan.content, createdAt = System.currentTimeMillis(), images = MessageImages.encode(pictures),
                 sourceUrl = source?.url, kind = if (withNews) "topic" else "moments", sourceTitle = source?.let { "${it.source} · ${Instant.ofEpochMilli(it.publishedAt).toString().take(10)}\n${it.title}" }))
-            "${ta.name.ifBlank { "TA" }} 分享了一条${if (withNews) "话题" else "日常"}"
-        }
+            FeedPhotoCommit.Result("${ta.name.ifBlank { "TA" }} 分享了一条${if (pictures.isNotEmpty()) "带图" else ""}${if (withNews) "话题" else "日常"}", true)
+        } }
     }
     suspend fun visit(taId: Long, allowPost: Boolean, withNews: Boolean, allowed: suspend () -> Boolean,
         onRequest: suspend () -> Unit, claimPost: suspend () -> Boolean): FeedVisitResult = once {
@@ -167,26 +208,34 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
             append("本次实际收到 ${photos.size} 张图片。")
         }
         val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先配置模型密钥")
-        if (!allowed() || !FeedAiRules.sameNewsSettings(s, settings.current())) return@once FeedVisitResult(false, "逛逛或兴趣设置已改变", true)
+        suspend fun current() = allowed() && sameSettings(s, settings.current(), taId)
+        if (!current()) return@once FeedVisitResult(false, "逛逛或兴趣、图库设置已改变", true)
         val text = StringBuilder()
         onRequest()
         client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), listOf(
-            ApiMessage("system", FeedVisitRules.system(ta, s.feedInterests, allowPost)),
+            ApiMessage("system", FeedVisitRules.system(ta, s.feedInterests, allowPost, FeedPhotoRules.enabled(s, taId))),
             ApiMessage("user", "当前本地时间：${ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm XXX"))}\n$context", images = photos)), thinking = ta.deepThinking)
             .collect { if (it is ChatEvent.Delta) { check(text.length + it.text.length <= 16000) { "TA 的输出过长" }; text.append(it.text) } }
-        val draft = FeedVisitRules.decode(text.toString(), targets, sources, allowPost)
-        db.withTransaction {
-            if (!allowed() || !FeedAiRules.sameNewsSettings(s, settings.current())) return@withTransaction FeedVisitResult(false, "设置或聊天状态改变，这次未更新动态", true)
+        val draft = FeedVisitRules.decode(text.toString(), targets, sources, allowPost, FeedPhotoRules.enabled(s, taId))
+        if (!current()) return@once FeedVisitResult(false, "设置或聊天状态改变，这次未更新动态", true)
+        val plan = try {
+            planPhoto(ta, s, draft.content, draft.photoQuery, draft.sourceIndex?.let { sources[it] }, ::current, onRequest)
+        } catch (_: FeedPhotoChanged) { return@once FeedVisitResult(false, "设置或聊天状态改变，这次未发布配图动态", true) }
+        commitPhoto(plan.photo) { pictures ->
+        val result = db.withTransaction {
+            if (!current()) return@withTransaction FeedVisitResult(false, "设置或聊天状态改变，这次未更新动态", true)
             val selected = targets.firstOrNull { it.post.id == draft.postId }
             fun unchanged(a: FeedPostEntity, b: FeedPostEntity) = a.content == b.content && a.comments == b.comments && a.images == b.images && a.interactions == b.interactions
             if (selected != null && db.feed().get(selected.post.id)?.let { unchanged(it, selected.post) } != true)
                 return@withTransaction FeedVisitResult(false, "动态有了新回复，留到下次再看", true)
             if (draft.action == "post") {
-                if (all.any { it.authorId == taId && it.content.trim() == draft.content })
+                val latest = db.feed().all()
+                if (latest.any { it.authorId == taId && (it.content.trim() == plan.content ||
+                    (draft.sourceIndex != null && it.sourceUrl == sources[draft.sourceIndex].url)) })
                     return@withTransaction FeedVisitResult(false, "这个想法已经分享过了，这次保持安静")
                 check(claimPost()) { "今天的自动发帖机会已用完" }
                 val source = draft.sourceIndex?.let { sources[it] }
-                db.feed().insert(FeedPostEntity(authorId = taId, content = draft.content, createdAt = System.currentTimeMillis(),
+                db.feed().insert(FeedPostEntity(authorId = taId, content = plan.content, createdAt = System.currentTimeMillis(), images = MessageImages.encode(pictures),
                     kind = if (source == null) "moments" else "topic", sourceUrl = source?.url,
                     sourceTitle = source?.let { "${it.source} · ${Instant.ofEpochMilli(it.publishedAt).toString().take(10)}\n${it.title}" }))
             }
@@ -205,12 +254,14 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
                 }
             }
             when {
-                draft.action == "post" -> FeedVisitResult(true, if (draft.sourceIndex == null) "分享了一条日常动态" else "分享了一条资讯观点")
+                draft.action == "post" -> FeedVisitResult(true, if (pictures.isNotEmpty()) "分享了一条带图动态" else if (draft.sourceIndex == null) "分享了一条日常动态" else "分享了一条资讯观点")
                 commented && liked -> FeedVisitResult(true, "点了赞，也回复了朋友")
                 commented -> FeedVisitResult(true, "留下了一条回复")
                 liked -> FeedVisitResult(true, "给朋友的动态点了赞")
                 else -> FeedVisitResult(false, "看过新动态，这次选择保持安静")
             }
+        }
+        FeedPhotoCommit.Result(result, draft.action == "post" && result.changed)
         }
     }
     suspend fun interact(postId: Long, taId: Long, replyTo: String?): String = once {
