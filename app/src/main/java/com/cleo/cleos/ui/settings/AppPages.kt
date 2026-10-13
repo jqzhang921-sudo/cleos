@@ -119,6 +119,16 @@ internal fun ChatPage(vm: SettingsViewModel) {
 
     Section("消息间距") { MessageSpacingControls(settings.messageSpacing, vm::setMessageSpacing) }
 
+    ListCard("思考卡片") {
+        ExplainedSwitch(
+            "显示思考卡片",
+            "TA 想过的内容折成一行「想了 N 秒」，点开能看",
+            "模型开了「深度思考」、并且确实想出了内容时，聊天里会出现这张卡片。关掉只是不再显示它：模型照样先想再答，" +
+                "想过什么也照旧存在聊天记录里，随时打开这个开关就能重新看到。",
+            settings.showThought,
+        ) { vm.setShowThought(it) }
+    }
+
     // Moved here from the home page, where they sat among the TA's things.
     ListCard("头像") {
         ExplainedSwitch("聊天里显示头像", "消息旁边放上各自的头像", null, settings.chatAvatars) { vm.setChatAvatars(it) }

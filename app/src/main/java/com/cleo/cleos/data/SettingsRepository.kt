@@ -82,6 +82,8 @@ data class AppSettings(
     val chatTextSize: Int = 15,
     /** Voice transcripts start collapsed unless the person prefers reading alongside audio. */
     val expandVoiceText: Boolean = false,
+    /** Whether the TA's thinking shows as a card in the chat ("想了 12 秒"). Purely how it is drawn. */
+    val showThought: Boolean = true,
     /** 拍一拍 (Pats): the verb's one character, what follows the TA's name, and whether the phone buzzes. */
     val patVerb: String = Pats.VERB,
     val patSuffix: String = "",
@@ -197,6 +199,7 @@ class SettingsRepository(private val context: Context) {
         val avatarEachMessage = booleanPreferencesKey("avatar_each_message")
         val chatTextSize = intPreferencesKey("chat_text_size")
         val expandVoiceText = booleanPreferencesKey("expand_voice_text")
+        val showThought = booleanPreferencesKey("show_thought")
         val patVerb = stringPreferencesKey("pat_verb")
         val patSuffix = stringPreferencesKey("pat_suffix")
         val patBuzz = booleanPreferencesKey("pat_buzz")
@@ -273,6 +276,7 @@ class SettingsRepository(private val context: Context) {
             avatarEachMessage = this[Keys.avatarEachMessage] ?: d.avatarEachMessage,
             chatTextSize = this[Keys.chatTextSize] ?: d.chatTextSize,
             expandVoiceText = this[Keys.expandVoiceText] ?: d.expandVoiceText,
+            showThought = this[Keys.showThought] ?: d.showThought,
             patVerb = this[Keys.patVerb]?.takeIf { it.isNotBlank() } ?: d.patVerb,
             patSuffix = this[Keys.patSuffix] ?: d.patSuffix,
             patBuzz = this[Keys.patBuzz] ?: d.patBuzz,
@@ -333,6 +337,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.bubbleBackgrounds] = tuningJson.encodeToString(next.bubbleBackgrounds.mapValues { it.value.normalized() })
             prefs[Keys.taBubbleThemes] = encodeVoices(next.taBubbleThemes)
             prefs[Keys.expandVoiceText] = next.expandVoiceText
+            prefs[Keys.showThought] = next.showThought
             prefs[Keys.patVerb] = next.patVerb
             prefs[Keys.patSuffix] = next.patSuffix
             prefs[Keys.patBuzz] = next.patBuzz

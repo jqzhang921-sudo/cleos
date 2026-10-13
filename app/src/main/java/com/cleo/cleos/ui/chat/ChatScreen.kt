@@ -316,7 +316,7 @@ private fun MessageEntity.foldedBy(until: Pair<Long, Long>) = createdAt < until.
  * WeChat does. With a recap, its mark goes between the last message folded into it and the
  * first one after. What the TA said on its own gets a line above the first of it.
  */
-private fun buildRows(messages: List<MessageEntity>, recapUntil: Pair<Long, Long>? = null, eachFace: Boolean = false): List<ChatRow> {
+private fun buildRows(messages: List<MessageEntity>, recapUntil: Pair<Long, Long>? = null, eachFace: Boolean = false, showThought: Boolean = true): List<ChatRow> {
     val rows = ArrayList<ChatRow>(messages.size + 8)
     var newerSide: Boolean? = null
     var marked = false
@@ -330,6 +330,9 @@ private fun buildRows(messages: List<MessageEntity>, recapUntil: Pair<Long, Long
             newerSide = null
         }
         if (m.silent()) continue
+        // A turn that only thought: with the cards switched off it has nothing left to draw, and
+        // an empty row would still take a gap in the list.
+        if (!showThought && m.thoughtOnly()) continue
         val side = m.side()
         val tool = if (m.isToolLine()) ToolKinds.of(ToolDetails.nameOf(messages, m)) else null
         rows += ChatRow.Message(m, isLast = i == last, showFace = eachFace || side == null || side != newerSide, tool = tool)
@@ -670,8 +673,8 @@ fun ChatTab(
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
     val inputBottom = if (imeBottom > bottomInset) imeBottom + 8.dp else bottomInset
-    val rows = remember(state.messages, state.recapUntil, state.avatarEachMessage) {
-        buildRows(state.messages, state.recapUntil, eachFace = state.avatarEachMessage)
+    val rows = remember(state.messages, state.recapUntil, state.avatarEachMessage, appSettings.showThought) {
+        buildRows(state.messages, state.recapUntil, eachFace = state.avatarEachMessage, showThought = appSettings.showThought)
     }
     // The calls something was said in: only those have words to open.
     val callsSaid = remember(state.messages) { state.messages.mapNotNullTo(HashSet()) { it.call } }
@@ -1046,7 +1049,7 @@ fun ChatTab(
                 verticalArrangement = Arrangement.spacedBy(com.cleo.cleos.data.BubbleSpacing.normalized(appSettings.messageSpacing).dp, Alignment.Bottom),
             ) {
                 state.streaming?.let { live ->
-                    item(key = "live") { LiveBubble(live, state.aiName, vm::answerAsk) }
+                    item(key = "live") { LiveBubble(live, state.aiName, vm::answerAsk, showThought = appSettings.showThought) }
                 }
                 items(rows, key = { it.key }) { row ->
                     when (row) {
@@ -1143,6 +1146,7 @@ fun ChatTab(
                                         onOpenImage = onOpenImage,
                                         transcribing = m.id in state.transcribing,
                                         expandVoiceText = appSettings.expandVoiceText,
+                                        showThought = appSettings.showThought,
                                         playingFile = playing,
                                         onPlay = { play(it, theirs = m.role == "assistant") },
                                         onRetryVoice = { vm.retryVoice(m.id) },
@@ -1407,6 +1411,7 @@ private fun MessageBubble(
     onOpenImage: (String) -> Unit,
     transcribing: Boolean = false,
     expandVoiceText: Boolean = false,
+    showThought: Boolean = true,
     playingFile: String? = null,
     onPlay: (String) -> Unit = {},
     onRetryVoice: () -> Unit = {},
@@ -1462,7 +1467,7 @@ private fun MessageBubble(
                     horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    if (thought != null && !mine) ThoughtBlock(thought.text, thought.ms, key = message.id)
+                    if (thought != null && !mine && showThought) ThoughtBlock(thought.text, thought.ms, key = message.id)
                     if (pictures.isNotEmpty()) {
                         PictureGroup(pictures, onOpen = onOpenImage, onLongPress = { menu = true })
                     }
@@ -1782,11 +1787,12 @@ private fun ToolPictureCard(pictures: List<MessageImage>, onOpen: (String) -> Un
 }
 
 @Composable
-private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepository.Answer) -> Unit) {
+private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepository.Answer) -> Unit, showThought: Boolean = true) {
     val palette = LocalGlassPalette.current
     val faces = LocalFaces.current
-    // Thinking with words to show: those stand in for the typing dots.
-    val thinkingAloud = live.text.isEmpty() && live.thought.isNotBlank()
+    // Thinking with words to show: those stand in for the typing dots. With the cards switched
+    // off there is nothing to stand in with, so the dots say "still working" as usual.
+    val thinkingAloud = showThought && live.text.isEmpty() && live.thought.isNotBlank()
     // What has come in so far, stickers drawn as they complete; one still being written isn't shown yet.
     val book = LocalStickers.current
     val pieces = remember(live.text, book) { StickerText.split(StickerText.finishedPart(live.text), book) }
@@ -1795,7 +1801,7 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (live.thought.isNotBlank()) ThoughtLine(live.thought, live.thoughtMs, key = "live")
+        if (showThought && live.thought.isNotBlank()) ThoughtLine(live.thought, live.thoughtMs, key = "live")
         if (live.text.isNotEmpty() || (!thinkingAloud && live.activity == null && live.asking == null)) {
             Row {
                 if (faces != null) {
