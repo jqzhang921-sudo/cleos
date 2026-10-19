@@ -22,6 +22,8 @@ data class CompanionEntity(
     val apiModel: String,
     /** A picture in ImageStore; or an emoji TA picked for itself; neither means the initial. */
     val avatar: String? = null,
+    /** The person's picture only with this TA; null inherits the shared default. */
+    @ColumnInfo(defaultValue = "NULL") val userAvatar: String? = null,
     val avatarEmoji: String? = null,
     /** LocalDate.toEpochDay() the home page counts from; null counts from the first message. */
     val knownSince: Long? = null,
@@ -35,6 +37,11 @@ data class CompanionEntity(
     @ColumnInfo(defaultValue = "0") val followUpEnabled: Boolean = false,
     @ColumnInfo(defaultValue = "60") val followUpDelaySeconds: Int = 60,
     @ColumnInfo(defaultValue = "0") val freeTopicEnabled: Boolean = false,
+    /** May offer a voice call during a free-topic opportunity. Never auto-answers. */
+    @ColumnInfo(defaultValue = "0") val incomingCallsEnabled: Boolean = false,
+    /** Per-TA limits on invitations in a rolling 24-hour window; never a call duration cap. */
+    @ColumnInfo(defaultValue = "120") val incomingCallIntervalMinutes: Int = 120,
+    @ColumnInfo(defaultValue = "4") val incomingCallDailyMax: Int = 4,
     @ColumnInfo(defaultValue = "1") val freeTopicLevel: Int = 1,
     @ColumnInfo(defaultValue = "1") val freeTopicQuietOn: Boolean = true,
     @ColumnInfo(defaultValue = "1380") val freeTopicQuietStart: Int = 1380,
@@ -60,6 +67,8 @@ data class CompanionEntity(
     val spokenApiBaseUrl: String = "",
     @ColumnInfo(defaultValue = "")
     val spokenApiModel: String = "",
+    /** Per-service voice IDs only; an empty map inherits the shared voice configuration. */
+    @ColumnInfo(defaultValue = "'{}'") val voiceChoices: String = "{}",
 ) {
     /**
      * The model for this TA's words: its own, or, for words that will be heard, the other one when

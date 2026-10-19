@@ -1,0 +1,31 @@
+Supplemental copyright lines retained from the exact Maven source artifacts.
+The original Apache-2.0 license and ZXing project NOTICE are provided separately.
+
+core 3.5.3 upstream source copyright lines:
+Copyright (C) 2010 ZXing authors
+Copyright (C) 2012 ZXing authors
+Copyright 2006 Jeremias Maerki
+Copyright 2006 Jeremias Maerki in part, and ZXing Authors in part
+Copyright 2006 Jeremias Maerki.
+Copyright 2006-2007 Jeremias Maerki.
+Copyright 2007 Jeremias Maerki.
+Copyright 2007 ZXing authors
+Copyright 2008 ZXing authors
+Copyright 2009 ZXing authors
+Copyright 2010 ZXing authors
+Copyright 2011 ZXing authors
+Copyright 2012 ZXing authors
+Copyright 2013 ZXing authors
+Copyright 2014 ZXing authors
+Copyright 2015 ZXing authors
+Copyright 2021 ZXing authors
+Copyright 2022 ZXing authors
+
+zxing-android-embedded 4.3.0 upstream source copyright lines:
+Based on IntentIntegrator, Copyright 2009 ZXing authors.
+Copyright (C) 2008 ZXing authors
+Copyright (C) 2010 ZXing authors
+Copyright (C) 2012 ZXing authors
+Copyright (C) 2013 ZXing authors
+Copyright (C) 2014 ZXing authors
+Copyright 2009 ZXing authors

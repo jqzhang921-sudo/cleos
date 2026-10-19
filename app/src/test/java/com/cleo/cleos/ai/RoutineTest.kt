@@ -110,7 +110,8 @@ class RoutineTest {
     fun theGreetingTextsLetTheTaDecideAndDontGiveAwayThePhone() {
         val now = at(29, 8, 5)
         val morning = RoutineRules.morningText(now, null)
-        assertTrue(morning.contains("SKIP"))
+        assertFalse(morning.contains("SKIP"))
+        assertTrue(morning.contains("直接结束，不输出文字"))
         assertTrue(morning.contains("今天你们还没说过话"))
         assertFalse(morning.contains("清单"))
         // It is told the person seems up, not how the app can tell.
@@ -120,7 +121,8 @@ class RoutineTest {
         assertTrue(withDay.contains("别念清单"))
 
         val night = RoutineRules.nightText(at(29, 23, 40), at(29, 21, 10), null)
-        assertTrue(night.contains("SKIP"))
+        assertFalse(night.contains("SKIP"))
+        assertTrue(night.contains("直接结束，不输出文字"))
         assertTrue(night.contains("你们上次说话是今天 21:10"))
         assertTrue(night.contains("别催对方睡"))
         assertFalse(night.contains("手机"))

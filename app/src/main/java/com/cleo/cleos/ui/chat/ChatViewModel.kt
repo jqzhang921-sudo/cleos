@@ -134,7 +134,7 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
                 userName = s.userName,
                 aiAvatar = ta.avatar,
                 aiAvatarEmoji = ta.avatarEmoji,
-                userAvatar = s.userAvatar,
+                userAvatar = com.cleo.cleos.data.UserAvatars.effective(s,ta),
                 chatAvatars = s.chatAvatars,
                 avatarEachMessage = s.avatarEachMessage,
                 chatTextSize = s.chatTextSize,
@@ -146,7 +146,7 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
                 recapUntil = conversation?.let { cv -> cv.recapUntilAt?.let { at -> at to (cv.recapUntilId ?: Long.MAX_VALUE) } },
                 transcribing = transcribing,
                 voiceReady = s.voiceBaseUrl.isNotBlank() && s.voiceModel.isNotBlank(),
-                speechReady = Speech.ready(s),
+                speechReady = Speech.ready(com.cleo.cleos.ai.TaVoices.effective(s, ta)),
                 loaded = true,
             )
         }

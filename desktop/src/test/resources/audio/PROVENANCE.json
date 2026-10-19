@@ -1,0 +1,12 @@
+{
+  "origin": "original synthetic 0.5s 440Hz sine, PCM16 mono16000Hz, generated locally without microphone or private media",
+  "testEncoderWheel": "imageio_ffmpeg-0.6.0-py3-none-win_amd64.whl",
+  "wheelSource": "https://files.pythonhosted.org/packages/2c/c6/fa760e12a2483469e2bf5058c5faff664acf66cadb4df2ad6205b016a73d/imageio_ffmpeg-0.6.0-py3-none-win_amd64.whl",
+  "wheelSha256": "02fa47c83703c37df6bfe4896aab339013f62bf02c5ebf2dce6da56af04ffc0a",
+  "appRuntimeDependency": false,
+  "files": {
+    "synthetic-tone.m4a": "c074755e9c1623546342ed3d3eb75e083f7a79504d8cfbe48720a0e979c8f65d",
+    "synthetic-tone.mp3": "1148a50119222477909dda84248fcc40c8715b12d59a030576e00b4b49b35d86",
+    "synthetic-tone.wav": "4673df12da6022cc6bef4943f93bc7684a91246421e3860ae5778fe12dd46f4b"
+  }
+}

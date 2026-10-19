@@ -92,7 +92,8 @@ enum class SettingsPage(val title: String) {
     /** Whose these are, under the page's title: the TA's own, or every TA's. */
     fun subtitle(taName: String): String? = when (this) {
         Profile, Model, Behavior -> taName
-        Abilities, Voice, Mcp -> "所有 TA 共用"
+        Voice -> "共用平台 · 音色可分别设置"
+        Abilities, Mcp -> "所有 TA 共用"
         else -> null
     }
 
@@ -164,7 +165,7 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit
         }
     }
 
-    ListCard("所有 TA 共用") {
+    ListCard("服务与能力") {
         Entry(Icons.Rounded.Widgets, "能做的事", "开着 ${ABILITIES.count { it in settings.tools }} 项") { onOpen(SettingsPage.Abilities) }
         RowDivider()
         val voice = vm.voiceService
@@ -172,7 +173,8 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit
             voice == null -> Entry(Icons.Rounded.GraphicEq, "TA 的声音", "还没选", if (ToolGroup.Speak in settings.tools) palette.error else null) {
                 onOpen(SettingsPage.Voice)
             }
-            else -> Entry(Icons.Rounded.GraphicEq, "TA 的声音", voice.label + if (settings.earVoice) " · 戴耳机时在耳边说" else "") {
+            else -> Entry(Icons.Rounded.GraphicEq, "TA 的声音", voice.label +
+                if (ta != null && com.cleo.cleos.ai.TaVoices.choice(ta.voiceChoices, settings) != null) " · 专属音色" else " · 共用音色") {
                 onOpen(SettingsPage.Voice)
             }
         }

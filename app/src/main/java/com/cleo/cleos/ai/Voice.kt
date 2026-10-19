@@ -128,7 +128,7 @@ class Transcriber(http: OkHttpClient, private val secrets: SecretStore) {
                     is SocketTimeoutException -> "等太久没有回应"
                     else -> "网络出错：${e.message ?: e.javaClass.simpleName}"
                 },
-            )
+            ).apply { initCause(e) }
         }
     }
 

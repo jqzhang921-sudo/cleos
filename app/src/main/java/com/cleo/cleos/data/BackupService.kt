@@ -17,6 +17,8 @@ import com.cleo.cleos.data.db.MessageEntity
 import com.cleo.cleos.data.db.StickerEntity
 import com.cleo.cleos.data.db.TodoEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.first
 import kotlinx.serialization.Serializable
@@ -95,6 +97,7 @@ data class BackupSettings(
     val elevenModel: String = "",
     val earVoice: Boolean = true,
     val expandVoiceText: Boolean = false,
+    val showThought: Boolean = true,
 )
 
 /** The backup format: one zip, `backup.json` plus the pictures under `images/`. */
@@ -130,7 +133,7 @@ data class BackupFile(
     companion object {
         const val FORMAT = "cleos-backup"
         // Older readers must not re-activate former members or drop shared conversations.
-        const val VERSION = 6
+        const val VERSION = 15
     }
 }
 
@@ -150,6 +153,8 @@ data class BackupSummary(
     val groups: Int = 0,
     val groupMessages: Int = 0,
     val groupMemories: Int = 0,
+    val missingGroupDraftImages: Int = 0,
+    val missingGroupDraftVoices: Int = 0,
 ) {
     override fun toString() =
         "$tas 个 TA、$conversations 段对话（$messages 条消息）、$diary 篇日记、$letters 封信、$todos 条待办、$images 张图" +
@@ -159,7 +164,9 @@ data class BackupSummary(
             (if (lore > 0) "、$lore 条设定" else "") +
             (if (feedPosts > 0) "、$feedPosts 条动态" else "") +
             (if (groups > 0) "、$groups 个群聊（$groupMessages 条群消息）" else "") +
-            (if (groupMemories > 0) "、$groupMemories 条群内记录" else "")
+            (if (groupMemories > 0) "、$groupMemories 条群内记录" else "") +
+            (if (missingGroupDraftImages > 0) "；有 $missingGroupDraftImages 张未发送的群草稿图缺失，请重新选择" else "") +
+            (if (missingGroupDraftVoices > 0) "；有 $missingGroupDraftVoices 段群语音草稿文件缺失，已有转写保留为文字草稿，没有转写的请重新录制" else "")
 }
 
 /** Recordings are named voice_…, among the pictures (VoiceRecorder). */
@@ -199,6 +206,27 @@ class BackupService(
     suspend fun export(uri: Uri): BackupSummary = withContext(Dispatchers.IO) {
         val out = resolver.openOutputStream(uri) ?: throw BackupException("打不开要保存的位置")
         out.use { write(it) }
+    }
+
+    /** Same backup format, kept only in private cache for an explicitly approved transfer. */
+    suspend fun withTransferBackup(action:(File)->Unit) = withContext(Dispatchers.IO) {
+        val directory=File(cacheDir,"desktop-transfer").apply { mkdirs() }
+        directory.listFiles()?.filter { it.isFile && it.name.startsWith("outgoing-") && it.name.endsWith(".zip") && System.currentTimeMillis()-it.lastModified()>86400000 }?.forEach { it.delete() }
+        val file=File.createTempFile("outgoing-",".zip",directory)
+        val task=currentCoroutineContext()
+        try {
+            file.outputStream().use { raw ->
+                val bounded=object:OutputStream() {
+                    var size=0L
+                    private fun count(n:Int) { task.ensureActive();size+=n;if(size>com.cleo.cleos.transfer.MAX_TRANSFER_BYTES)throw BackupException("备份超过 2 GB，请使用文件导出后分开保管。") }
+                    override fun write(value:Int){count(1);raw.write(value)}
+                    override fun write(bytes:ByteArray,offset:Int,length:Int){count(length);raw.write(bytes,offset,length)}
+                    override fun flush(){raw.flush()}
+                }
+                write(bounded)
+            }
+            task.ensureActive();action(file)
+        } finally { file.delete() }
     }
 
     suspend fun restore(uri: Uri): BackupSummary = withContext(Dispatchers.IO) {
@@ -275,6 +303,7 @@ class BackupService(
                 elevenModel = s.elevenModel,
                 earVoice = s.earVoice,
                 expandVoiceText = s.expandVoiceText,
+                showThought = s.showThought,
                 knownSince = lead?.knownSince,
             ),
             conversations = db.conversations().all(),
@@ -300,9 +329,12 @@ class BackupService(
             data.feedPosts.flatMap { MessageImages.decode(it.images).map { picture -> picture.file } } +
             data.messages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
             data.groupMessages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
+            data.groups.flatMap { g -> MessageImages.decode(g.draftImages).map { it.file } } +
             // Recordings live with the pictures and travel the same way.
             data.messages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +
-            companions.mapNotNull { it.avatar } + data.groupMembers.mapNotNull { it.avatar } + data.groupMessages.mapNotNull { it.speakerAvatar } +
+            data.groupMessages.mapNotNull { m -> MessageAudios.decode(m.audio)?.file } +
+            data.groups.mapNotNull { g -> com.cleo.cleos.ai.GroupVoiceRules.draft(g.draftAudio, g.id)?.file } +
+            companions.mapNotNull { it.avatar } + companions.mapNotNull { UserAvatars.filename(it.userAvatar) } + data.groupMembers.mapNotNull { it.avatar } + data.groupMessages.mapNotNull { it.speakerAvatar } +
             stickerFiles +
             s.bubblePresets.flatMap { it.decoration.imageFiles() } + s.bubbleDecoration.components.mapNotNull { it.image } + listOfNotNull(s.wallpaper, s.feedCover, s.userAvatar, s.bubbleDecoration.faceImage, s.bubbleDecoration.starImage)).toSet()
 
@@ -360,7 +392,10 @@ class BackupService(
             val d = data ?: throw BackupException("这不是 Cleos 的备份文件")
             if (d.format != BackupFile.FORMAT) throw BackupException("这不是 Cleos 的备份文件")
             if (d.version > BackupFile.VERSION) throw BackupException("这份备份来自更新版本的 Cleos，先更新 App 再恢复")
-            try { GroupBackupRules.validate(d.groups, d.groupMembers, d.groupTurns, d.groupMessages, d.groupMemories) }
+            try {
+                com.cleo.cleos.ai.TaVoices.validateBackup(d.companions)
+                GroupBackupRules.validate(d.groups, d.groupMembers, d.groupTurns, d.groupMessages, d.groupMemories)
+            }
             catch (e: IllegalArgumentException) { throw BackupException(e.message ?: "群聊备份不完整") }
 
             if (takeSnapshot) {
@@ -392,7 +427,7 @@ class BackupService(
                         createdAt = d.exportedAt,
                     ),
                 )
-            }.map { it.copy(avatar = picture(it.avatar)) }
+            }.map { it.copy(avatar = picture(it.avatar),userAvatar=UserAvatars.restored(it.userAvatar) { name -> picture(name)!=null }) }
             // TA entries in such a backup carry no owner: they were all TA 1's.
             val diary = d.diary.map {
                 if (it.author == DiaryEntryEntity.AUTHOR_AI && it.companionId == null) it.copy(companionId = Companions.FIRST) else it
@@ -403,6 +438,7 @@ class BackupService(
                 // What TAs noted to come back to, and what came of it: not in backups, and about
                 // conversations that are about to go.
                 db.favorites().clear()
+                db.incomingCalls().clear()
                 db.groups().clear()
                 db.later().clear()
                 db.wakes().clear()
@@ -418,7 +454,11 @@ class BackupService(
                 db.companions().clear()
                 db.companions().insertAll(companions)
                 db.conversations().insertAll(d.conversations)
-                db.messages().insertAll(d.messages)
+                db.messages().insertAll(d.messages.map { m ->
+                    if(m.role=="call") CallRecords.decode(m.content)?.let { r ->
+                        m.copy(content=CallRecords.encode(CallRecords.restored(r,d.exportedAt)))
+                    } ?: m else m
+                })
                 db.diary().insertAll(diary)
                 db.todos().insertAll(d.todos)
                 db.letters().insertAll(d.letters)
@@ -427,10 +467,13 @@ class BackupService(
                 db.feed().insertAll(d.feedPosts)
                 db.stickers().insertAll(stickers)
                 db.favorites().insertAll(d.favorites)
-                db.groups().restoreGroups(d.groups)
+                db.groups().restoreGroups(d.groups.map { g -> com.cleo.cleos.ai.GroupVoiceRules.restoredDraft(g) { picture(it) != null }
+                    .copy(draftImages = MessageImages.encode(MessageImages.decode(g.draftImages).filter { picture(it.file) != null })) })
                 db.groups().insertMembers(d.groupMembers.map { it.copy(avatar = picture(it.avatar)) })
                 db.groups().restoreTurns(d.groupTurns.map(GroupBackupRules::restored))
-                db.groups().restoreMessages(d.groupMessages.map { com.cleo.cleos.ai.GroupPhotoRules.restored(GroupBackupRules.restored(it)) { name -> picture(name) != null }.copy(speakerAvatar = picture(it.speakerAvatar)) })
+                db.groups().restoreMessages(d.groupMessages.map { com.cleo.cleos.ai.GroupVoiceRules.restored(
+                    com.cleo.cleos.ai.GroupPhotoRules.restored(GroupBackupRules.restored(it)) { name -> picture(name) != null }) { name -> picture(name) != null }
+                    .copy(speakerAvatar = picture(it.speakerAvatar)) })
                 db.groups().restoreMemories(d.groupMemories)
             }
             // A backup from before each voice service had its own place says "api" for all of them.
@@ -482,6 +525,7 @@ class BackupService(
                     elevenModel = bs.elevenModel,
                     earVoice = bs.earVoice,
                     expandVoiceText = bs.expandVoiceText,
+                    showThought = bs.showThought,
                 )
             }
             settings.setCurrentCompanion(companions.first().id)
@@ -494,6 +538,8 @@ class BackupService(
                 stickers = stickers.size, favorites = d.favorites.size, lore = d.lore.size, feedPosts = d.feedPosts.size,
                 groups = d.groups.size, groupMessages = d.groupMessages.count { it.content.isNotBlank() || it.images != null },
                 groupMemories = d.groupMemories.size,
+                missingGroupDraftImages = d.groups.sumOf { g -> MessageImages.decode(g.draftImages).count { picture(it.file) == null } },
+                missingGroupDraftVoices = d.groups.count { g -> com.cleo.cleos.ai.GroupVoiceRules.draft(g.draftAudio, g.id)?.let { picture(it.file) == null } == true },
             )
         } finally {
             staging.deleteRecursively()

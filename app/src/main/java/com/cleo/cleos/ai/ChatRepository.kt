@@ -39,6 +39,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,6 +73,8 @@ data class StreamingReply(
     val thought: String = "",
     /** How long it thought, once it is done thinking; null while it still is. */
     val thoughtMs: Long? = null,
+    /** The final request failure, during hand-over to its stored error row. */
+    val error: String? = null,
 )
 
 /**
@@ -168,7 +171,14 @@ class ChatRepository(
     private var calling: Long? = null
 
     /** Whether a reply is waiting or under way in [conversationId], including while its tools run, or a call is on there. */
-    fun busy(conversationId: Long): Boolean = jobs[conversationId]?.isActive == true || calling == conversationId
+    fun busy(conversationId: Long): Boolean = jobs[conversationId]?.isActive == true || calling == conversationId || conversationId in groupCallConversations
+
+    @Volatile private var groupCallConversations: Set<Long> = emptySet()
+    fun reserveGroupCall(ids: Set<Long>): Boolean = synchronized(lock) {
+        if (groupCallConversations.isNotEmpty() || ids.any { busy(it) || isTyping(it) }) false
+        else { groupCallConversations = ids; true }
+    }
+    fun releaseGroupCall() = synchronized(lock) { groupCallConversations = emptySet<Long>() }
 
     /** Guards starting and ending a conversation's job, which messages sent from anywhere can race. */
     private val lock = Any()
@@ -190,7 +200,7 @@ class ChatRepository(
     val working: StateFlow<Set<Long>> = _working.asStateFlow()
 
     /** [block] as [conversationId]'s job: registered before it starts, so a quick one can't finish before it is on the map. */
-    private fun launchFor(conversationId: Long, block: suspend CoroutineScope.() -> Unit) {
+    private fun launchFor(conversationId: Long, block: suspend CoroutineScope.() -> Unit): Job {
         val job = scope.launch(start = CoroutineStart.LAZY, block = block)
         jobs[conversationId] = job
         _working.update { it + conversationId }
@@ -200,6 +210,7 @@ class ChatRepository(
             if (jobs[conversationId] == null) _working.update { it - conversationId }
         }
         job.start()
+        return job
     }
 
     // Several messages in a row, the way people send them: the reply waits until the person
@@ -348,7 +359,7 @@ class ChatRepository(
 
     /** The collection, read once for a request, and whether the TA may send from it (its switch). */
     private suspend fun stickersFor(s: AppSettings): Pair<StickerBook, Boolean> =
-        StickerBook(db.stickers().all()) to (ToolGroup.Stickers in s.tools)
+        StickerBook(db.stickers().all().filter { images.file(it.file).isFile }) to (ToolGroup.Stickers in s.tools)
 
     /**
      * A voice message: stored at once, so it shows while it is being turned into text, then
@@ -649,11 +660,12 @@ class ChatRepository(
      * A call begins in [conversationId]: a reply still under way there stops, since the person has
      * moved on to calling, and the call's row goes in. Returns its id.
      */
-    suspend fun beginCall(conversationId: Long): Long {
+    suspend fun beginCall(conversationId: Long, existing: Long? = null): Long {
         calling = conversationId
         stopReplies(listOf(conversationId))
         val at = stamp()
-        val id = db.messages().insert(
+        val id = existing?.also { check(db.messages().get(it)?.let { row -> row.role=="call" && row.conversationId==conversationId }==true) }
+            ?: db.messages().insert(
             MessageEntity(conversationId = conversationId, role = "call", content = CallRecords.encode(CallRecord()), createdAt = at),
         )
         db.conversations().touch(conversationId, at)
@@ -661,7 +673,10 @@ class ChatRepository(
     }
 
     /** The TA picked up, [at] then: the call's length counts from here. */
-    suspend fun callAnswered(callId: Long, at: Long) = changeCall(callId) { it.copy(answeredAt = at) }
+    suspend fun callAnswered(callId: Long, at: Long) {
+        changeCall(callId) { it.copy(answeredAt = at,outcome=if(it.incoming) "answered" else it.outcome) }
+        db.incomingCalls().answered(callId)
+    }
 
     /** Something said in the call, by the person ("user") or the TA ("assistant"). */
     suspend fun callLine(conversationId: Long, callId: Long, role: String, text: String) {
@@ -675,10 +690,24 @@ class ChatRepository(
     /** The call is over: its row says when, replies there can come again, and the recap catches up with it. */
     suspend fun endCall(conversationId: Long, callId: Long) {
         withContext(NonCancellable) {
-            changeCall(callId) { it.copy(endedAt = System.currentTimeMillis()) }
+            changeCall(callId) { it.copy(endedAt = System.currentTimeMillis(),outcome=if(it.incoming && it.answeredAt==null) "failed" else it.outcome) }
             db.conversations().touch(conversationId, stamp())
             if (calling == conversationId) calling = null
             recaps.foldLater(conversationId)
+        }
+    }
+
+    /** Also closes an invitation cancelled before beginCall/audio setup could run. */
+    suspend fun finishIncoming(invitation: com.cleo.cleos.data.db.IncomingCallEntity) = withContext(NonCancellable) {
+        db.withTransaction {
+            val current=db.incomingCalls().get(invitation.id) ?: return@withTransaction
+            if(current.status!="connecting" || current.recordId!=invitation.recordId) return@withTransaction
+            if(db.incomingCalls().transition(current.id,"connecting","failed")==1) current.recordId?.let { id ->
+                db.messages().get(id)?.takeIf { it.conversationId==current.conversationId && it.role=="call" }?.let { row ->
+                    CallRecords.decode(row.content)?.let { r -> db.messages().setContent(id,
+                        CallRecords.encode(r.copy(endedAt=System.currentTimeMillis(),outcome="failed"))) }
+                }
+            }
         }
     }
 
@@ -687,8 +716,10 @@ class ChatRepository(
         for (row in db.messages().calls()) {
             val record = CallRecords.decode(row.content) ?: continue
             if (record.endedAt != null || row.conversationId == calling) continue
+            if (db.incomingCalls().pendingRecord(row.id,System.currentTimeMillis()) > 0) continue
             val last = db.messages().lastInCall(row.id) ?: record.answeredAt ?: row.createdAt
-            db.messages().setContent(row.id, CallRecords.encode(record.copy(endedAt = maxOf(last, record.answeredAt ?: last))))
+            db.messages().setContent(row.id, CallRecords.encode(record.copy(endedAt = maxOf(last, record.answeredAt ?: last),
+                outcome=if(record.incoming && record.answeredAt==null) "missed" else record.outcome)))
         }
     }
 
@@ -714,9 +745,10 @@ class ChatRepository(
      * that long is a dropped line. [instruction]: a turn nobody asked for (the line went quiet), told
      * the TA unseen, the way a wake is. Returns all it said; throws ChatException when there is no answer.
      */
-    suspend fun callReply(conversationId: Long, callId: Long, instruction: String? = null, say: (String) -> Unit): String {
-        val s = settings.current()
+    suspend fun callReply(conversationId: Long, callId: Long, instruction: String? = null,
+        greeting: Boolean = false, onFirstText: () -> Unit = {}, say: (String) -> Unit): String {
         val ta = taOf(conversationId)
+        val s = TaVoices.effective(settings.current(), ta)
         // Everything said on the phone is heard: the model the TA has for that, when it has one.
         val use = ta.modelFor(heard = true)
         val key = secrets.key(use.baseUrl)?.takeIf { it.isNotBlank() }
@@ -725,7 +757,10 @@ class ChatRepository(
         val endpoint = ApiEndpoint(use.baseUrl, key, use.model)
         val endpointKey = endpoint.chatUrl + "|" + endpoint.model
         val history = Recap.sent(recaps.live(conversation), s.historySize)
-        var groups = groupsFor(s, ta) intersect CALL_TOOLS
+        val literalAllowed = instruction == null && WakeOutput.allowsLiteral(history.lastOrNull { it.role == "user" }?.content.orEmpty())
+        // First answer to an incoming call: greet before doing calendar/memory tool round trips.
+        // Later turns keep their usual call tools and the same full conversation context.
+        var groups = if (greeting) emptySet() else groupsFor(s, ta) intersect CALL_TOOLS
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
         val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
         // The person's stickers in what came before, told in words: none are sent on the phone.
@@ -740,7 +775,8 @@ class ChatRepository(
         val said = StringBuilder()
         var rounds = 0
         while (true) {
-            val step = callStep(conversationId, callId, endpoint, messages, tools.specs(groups), mayRefuse = rounds == 0 && groups.isNotEmpty()) {
+            val step = callStep(conversationId, callId, endpoint, messages, tools.specs(groups), mayRefuse = rounds == 0 && groups.isNotEmpty(),
+                proactive = instruction != null, literalAllowed = literalAllowed, onFirstText = onFirstText) {
                 said.append(it)
                 say(it)
             }
@@ -752,6 +788,7 @@ class ChatRepository(
                 is Step.Called -> {
                     if (rounds == MAX_TOOL_ROUNDS) return said.toString()
                     val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, emptyList(), ta.name, inCall = callId)
+                    if (greeting) return said.toString() // Unoffered guesses are rejected, not retried as a greeting.
                     messages = messages + step.message + results
                     rounds++
                 }
@@ -772,28 +809,38 @@ class ChatRepository(
         messages: List<ApiMessage>,
         specs: List<ToolSpec>,
         mayRefuse: Boolean,
+        proactive: Boolean,
+        literalAllowed: Boolean,
+        onFirstText: () -> Unit = {},
         say: (String) -> Unit,
     ): Step {
         val text = StringBuilder()
+        val speech = WakeOutput.Speech(proactive, literalAllowed)
+        val sentWords = StringBuilder()
+        fun speak(delta: String) { speech.append(delta).takeIf { it.isNotEmpty() }?.let(say) }
         val reasoning = StringBuilder()
         var calls = emptyList<ToolCall>()
+        var firstText = true
         try {
             client.stream(endpoint, messages, specs).collect { event ->
                 when (event) {
                     is ChatEvent.Delta -> {
+                        if (firstText && event.text.isNotBlank()) { firstText=false; onFirstText() }
                         text.append(event.text)
-                        say(event.text)
+                        speak(event.text)
                     }
                     is ChatEvent.Reasoning -> if (event.sendBack) reasoning.append(event.text)
                     is ChatEvent.ToolCalls -> {
+                        speech.finish().takeIf { it.isNotEmpty() }?.let(say)
                         // Sending messages isn't offered on the phone. A model used to it may send one
                         // all the same: what it meant to send is said instead.
                         val (sends, others) = event.calls.partition { it.name in ToolSpecs.speaking }
                         for (send in sends) {
-                            val words = ToolArgs.parse(send.arguments)?.let { ToolArgs.text(it, "text") }?.trim().orEmpty()
+                            val rawWords = ToolArgs.parse(send.arguments)?.let { ToolArgs.text(it, "text") }?.trim().orEmpty()
+                            val words = WakeOutput.message(rawWords, proactive, literalAllowed).orEmpty()
                             if (words.isNotEmpty()) {
-                                val line = if (text.isEmpty()) words else "\n$words"
-                                text.append(line)
+                                val line = if (speech.text().isEmpty() && sentWords.isEmpty()) words else "\n$words"
+                                sentWords.append(line)
                                 say(line)
                             }
                         }
@@ -810,7 +857,9 @@ class ChatRepository(
         } catch (e: Exception) {
             throw ChatException("出错了：${e.message ?: e.javaClass.simpleName}")
         }
-        if (calls.isEmpty()) return Step.Said(text.toString(), null, null)
+        speech.finish().takeIf { it.isNotEmpty() }?.let(say)
+        val visible = speech.text() + sentWords
+        if (calls.isEmpty()) return Step.Said(visible, null, null)
         val sentBack = reasoning.toString().ifEmpty { null }
         val id = withContext(NonCancellable) {
             db.messages().insert(
@@ -825,7 +874,7 @@ class ChatRepository(
                 ),
             )
         }
-        return Step.Called(ApiMessage("assistant", text.toString(), calls, reasoning = sentBack), savedId = id)
+        return Step.Called(ApiMessage("assistant", visible, calls, reasoning = sentBack), savedId = id)
     }
 
     /** A conversation, its pictures and recordings: the rows go by cascade, the files would stay behind. */
@@ -877,6 +926,7 @@ class ChatRepository(
     sealed interface WakeResult {
         /** What the TA sent, in order. */
         class Sent(val messages: List<MessageEntity>) : WakeResult
+        class Invited(val invitationId: String) : WakeResult
 
         /** It decided not to; [why] is what it said after SKIP. */
         class Skipped(val why: String) : WakeResult
@@ -905,15 +955,18 @@ class ChatRepository(
                      source: String = com.cleo.cleos.data.db.WakeActivityEntity.NOTE,
                      allowed: suspend () -> Boolean = { true }): WakeResult {
         val taId = db.conversations().get(conversationId)?.companionId ?: return WakeResult.Skipped("对话已删除")
-        val activity = activities.begin(taId, conversationId, source)
+        var activity: Long? = null
         return try {
+            // Assign inside the protected block, so cancellation cannot lose a committed row id.
+            withContext(NonCancellable) { activity = activities.begin(taId, conversationId, source) }
+            currentCoroutineContext().ensureActive()
             val result = wakeRecorded(conversationId, instruction, followUp, activity, source == com.cleo.cleos.data.db.WakeActivityEntity.FREE, allowed)
             if (result is WakeResult.Failed && result.why == STOPPED)
-                activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.CANCELLED, "执行被取消，可能已发送部分内容；可在聊天里查看")
+                activities.cancelled(activity)
             else activities.result(activity, result)
             result
         } catch (e: CancellationException) {
-            withContext(NonCancellable) { activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.CANCELLED, "执行被取消，可能已发送部分内容；可在聊天里查看") }
+            activities.cancelled(activity)
             throw e
         } catch (e: Exception) {
             activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.FAILED, e.message ?: "执行失败")
@@ -924,13 +977,13 @@ class ChatRepository(
     private suspend fun wakeRecorded(conversationId: Long, instruction: String, followUp: Boolean, activity: Long?, freeVisit: Boolean, allowed: suspend () -> Boolean): WakeResult {
         val taId = db.conversations().get(conversationId)?.companionId ?: return WakeResult.Skipped("对话已删除")
         val outcome = CompletableDeferred<WakeResult>()
-        synchronized(lock) {
+        val (request, seenBefore) = synchronized(lock) {
             if (busy(conversationId) || wakeJobsByTa[taId]?.isActive == true) return WakeResult.Busy
             val seen = sends[conversationId]
-            launchFor(conversationId) {
+            val job = launchFor(conversationId) {
                 outcome.complete(
                     try {
-                        if (allowed()) wakeTurn(conversationId, instruction, activity, freeVisit) else WakeResult.Skipped("这次补充已取消")
+                        if (allowed()) wakeTurn(conversationId, instruction, activity, freeVisit, allowed) else WakeResult.Skipped("这次补充已取消")
                     } catch (e: CancellationException) {
                         outcome.complete(WakeResult.Failed(STOPPED))
                         throw e
@@ -958,15 +1011,23 @@ class ChatRepository(
                 job.invokeOnCompletion { wakeJobsByTa.remove(taId, job) }
             }
             // Stopped before it began (its TA deleted meanwhile): an answer all the same.
-            jobs[conversationId]?.invokeOnCompletion { outcome.complete(WakeResult.Failed(STOPPED)) }
+            job.invokeOnCompletion { outcome.complete(WakeResult.Failed(STOPPED)) }
+            job to seen
         }
-        return outcome.await()
+        return awaitBackgroundResult(outcome, request) {
+            synchronized(lock) {
+                // The user may have sent while the wake was running. Its cancelled worker
+                // must not also discard the real reply that used to follow in this job.
+                if (sends[conversationId] != seenBefore && !busy(conversationId))
+                    launchFor(conversationId) { answerUntilQuiet(conversationId) }
+            }
+        }
     }
 
-    private suspend fun wakeTurn(conversationId: Long, instruction: String, activity: Long?, freeVisit: Boolean): WakeResult {
+    private suspend fun wakeTurn(conversationId: Long, instruction: String, activity: Long?, freeVisit: Boolean, allowed: suspend () -> Boolean): WakeResult {
         activities.preparing(activity)
-        val s = settings.current()
         val ta = taOf(conversationId)
+        val s = TaVoices.effective(settings.current(), ta)
         val key = secrets.key(ta.apiBaseUrl)
         if (key.isNullOrBlank()) return WakeResult.Failed("还没填 API Key")
         val conversation = db.conversations().get(conversationId) ?: return WakeResult.Failed("对话已经删了")
@@ -975,6 +1036,7 @@ class ChatRepository(
         val history = Recap.sent(recaps.live(conversation), s.historySize)
         val now = ZonedDateTime.now()
         val since = System.currentTimeMillis()
+        val incomingAllowed = freeVisit && ta.incomingCallsEnabled && ta.freeTopicEnabled
         // No outside services and no pictures: nobody is there to allow a call, and deciding
         // whether to say something shouldn't cost what answering a picture does. No music either:
         // a song is paused or skipped when the person asks, and a wake is nobody asking.
@@ -988,10 +1050,11 @@ class ChatRepository(
         fun build() = Prompt.withWake(
             Prompt.messages(s, ta, history, now, groups, false, memories, conversation.recap, stickers = stickers, sendStickers = sendStickers, calls = calls, lore = lore,
                 preserveReasoning = Thinking.keepsToolReasoning(endpoint.model)),
-            instruction,
+            instruction + if(incomingAllowed) "\n你也可以自主选择用 request_call 邀请一次语音通话。只有确实想通过声音聊时才邀请，成功后直接结束本次回复，等待对方决定。" else "",
         )
         var messages = build()
         var rounds = 0
+        val background = BackgroundRequest()
         suspend fun sent() = db.messages().proactiveSince(conversationId, since)
         suspend fun result(why: String): WakeResult {
             val said = sent()
@@ -1002,12 +1065,16 @@ class ChatRepository(
         try {
             while (true) {
                 val mayRefuse = rounds == 0 && (groups.isNotEmpty() || thinking)
-                when (val step = step(conversationId, endpoint, messages, tools.specs(groups), mayRefuse, thinking, showThought = ta.deepThinking, wake = true, onRequest = { activities.request(activity) })) {
+                when (val step = step(conversationId, endpoint, messages, tools.specs(groups,incomingAllowed), mayRefuse, thinking, showThought = ta.deepThinking, wake = true,
+                    onRequest = { activities.request(activity) }, background = background,
+                    // Follow-up anchors stop matching after our own first tool message is saved.
+                    allowed = if (rounds == 0) allowed else { { true } },
+                    onRetry = { wait -> activities.retrying(activity, wait) })) {
                     is Step.Said -> {
                         val error = step.error
                         if (error != null) return if (sent().isEmpty()) WakeResult.Failed(error) else result("")
-                        val text = step.text.trim()
-                        if (text.isEmpty() || LaterRules.isSkip(text)) return result(LaterRules.skipReason(text))
+                        val decision = WakeOutput.inspect(step.text)
+                        val text = decision.text ?: return result(decision.reason)
                         // A model that doesn't send messages through the tool says it in plain words.
                         withContext(NonCancellable) {
                             val at = System.currentTimeMillis()
@@ -1017,8 +1084,6 @@ class ChatRepository(
                                     role = "assistant",
                                     content = text,
                                     createdAt = at,
-                                    thought = step.thought?.let(MessageThoughts::encode),
-                                    reasoning = step.reasoning,
                                     proactive = true,
                                 ),
                             )
@@ -1033,7 +1098,10 @@ class ChatRepository(
                     is Step.Called -> {
                         if (rounds == MAX_TOOL_ROUNDS) return result("连着用了太多次工具")
                         activities.tools(activity, step.message.toolCalls.map { tools.action(it.name) })
-                        val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, emptyList(), ta.name, wake = true)
+                        var invitation: String? = null
+                        val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, emptyList(), ta.name, wake = true,
+                            incomingAllowed=incomingAllowed,onIncoming={invitation=it})
+                        invitation?.let { return WakeResult.Invited(it) }
                         if (step.message.toolCalls.all { it.name in ToolSpecs.speaking }) return result("")
                         messages = messages + step.message + results
                         rounds++
@@ -1059,12 +1127,13 @@ class ChatRepository(
 
     private suspend fun reply(conversationId: Long) {
         val startedAt = System.currentTimeMillis()
-        val s = settings.current()
         val ta = taOf(conversationId)
+        val s = TaVoices.effective(settings.current(), ta)
         // What isn't folded into the recap yet, as much of it as the window takes. The recap
         // stands in for everything before.
         val conversation = db.conversations().get(conversationId)
         val history = if (conversation == null) emptyList() else Recap.sent(recaps.live(conversation), s.historySize)
+        val literalAllowed = WakeOutput.allowsLiteral(history.lastOrNull { it.role == "user" }?.content.orEmpty())
         // Something said aloud is answered by the model the TA has for words heard, when it has one.
         val use = ta.modelFor(heard = history.lastOrNull { it.role == "user" }?.audio != null)
         val key = secrets.key(use.baseUrl)
@@ -1092,6 +1161,7 @@ class ChatRepository(
             val recap = conversation?.recap
             val now = ZonedDateTime.now()
             var groups = groupsFor(s, ta)
+            val incomingAllowed = ta.incomingCallsEnabled && ta.freeTopicEnabled
             // The tools of the MCP services switched on come along whenever tools do.
             var outside = mcp.tools()
             var withImages = endpointKey !in refusesImages && history.any { it.role == "user" && it.images != null }
@@ -1113,6 +1183,7 @@ class ChatRepository(
                 s, ta, history, now, groups, withImages, memories, recap, outside, due.map { it.what }, heard, stickers, sendStickers, calls = calls,
                 lore = lore,
                 preserveReasoning = Thinking.keepsToolReasoning(endpoint.model),
+                incomingCalls = incomingAllowed,
             )
             var messages = prepare(build())
             var rounds = 0
@@ -1127,8 +1198,9 @@ class ChatRepository(
             val imageBudget = McpImages.Budget()
             while (true) {
                 val mayRefuse = rounds == 0 && (groups.isNotEmpty() || outside.isNotEmpty() || withImages || thinking)
-                val specs = tools.specs(groups) + outside.map { it.spec }
-                when (val step = step(conversationId, endpoint, messages, specs, mayRefuse, thinking, showThought = ta.deepThinking)) {
+                val specs = tools.specs(groups,incomingAllowed) + outside.map { it.spec }
+                when (val step = step(conversationId, endpoint, messages, specs, mayRefuse, thinking, showThought = ta.deepThinking,
+                    literalAllowed = literalAllowed)) {
                     is Step.Ended -> {
                         if (step.ok) done()
                         return
@@ -1158,7 +1230,15 @@ class ChatRepository(
                             hide(conversationId)
                             return
                         }
-                        val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, outside, ta.name, imageBudget = imageBudget)
+                        var invitation: String? = null
+                        val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, outside, ta.name,
+                            imageBudget = imageBudget, literalAllowed = literalAllowed,
+                            incomingAllowed = incomingAllowed, onIncoming = { invitation=it })
+                        if (invitation != null) {
+                            done()
+                            hide(conversationId)
+                            return
+                        }
                         // Only messages sent: that was the whole reply. Asking again would bring
                         // nothing new, or a "发好了".
                         val reactionOnly = step.message.toolCalls.all { call ->
@@ -1167,6 +1247,11 @@ class ChatRepository(
                                 results.any { it.toolCallId == call.id && it.content == "表情回应已完成。" }
                         }
                         if (step.message.toolCalls.all { it.name in ToolSpecs.speaking } || reactionOnly) {
+                            if (step.message.content.isBlank() && results.all { it.content == WakeOutput.BLOCKED_TOOL }) {
+                                finish(conversationId, System.currentTimeMillis(), "", WakeOutput.BLOCKED_REPLY,
+                                    keepEmpty = true, thought = step.thought, reasoning = step.message.reasoning)
+                                return
+                            }
                             done()
                             hide(conversationId)
                             return
@@ -1244,7 +1329,11 @@ class ChatRepository(
         thinking: Boolean,
         showThought: Boolean,
         wake: Boolean = false,
+        literalAllowed: Boolean = false,
         onRequest: suspend () -> Unit = {},
+        background: BackgroundRequest? = null,
+        allowed: suspend () -> Boolean = { true },
+        onRetry: suspend (Long) -> Unit = {},
     ): Step {
         val startedAt = System.currentTimeMillis()
         val text = StringBuilder()
@@ -1273,17 +1362,22 @@ class ChatRepository(
         }
         live(StreamingReply(conversationId, "", thinking = false))
         try {
-            onRequest()
-            client.stream(endpoint, messages, specs, thinking).collect { event ->
+            val events = if (background != null) background.stream(
+                { client.stream(endpoint, messages, specs, thinking) }, allowed = allowed, onRequest = onRequest, onRetry = onRetry)
+            else {
+                onRequest()
+                client.stream(endpoint, messages, specs, thinking)
+            }
+            events.collect { event ->
                 when (event) {
                     is ChatEvent.Delta -> {
                         doneThinking()
                         text.append(event.text)
-                        live(StreamingReply(conversationId, text.toString(), thinking = false, thought = thoughtShown, thoughtMs = thinkingMs))
+                        live(StreamingReply(conversationId, WakeOutput.preview(text.toString(), literalAllowed), thinking = false, thought = thoughtShown, thoughtMs = thinkingMs))
                     }
                     is ChatEvent.Reasoning -> {
                         if (event.sendBack) reasoning.append(event.text)
-                        if (showThought) {
+                        if (showThought && !wake) {
                             if (thinkingText.isEmpty()) thinkingFrom = System.currentTimeMillis()
                             thinkingText.append(event.text)
                         }
@@ -1294,7 +1388,8 @@ class ChatRepository(
             }
         } catch (e: CancellationException) {
             // Half of what a wake was deciding to say is not a message.
-            if (!wake) withContext(NonCancellable) { finish(conversationId, startedAt, text.toString(), STOPPED, keepEmpty = false, thought()) }
+            if (!wake) withContext(NonCancellable) { finish(conversationId, startedAt,
+                WakeOutput.message(text.toString(), proactive = false, literalAllowed).orEmpty(), STOPPED, keepEmpty = false, thought()) }
             throw e
         } catch (e: ChatException) {
             error = e.message
@@ -1307,10 +1402,14 @@ class ChatRepository(
                 ?.let { feature -> return Step.Refused(feature) }
         }
 
+        if (!wake) error = ReplyFailure.message(error, text.toString(),
+            reasoning.toString().ifBlank { thinkingText.toString() }, failure?.retryableNetwork == true)
+
         return withContext(NonCancellable) {
-            val shown = thought()
+            val shown = if (wake) null else thought()
             if (error == null && calls.isNotEmpty()) {
                 val body = text.toString()
+                val visibleBody = WakeOutput.message(body, wake, literalAllowed).orEmpty()
                 val sentBack = reasoning.toString().ifEmpty { null }
                 // Sent messages are stored as bubbles of their own, not as calls (Prompt turns
                 // bubbles in a row back into calls). With some sent, the words said first go in
@@ -1322,22 +1421,22 @@ class ChatRepository(
                         MessageEntity(
                             conversationId = conversationId,
                             role = "assistant",
-                            content = body,
+                            content = visibleBody,
                             createdAt = startedAt,
                             toolCalls = ToolCallCodec.encode(calls),
-                            reasoning = sentBack,
+                            reasoning = sentBack.takeUnless { wake },
                             thought = shown?.let(MessageThoughts::encode),
                             proactive = wake,
                         ),
                     )
-                    body.isBlank() -> null
+                    visibleBody.isBlank() -> null
                     else -> db.messages().insert(
                         MessageEntity(
                             conversationId = conversationId,
                             role = "assistant",
-                            content = body,
+                            content = visibleBody,
                             createdAt = startedAt,
-                            reasoning = sentBack,
+                            reasoning = sentBack.takeUnless { wake },
                             thought = shown?.let(MessageThoughts::encode),
                             proactive = wake,
                         ),
@@ -1345,11 +1444,13 @@ class ChatRepository(
                 }
                 db.conversations().touch(conversationId, System.currentTimeMillis())
                 // Nothing stored yet: the first message sent takes the thinking along.
-                Step.Called(ApiMessage("assistant", body, calls, reasoning = sentBack), savedId = id, thought = shown.takeIf { id == null })
+                Step.Called(ApiMessage("assistant", visibleBody, calls, reasoning = sentBack), savedId = id, thought = shown.takeIf { id == null })
             } else if (wake) {
                 Step.Said(text.toString(), error, shown, reasoning.toString().ifEmpty { null })
             } else {
-                finish(conversationId, startedAt, text.toString(), error, keepEmpty = true, shown, reasoning.toString().ifEmpty { null })
+                val visible = WakeOutput.message(text.toString(), proactive = false, literalAllowed)
+                if (visible == null && error == null) error = WakeOutput.BLOCKED_REPLY
+                finish(conversationId, startedAt, visible.orEmpty(), error, keepEmpty = true, shown, reasoning.toString().ifEmpty { null })
                 Step.Ended(ok = error == null)
             }
         }
@@ -1372,6 +1473,9 @@ class ChatRepository(
         wake: Boolean = false,
         inCall: Long? = null,
         imageBudget: McpImages.Budget = McpImages.Budget(0),
+        literalAllowed: Boolean = false,
+        incomingAllowed: Boolean = false,
+        onIncoming: (String) -> Unit = {},
     ): List<ApiMessage> {
         val quiet = wake || inCall != null
         val said = step.message.content
@@ -1379,8 +1483,9 @@ class ChatRepository(
         val results = HashMap<String, ApiMessage>()
         var previous = said.takeIf { it.isNotBlank() }
         var sent = 0
+        var invited = false
         // The step's thinking, while nothing it put in the chat has it yet.
-        var thought = step.thought?.let(MessageThoughts::encode)
+        var thought = step.thought?.takeUnless { wake }?.let(MessageThoughts::encode)
         // What the person said lately, newest first: what a message's quote is looked up in.
         var recent: List<MessageEntity>? = null
         suspend fun quoteIn(args: JsonObject?): MessageQuote? {
@@ -1393,8 +1498,10 @@ class ChatRepository(
         }
         for (call in sends) {
             val args = ToolArgs.parse(call.arguments)
-            val words = args?.let { ToolArgs.text(it, "text") }?.trim().orEmpty()
+            val rawWords = args?.let { ToolArgs.text(it, "text") }?.trim().orEmpty()
+            val words = WakeOutput.message(rawWords, wake, literalAllowed)
             val result = when {
+                words == null -> WakeOutput.BLOCKED_TOOL
                 words.isEmpty() -> "没有内容，没发出去。"
                 sent >= MAX_MESSAGES -> "一次最多发 $MAX_MESSAGES 条，这条没发出去。"
                 else -> {
@@ -1429,7 +1536,7 @@ class ChatRepository(
                                 createdAt = at,
                                 audio = voice?.let(MessageAudios::encode),
                                 thought = thought,
-                                reasoning = step.message.reasoning.takeIf { sent == 0 && step.savedId == null },
+                                reasoning = step.message.reasoning.takeIf { !wake && sent == 0 && step.savedId == null },
                                 quote = quote?.let(MessageQuotes::encode),
                                 proactive = wake,
                                 call = inCall,
@@ -1456,7 +1563,7 @@ class ChatRepository(
                         content = "",
                         createdAt = System.currentTimeMillis(),
                         toolCalls = ToolCallCodec.encode(others),
-                        reasoning = step.message.reasoning,
+                        reasoning = step.message.reasoning.takeUnless { wake },
                         // Only if no message went out to carry it.
                         thought = thought,
                         proactive = wake,
@@ -1476,9 +1583,12 @@ class ChatRepository(
                 savedId = step.savedId.takeIf { said.isNotEmpty() },
                 activity = outer?.let { "在用${it.serverName}" } ?: tools.activity(call.name),
             )
-            if (!quiet) show(live)
+            if (!quiet && !invited) show(live)
             var outcome = try {
-                if (outer != null) runOutside(conversationId, outer, call, live, ai)
+                if (invited) ToolOutcome("已经发起来电邀请，正在等待对方接听，本次没有继续执行其他工具。", "")
+                else if (outer != null) runOutside(conversationId, outer, call, live, ai)
+                else if(call.name==ToolSpecs.requestCall.name && !(incomingAllowed && inCall==null))
+                    ToolOutcome("本次没有开放主动来电，请先确认这位 TA 的开关；通话中也不能再邀请来电。本次没有发起来电。","")
                 else if (call.name in setOf(ToolSpecs.searchPhotos.name, ToolSpecs.sharePhoto.name) && (wake || inCall != null))
                     ToolOutcome("找照片只在普通聊天时可用，后台唤醒和电话中不会找图或发送图片。", "找照片没成：当前场景不可用")
                 else if (call.name == ToolSpecs.sharePhoto.name && imageBudget.remaining <= 0)
@@ -1492,6 +1602,7 @@ class ChatRepository(
             // The tool has acted (a todo exists now), so its result is stored even if
             // stop was pressed meanwhile: the history should match what happened.
             withContext(NonCancellable) {
+                outcome.incomingCallId?.let { invited=true; onIncoming(it) }
                 val delivery = outcome.photo?.let { photo ->
                     PhotoDelivery.deliver(photo, imageBudget.remaining) { bytes, mime ->
                         val stored = images.import(bytes, mime, McpImages.MAX_EDGE)
@@ -1624,6 +1735,7 @@ class ChatRepository(
                 finished = true,
                 thought = thought?.text.orEmpty(),
                 thoughtMs = thought?.ms,
+                error = error,
             )
             show(handover)
             scope.launch {

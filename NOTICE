@@ -12,6 +12,10 @@ the memory import interface, and ForeignMemory tests. The contributor
 confirmed Apache-2.0 authorization for those original contributions.
 This acknowledgment does not transfer copyright or attribute entire
 files to a single contributor.
+123456jznb also contributed PR #2: the global thinking-card display
+preference, backup persistence, and chat visibility handling.
+Original contribution: 59b47cd5dfc0868eaea6c783e092a01b5056f417.
+This contribution was submitted under the project Apache-2.0 terms.
 
 Third-party attribution
 binaural-voice: Copyright (c) 2026 Saekisui. MIT License.

@@ -2,6 +2,8 @@ package com.cleo.cleos.ai
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -130,6 +132,8 @@ class ChatException(
     val rejectedFeature: RequestFeature? = null,
     /** Only an allowlisted schema keyword, never the raw response or a secret. */
     val rejectedSchemaKeyword: String? = null,
+    /** A transient transport failure, never an HTTP refusal, TLS failure or permission denial. */
+    val retryableNetwork: Boolean = false,
 ) : Exception(message), EndpointFailure
 
 /** Whether [code] is one of the two that say the path itself is not there. */
@@ -220,6 +224,7 @@ internal object AddressMemory {
 class ChatClient(
     private val http: OkHttpClient,
     private val diagnostic: (String) -> Unit = { Log.i("CleosTools", it) },
+    private val prepare: suspend (Request, String) -> Request = { request, _ -> request },
 ) {
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -246,7 +251,7 @@ class ChatClient(
         val key = endpoint.chatUrl + "|" + endpoint.model
         val always = Thinking.thinksAlways(endpoint.model)
         var requestTools = tools
-        fun request(to: ApiEndpoint, off: Boolean): Call {
+        suspend fun request(to: ApiEndpoint, off: Boolean): Call {
             val body = requestBody(
                 to.model, messages, requestTools,
                 thinking = if (thinking) true else if (off && !always) false else null,
@@ -254,14 +259,14 @@ class ChatClient(
             )
             trace("route=${com.cleo.cleos.diagnostics.ToolDiagnosticStore.fingerprint(to.chatUrl)} " + ChatCompatibility.diagnostic(body))
             return http.newCall(
-            Request.Builder()
+            prepare(Request.Builder()
                 .url(to.chatUrl)
                 .header("Authorization", "Bearer ${to.apiKey}")
                 .header("Accept", "text/event-stream")
                 .post(
                     body.toString().toRequestBody(JSON_TYPE),
                 )
-                .build(),
+                .build(), to.baseUrl),
         )
         }
         val off = !thinking && (always || Thinking.canSwitchOff(endpoint.model)) && key !in refusesOff
@@ -273,7 +278,7 @@ class ChatClient(
             suspend fun sendFrom(to: ApiEndpoint, off: Boolean) {
                 if (!isActive) return
                 var schemaRetried = false
-                fun execute(disableThinking: Boolean): okhttp3.Response {
+                suspend fun execute(disableThinking: Boolean): okhttp3.Response {
                     while (true) {
                         if (!isActive) throw kotlinx.coroutines.CancellationException()
                         val c = request(to, disableThinking)
@@ -337,6 +342,9 @@ class ChatClient(
                         trace("event=response_structure " + parser.diagnostic())
                     }
                 }
+                // The response has been read and closed. Do not cancel a completed call in
+                // awaitClose while the next tool/voice request is acquiring a connection.
+                call = null
             }
             try {
                 atRightAddress(endpoint) { to -> sendFrom(to, off) }
@@ -347,9 +355,16 @@ class ChatClient(
                 close(e)
             } catch (e: IOException) {
                 trace("event=${if (call?.isCanceled() == true) "cancelled" else "stream_failure"} reason=network")
-                close(if (call?.isCanceled() == true) e else ChatException(describeNetworkError(e)))
+                // Cancelling the flow closes the socket while its blocking read unwinds.
+                // Preserve the cancellation instead of replacing a member deadline with that I/O error.
+                currentCoroutineContext().ensureActive()
+                close(if (call?.isCanceled() == true) e else ChatException(describeNetworkError(e),
+                    retryableNetwork = e is UnknownHostException || e is java.net.SocketException ||
+                        e is SocketTimeoutException || e is java.io.EOFException))
             } catch (e: Exception) {
                 trace("event=${if (e is kotlinx.coroutines.CancellationException) "cancelled" else "stream_failure"} reason=processing")
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                currentCoroutineContext().ensureActive()
                 close(e)
             }
         }
@@ -380,7 +395,7 @@ class ChatClient(
                 .post(probeBody(to.model).toString().toRequestBody(JSON_TYPE))
                 .build()
             try {
-                http.newCall(request).execute().use { response ->
+                http.newCall(prepare(request, to.baseUrl)).execute().use { response ->
                     val text = response.body.string()
                     if (!response.isSuccessful) throw httpFailure(response.code, text)
                     // Not JSON at all: a web page, which says nothing about what is wrong.
@@ -413,7 +428,7 @@ class ChatClient(
                 .get()
                 .build()
             try {
-                http.newCall(request).execute().use { response ->
+                http.newCall(prepare(request, to.baseUrl)).execute().use { response ->
                     val text = response.body.string()
                     if (!response.isSuccessful) throw httpFailure(response.code, text)
                     // A web page where a list should be is the address's fault like any other,
@@ -474,8 +489,8 @@ class ChatClient(
     private fun describeNetworkError(e: IOException): String = when {
         e is UnknownHostException -> "找不到服务器：检查地址，或者网络是不是断了"
         e is SocketTimeoutException -> "等太久没有回应，网络可能不太好"
-        // Android refuses plain http by default, so the key would never go out unencrypted.
-        e.message?.contains("CLEARTEXT", ignoreCase = true) == true -> "只支持 https:// 开头的地址"
+        e is com.cleo.cleos.network.EndpointTransportException -> e.message ?: "这个接口尚未获得 HTTP 授权"
+        e.message?.contains("CLEARTEXT", ignoreCase = true) == true -> "HTTP 连接被系统阻止，请检查接口设置或使用 HTTPS"
         else -> "网络出错：${e.message ?: e.javaClass.simpleName}"
     }
 

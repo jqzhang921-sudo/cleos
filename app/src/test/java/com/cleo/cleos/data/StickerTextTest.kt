@@ -24,6 +24,20 @@ class StickerTextTest {
     private val hug = sticker(2, "抱抱")
     private val book = StickerBook(listOf(dizzy, hug))
 
+    @Test fun standaloneModelShortNamesUseRealPicturesAndUnknownNamesAreExplicitlyUnavailable() {
+        val fixed = StickerText.normalizeModelTokens("好呀\n[[晕倒兔]]\n[[没有这张]]", book)
+        assertEquals("好呀\n[[sticker:兔子晕倒]]\n[[sticker:没有这张]]", fixed)
+        assertEquals(listOf(Piece.Words("好呀"), Piece.Sticker(dizzy), Piece.Unavailable("没有这张")), StickerText.split(fixed, book))
+        assertFalse(StickerText.forHistory(fixed, book, true).contains("[[没有这张]]"))
+    }
+
+    @Test fun ordinaryActionsInlineQuotesAndCanonicalTokensAreNotRewritten() {
+        val words = "[摸摸]\n引用 [[抱抱]] 是一句话\n[[sticker:抱抱]]\n[[other:123]]"
+        assertEquals(words, StickerText.normalizeModelTokens(words, book))
+        // User messages never opt into model-marker normalization.
+        assertEquals(listOf(Piece.Words("[[抱抱]]")), StickerText.split("[[抱抱]]", book))
+    }
+
     @Test
     fun wordsAndStickersComeApartInOrder() {
         assertEquals(
@@ -47,18 +61,39 @@ class StickerTextTest {
     }
 
     @Test
-    fun theLooseFormCountsOnlyOnALineOfItsOwnForANameInTheCollection() {
+    fun theLooseFormCountsOnlyOnALineOfItsOwnAndUnknownNamesAreUnavailable() {
         assertEquals(listOf(Piece.Sticker(dizzy)), StickerText.split("[表情包：兔子晕倒]", book))
         assertEquals(listOf(Piece.Words("好呀"), Piece.Sticker(hug)), StickerText.split("好呀\n【表情包：抱抱】", book))
-        assertEquals(listOf(Piece.Words("【表情包：猫猫】")), StickerText.split("【表情包：猫猫】", book))
+        assertEquals(listOf(Piece.Unavailable("猫猫")), StickerText.split("【表情包：猫猫】", book))
         // Talking about one is not sending it.
         val about = "你给我贴的「哈哈 [表情包：兔子晕倒]…」我看到了"
         assertEquals(listOf(Piece.Words(about)), StickerText.split(about, book))
     }
 
     @Test
-    fun aNameNoLongerThereIsReadAsWords() {
-        assertEquals(listOf(Piece.Words("看 [表情包：不在了] 这个")), StickerText.split("看 [[sticker:不在了]] 这个", book))
+    fun aNameNoLongerThereIsNotPresentedAsASuccessfulPicture() {
+        assertEquals(listOf(Piece.Words("看"), Piece.Unavailable("不在了"), Piece.Words("这个")),
+            StickerText.split("看 [[sticker:不在了]] 这个", book))
+    }
+
+    @Test
+    fun bracketedActionsAndOrdinaryQuotedDescriptionsStayText() {
+        for (text in listOf("[摸摸]", "[抱抱]", "代码里 [0] 是首项", "他说【表情包：猫猫】很好笑")) {
+            assertEquals(listOf(Piece.Words(text)), StickerText.split(text, book))
+            assertEquals(text, StickerText.forHistory(text, book, sendTokens = true))
+        }
+    }
+
+    @Test
+    fun unknownNamesCannotBeReplayedAsSuccessfullySentStickers() {
+        for (send in listOf(true, false)) {
+            assertEquals("好呀\n（表情包不可用：猫猫，本次没有可用的对应图片）\n继续聊", StickerText.forHistory(
+                "好呀\n[[sticker:猫猫]]\n继续聊", book, send))
+            assertEquals("（表情包不可用：猫猫，本次没有可用的对应图片）", StickerText.forHistory("【表情包：猫猫】", book, send))
+        }
+        assertEquals("[[sticker:兔子晕倒]]", StickerText.forHistory("[[sticker:晕倒兔]]", book, sendTokens = true))
+        assertEquals("（表情包不可用：抱抱，本次没有可用的对应图片）",
+            StickerText.forHistory("[[sticker:抱抱]]", StickerBook.EMPTY, sendTokens = true))
     }
 
     @Test

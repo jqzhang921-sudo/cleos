@@ -81,12 +81,12 @@ internal fun MessageActionMenu(expanded: Boolean, onDismiss: () -> Unit, actions
                                 "编辑" -> Icons.Rounded.Edit
                                 "引用" -> Icons.AutoMirrored.Rounded.Reply
                                 "朗读", "停止朗读" -> Icons.Rounded.VolumeUp
-                                "收藏" -> Icons.Rounded.BookmarkBorder
+                                "收藏", "记到群里" -> Icons.Rounded.BookmarkBorder
                                 "多选" -> Icons.Rounded.Checklist
-                                "删除" -> Icons.Rounded.DeleteOutline
+                                "删除", "删除这一轮" -> Icons.Rounded.DeleteOutline
                                 else -> Icons.Rounded.Refresh
                             }
-                            val ink = if (action.label == "删除") Color(0xFFAD5656) else palette.content
+                            val ink = if (action.label == "删除" || action.label == "删除这一轮") Color(0xFFAD5656) else palette.content
                             Row(Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(12.dp))
                                 .background(palette.content.copy(alpha = .055f))
                                 .clickable { onDismiss(); action.run() }.padding(horizontal = 10.dp),

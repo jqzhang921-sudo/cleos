@@ -85,7 +85,10 @@ import java.time.LocalDate
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 
-private enum class Who { Me, Ai }
+private enum class Who { Me, MeForTa, Ai }
+private data class AvatarRequest(val who: Who,val taId: Long,val createdAt: Long,val previous: String?)
+private fun avatarRequest(who: Who,ta: CompanionEntity,default: String?) = AvatarRequest(who,ta.id,ta.createdAt,
+    when(who) { Who.Me -> default; Who.MeForTa -> ta.userAvatar; Who.Ai -> ta.avatar })
 
 /**
  * The person and the TA being talked to: their pictures and names, and how long they have
@@ -114,8 +117,9 @@ fun HomeTab(bottomInset: Dp, onOpenSettings: () -> Unit, onOpenLetters: () -> Un
         .collectAsStateWithLifecycle(emptyList())
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
-    var pickingFor by remember { mutableStateOf<Who?>(null) }
-    var cropping by remember { mutableStateOf<Pair<Who, Uri>?>(null) }
+    var pickingFor by remember { mutableStateOf<AvatarRequest?>(null) }
+    var cropping by remember { mutableStateOf<Pair<AvatarRequest, Uri>?>(null) }
+    var avatarProblem by remember { mutableStateOf<String?>(null) }
     var menuFor by remember { mutableStateOf<Who?>(null) }
     var naming by remember { mutableStateOf<Who?>(null) }
     var dating by remember { mutableStateOf(false) }
@@ -124,9 +128,16 @@ fun HomeTab(bottomInset: Dp, onOpenSettings: () -> Unit, onOpenLetters: () -> Un
         pickingFor = null
         if (uri != null && who != null) cropping = who to uri
     }
-    fun pick(who: Who) {
-        pickingFor = who
+    fun pick(who: Who,ta: CompanionEntity,default: String?) {
+        pickingFor = avatarRequest(who,ta,default)
         picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+    fun saveAvatar(request: AvatarRequest,file: String?) {
+        c.appScope.launch {
+            try { setAvatar(c,request,file) }
+            catch(e:kotlinx.coroutines.CancellationException){throw e}
+            catch(e:Exception){ c.companions.discardAvatar(file); avatarProblem=e.message ?: "头像没能保存，请重新选择" }
+        }
     }
 
     GlassPage(
@@ -172,16 +183,25 @@ fun HomeTab(bottomInset: Dp, onOpenSettings: () -> Unit, onOpenLetters: () -> Un
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.Top) {
                         Person(
-                            file = s.userAvatar,
+                            file = com.cleo.cleos.data.UserAvatars.effective(s,ta),
                             name = me,
                             letter = avatarLetter(s.userName, "我"),
-                            label = if (s.userName.isBlank()) null else "我",
+                            label = if (ta.userAvatar!=null) "我 · 专属头像" else "我 · 默认头像",
                             menuOpen = menuFor == Who.Me,
-                            onAvatar = { if (s.userAvatar == null) pick(Who.Me) else menuFor = Who.Me },
+                            onAvatar = { menuFor = Who.Me },
                             onName = { naming = Who.Me },
-                            onChange = { menuFor = null; pick(Who.Me) },
-                            onReset = { menuFor = null; c.appScope.launch { setAvatar(c, Who.Me, null, ta.id) } },
+                            onChange = { menuFor = null; pick(Who.MeForTa,ta,s.userAvatar) },
+                            onReset = { menuFor = null; saveAvatar(avatarRequest(Who.MeForTa,ta,s.userAvatar),null) },
                             onMenuDismiss = { menuFor = null },
+                            changeLabel = "仅在这位 TA 这里更换",
+                            resetLabel = "使用默认头像",
+                            resetEnabled = ta.userAvatar!=null,
+                            extraMenu = {
+                                DropdownMenuItem(text={Text("更换默认头像")},onClick={menuFor=null;pick(Who.Me,ta,s.userAvatar)})
+                                if(s.userAvatar!=null) DropdownMenuItem(text={Text("默认头像用回首字")},onClick={
+                                    menuFor=null;saveAvatar(avatarRequest(Who.Me,ta,s.userAvatar),null)
+                                })
+                            },
                         )
                         Text(
                             "✧",
@@ -195,10 +215,10 @@ fun HomeTab(bottomInset: Dp, onOpenSettings: () -> Unit, onOpenLetters: () -> Un
                             letter = ta.avatarEmoji ?: avatarLetter(ta.name, "TA"),
                             label = if (ta.name.isBlank()) null else "TA",
                             menuOpen = menuFor == Who.Ai,
-                            onAvatar = { if (ta.avatar == null && ta.avatarEmoji == null) pick(Who.Ai) else menuFor = Who.Ai },
+                            onAvatar = { if (ta.avatar == null && ta.avatarEmoji == null) pick(Who.Ai,ta,s.userAvatar) else menuFor = Who.Ai },
                             onName = { naming = Who.Ai },
-                            onChange = { menuFor = null; pick(Who.Ai) },
-                            onReset = { menuFor = null; c.appScope.launch { setAvatar(c, Who.Ai, null, ta.id) } },
+                            onChange = { menuFor = null; pick(Who.Ai,ta,s.userAvatar) },
+                            onReset = { menuFor = null; saveAvatar(avatarRequest(Who.Ai,ta,s.userAvatar),null) },
                             onMenuDismiss = { menuFor = null },
                         )
                     }
@@ -233,16 +253,31 @@ fun HomeTab(bottomInset: Dp, onOpenSettings: () -> Unit, onOpenLetters: () -> Un
             com.cleo.cleos.ui.favorites.FavoritesHomeCard(ta.id, onOpenFavorites)
         }
 
-        cropping?.let { (who, uri) ->
+        cropping?.let { (request, uri) ->
             AvatarCropDialog(
                 uri = uri,
                 onDismiss = { cropping = null },
                 onCropped = { bitmap ->
                     cropping = null
-                    c.appScope.launch { setAvatar(c, who, c.images.save(bitmap, prefix = "avatar-"), ta.id) }
+                    c.appScope.launch {
+                        var file: String? = null
+                        try {
+                            file = c.images.save(bitmap, prefix = "avatar-")
+                            setAvatar(c, request, file)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            c.companions.discardAvatar(file)
+                            avatarProblem = e.message ?: "头像没能保存，请重新选择"
+                        }
+                    }
                 },
             )
         }
+
+        avatarProblem?.let { problem -> AlertDialog(onDismissRequest={avatarProblem=null},
+            title={Text("头像未保存")},text={Text(problem)},
+            confirmButton={TextButton({avatarProblem=null}){Text("知道了")}}) }
 
         naming?.let { who ->
             NameDialog(
@@ -428,6 +463,10 @@ private fun Person(
     onChange: () -> Unit,
     onReset: () -> Unit,
     onMenuDismiss: () -> Unit,
+    changeLabel: String = "换一张",
+    resetLabel: String = "用回默认",
+    resetEnabled: Boolean = true,
+    extraMenu: @Composable () -> Unit = {},
 ) {
     val palette = LocalGlassPalette.current
     Column(Modifier.width(112.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -441,8 +480,9 @@ private fun Person(
                     .semantics { contentDescription = "${name}的头像" },
             )
             DropdownMenu(expanded = menuOpen, onDismissRequest = onMenuDismiss) {
-                DropdownMenuItem(text = { Text("换一张") }, onClick = onChange)
-                DropdownMenuItem(text = { Text("用回默认") }, onClick = onReset)
+                DropdownMenuItem(text = { Text(changeLabel) }, onClick = onChange)
+                DropdownMenuItem(text = { Text(resetLabel) }, onClick = onReset,enabled=resetEnabled)
+                extraMenu()
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -488,16 +528,13 @@ private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, on
     )
 }
 
-/** Swaps the picture and removes the one it replaces: nothing else points at an old avatar. */
-private suspend fun setAvatar(c: AppContainer, who: Who, file: String?, taId: Long) {
-    if (who == Who.Ai) {
-        // A picture chosen here replaces an emoji TA picked for itself, and so does going back to the default.
-        c.companions.setAvatar(taId, file, emoji = null)
-        return
+/** Apply to the captured owner, never whichever TA happens to be selected after a picker. */
+private suspend fun setAvatar(c: AppContainer, request: AvatarRequest, file: String?) {
+    when(request.who) {
+        Who.Ai -> c.companions.setAvatar(request.taId,file,emoji=null,expectedCreatedAt=request.createdAt)
+        Who.Me -> c.companions.setDefaultUserAvatar(request.previous,file)
+        Who.MeForTa -> c.companions.setUserAvatar(com.cleo.cleos.data.UserAvatars.Target(request.taId,request.createdAt,request.previous),file)
     }
-    val old = c.settings.current().userAvatar
-    c.settings.update { it.copy(userAvatar = file) }
-    if (old != null && old != file) c.images.delete(listOf(old))
 }
 
 /** Plain arithmetic for the home page, kept apart for testing. */

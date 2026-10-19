@@ -60,6 +60,7 @@ const val PERSONA_LIMIT = Companions.PERSONA_LIMIT
  * but written on its own page (PersonaScreen), which saves it.
  */
 class SettingsViewModel(private val c: AppContainer) : ViewModel() {
+    val desktopTransfer = PhoneMigration(viewModelScope,c.backup::withTransferBackup)
     var companionId by mutableLongStateOf(0L)
         private set
     var companionCount by mutableIntStateOf(1)
@@ -82,6 +83,12 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     var followUpEnabled by mutableStateOf(false)
     var followUpDelaySeconds by mutableStateOf(60)
     var freeTopicEnabled by mutableStateOf(false)
+    var incomingCallsEnabled by mutableStateOf(false)
+        private set
+    var incomingCallIntervalMinutes by mutableIntStateOf(com.cleo.cleos.ai.IncomingCallRules.DEFAULT_INTERVAL_MINUTES)
+        private set
+    var incomingCallDailyMax by mutableIntStateOf(com.cleo.cleos.ai.IncomingCallRules.DAILY_MAX)
+        private set
     var freeTopicLevel by mutableStateOf(1)
     var freeTopicQuietOn by mutableStateOf(true)
     var freeTopicQuietStart by mutableStateOf(1380)
@@ -280,6 +287,9 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         followUpEnabled = ta.followUpEnabled
         followUpDelaySeconds = com.cleo.cleos.ai.FollowUpRules.seconds(ta.followUpDelaySeconds)
         freeTopicEnabled = ta.freeTopicEnabled
+        incomingCallsEnabled = ta.incomingCallsEnabled
+        incomingCallIntervalMinutes = com.cleo.cleos.ai.IncomingCallRules.intervalMinutes(ta.incomingCallIntervalMinutes)
+        incomingCallDailyMax = com.cleo.cleos.ai.IncomingCallRules.dailyMax(ta.incomingCallDailyMax)
         freeTopicLevel = com.cleo.cleos.ai.FreeTopicRules.level(ta.freeTopicLevel).id
         freeTopicQuietOn = ta.freeTopicQuietOn
         freeTopicQuietStart = com.cleo.cleos.ai.FreeTopicRules.minute(ta.freeTopicQuietStart, 1380)
@@ -574,6 +584,32 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         freeTopicEnabled = on
         changeFreeTopic { it.copy(freeTopicEnabled = on) }
     }
+    fun setIncomingCalls(on: Boolean) {
+        incomingCallsEnabled=on
+        changeFreeTopic { it.copy(incomingCallsEnabled=on) }
+    }
+
+    fun chooseIncomingCallInterval(minutes: Int) {
+        val value = com.cleo.cleos.ai.IncomingCallRules.intervalMinutes(minutes)
+        incomingCallIntervalMinutes = value
+        changeIncomingLimit { it.copy(incomingCallIntervalMinutes = value) }
+    }
+
+    fun chooseIncomingCallDailyMax(count: Int) {
+        val value = com.cleo.cleos.ai.IncomingCallRules.dailyMax(count)
+        incomingCallDailyMax = value
+        changeIncomingLimit { it.copy(incomingCallDailyMax = value) }
+    }
+
+    // Frequency changes keep the existing consideration schedule and durable call ledger.
+    private fun changeIncomingLimit(transform: (CompanionEntity) -> CompanionEntity) {
+        if (!loaded || deleted) return
+        val id = companionId
+        c.appScope.launch {
+            c.companions.update(id, transform)
+            c.incomingCalls.refresh()
+        }
+    }
 
     fun chooseFreeTopicLevel(level: Int) {
         freeTopicLevel = com.cleo.cleos.ai.FreeTopicRules.level(level).id
@@ -597,6 +633,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch {
             c.companions.update(id, transform)
             c.freeTopics.configure(id)
+            c.incomingCalls.refresh()
         }
     }
 
@@ -817,6 +854,11 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(expandVoiceText = on) } }
     }
 
+    /** Whether the TA's thinking shows as a card in the chat. Only the drawing changes. */
+    fun setShowThought(on: Boolean) {
+        viewModelScope.launch { c.settings.update { it.copy(showThought = on) } }
+    }
+
     var backupBusy by mutableStateOf(false)
         private set
     var backupMessage by mutableStateOf<String?>(null)
@@ -828,19 +870,21 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
 
     // A reply still running would write into conversations that are about to be replaced.
     fun restoreBackup(uri: Uri) = runBackup("恢复了") {
+        c.incomingCalls.pause()
         c.groupChat.stopAll()
         try {
             c.chat.stopAll(); c.feedVisits.stopAll()
             c.backup.restore(uri)
-        } finally { c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
+        } finally { c.incomingCalls.resume(); c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
     }
 
     fun undoRestore() = runBackup("撤销了，回到恢复前：") {
+        c.incomingCalls.pause()
         c.groupChat.stopAll()
         try {
             c.chat.stopAll(); c.feedVisits.stopAll()
             c.backup.undoRestore()
-        } finally { c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
+        } finally { c.incomingCalls.resume(); c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
     }
 
     /** A memory file being read in, and the word on how it went. */
@@ -885,7 +929,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
 
     // App scope: a restore half done because the screen was closed is the worst outcome.
     private fun runBackup(done: String, action: suspend () -> Any) {
-        if (backupBusy) return
+        if (backupBusy || desktopTransfer.busy) return
         backupBusy = true
         backupMessage = null
         c.appScope.launch {
@@ -903,6 +947,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     override fun onCleared() {
+        desktopTransfer.cancel()
         speechPlayer?.release()
         speechPlayer = null
         c.appScope.launch {

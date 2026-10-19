@@ -54,7 +54,67 @@ class Notifier(private val context: Context, private val images: ImageStore) {
                 setShowBadge(false)
             },
         )
+        manager.createNotificationChannel(NotificationChannel(CHANNEL_INCOMING, "TA 主动来电", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "已允许的 TA 邀请你语音通话；接听后才打开话筒"
+            setSound(android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_RINGTONE),
+                android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build())
+            enableVibration(true)
+        })
     }
+
+    fun incomingAllowed(): Boolean = allowed() &&
+        context.getSystemService(NotificationManager::class.java)?.getNotificationChannel(CHANNEL_INCOMING)?.importance != NotificationManager.IMPORTANCE_NONE
+
+    fun incoming(ta: CompanionEntity, row: com.cleo.cleos.data.db.IncomingCallEntity, persistent: Boolean = false) {
+        fun open(answer: Boolean) = PendingIntent.getActivity(context, 0,
+            Intent(context,MainActivity::class.java)
+                .setData(android.net.Uri.parse("cleos://incoming/${row.id}/${if(answer) "answer" else "open"}"))
+                .putExtra(EXTRA_INCOMING,row.id).putExtra(EXTRA_ANSWER,answer)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        fun dismiss(status: String) = PendingIntent.getBroadcast(context,0,
+            Intent(context,IncomingCallReceiver::class.java)
+                .setData(android.net.Uri.parse("cleos://incoming/${row.id}/$status"))
+                .putExtra(EXTRA_INCOMING,row.id).putExtra("outcome",status),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val alert = PendingIntent.getActivity(context, 0,
+            Intent(context, IncomingCallActivity::class.java)
+                .setData(android.net.Uri.parse("cleos://incoming/${row.id}/alert"))
+                .putExtra(EXTRA_INCOMING,row.id)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val person=Person.Builder().setName(com.cleo.cleos.ai.IncomingAlertRules.title(ta.name)).setImportant(true)
+            .apply { avatar(ta)?.let { setIcon(IconCompat.createWithBitmap(it)) } }.build()
+        fun builder(fullScreen: Boolean = persistent)=NotificationCompat.Builder(context,CHANNEL_INCOMING)
+            .setSmallIcon(android.R.drawable.stat_sys_phone_call).setContentTitle(com.cleo.cleos.ai.IncomingAlertRules.title(ta.name))
+            .setContentText("等待接听 · 接听后才打开话筒").setSubText("语音来电").setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(open(false)).setDeleteIntent(dismiss("missed"))
+            .setOnlyAlertOnce(true).setOngoing(true).setAutoCancel(false)
+            .setTimeoutAfter((row.expiresAt-System.currentTimeMillis()).coerceAtLeast(1))
+            .apply { if(fullScreen) setFullScreenIntent(alert,true) }
+        fun compatible(fullScreen: Boolean)=builder(fullScreen)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("等待接听 · 接听后才打开话筒\n${row.reason}"))
+            .apply { avatar(ta)?.let { setLargeIcon(it) } }
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel,"拒绝",dismiss("declined"))
+            .addAction(android.R.drawable.stat_sys_phone_call,"接听",open(true))
+            .build().apply { flags=flags or android.app.Notification.FLAG_INSISTENT }
+        val manager=NotificationManagerCompat.from(context)
+        try {
+            val notification=builder()
+                .setStyle(NotificationCompat.CallStyle.forIncomingCall(person,dismiss("declined"),open(true)))
+                .build().apply { flags=flags or android.app.Notification.FLAG_INSISTENT }
+            manager.notify("incoming_call",1,notification)
+        } catch (_: IllegalArgumentException) {
+            // Some ROMs reject standalone CallStyle. Keep the same clear title and answer actions.
+            try { manager.notify("incoming_call",1,compatible(persistent)) }
+            catch (_: SecurityException) { manager.notify("incoming_call",1,compatible(false)) }
+        } catch (_: SecurityException) {
+            // A revoked/unsupported full-screen permission must not lose an otherwise valid call.
+            manager.notify("incoming_call",1,compatible(false))
+        }
+    }
+    fun cancelIncoming() { NotificationManagerCompat.from(context).cancel("incoming_call",1) }
 
     /**
      * What CallService shows while a call is on: who it is with, how long it has gone on once the
@@ -79,8 +139,10 @@ class Notifier(private val context: Context, private val images: ImageStore) {
                 PendingIntent.getActivity(
                     context,
                     1,
-                    Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                    PendingIntent.FLAG_IMMUTABLE,
+                    Intent(context, MainActivity::class.java)
+                        .putExtra(EXTRA_CALL, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
                 ),
             )
             .addAction(0, "挂断", hangUp)
@@ -189,6 +251,10 @@ class Notifier(private val context: Context, private val images: ImageStore) {
         const val CHANNEL_LETTERS = "letters"
         const val CHANNEL_WORKING = "replying"
         const val CHANNEL_CALLS = "calls"
+        const val CHANNEL_INCOMING = "incoming_calls"
+        const val EXTRA_INCOMING = "incoming_invitation"
+        const val EXTRA_ANSWER = "answer_incoming"
+        const val EXTRA_CALL = "open_call"
         const val EXTRA_CONVERSATION = "conversation"
         const val EXTRA_LETTER = "letter"
         private const val TAG_CONVERSATION = "conversation"

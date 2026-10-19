@@ -43,6 +43,20 @@ class StickerPromptTest {
     }
 
     @Test
+    fun noCollectionAndUnknownHistoryDoNotOfferImaginaryPictures() {
+        val history = listOf(msg(1, "user", "在吗"), msg(2, "assistant", "[[sticker:摸摸]]"), msg(3, "user", "[摸摸]"))
+        for (send in listOf(true, false)) {
+            val out = Prompt.messages(AppSettings(), ta, history, now, stickers = book, sendStickers = send)
+            assertTrue(out[2].content.contains("表情包不可用：摸摸，本次没有可用的对应图片"))
+            assertFalse(out[2].content.contains("[[sticker:"))
+            assertTrue(out.last().content.endsWith("[摸摸]"))
+        }
+        val none = Prompt.messages(AppSettings(), ta, emptyList(), now, sendStickers = true).first().content
+        assertTrue(none.contains("没有可发送的表情包"))
+        assertTrue(none.contains("方括号文字只是动作描述"))
+    }
+
+    @Test
     fun thePersonsStickerIsReadAsTheyWriteItOrInWords() {
         val history = listOf(msg(1, "user", "[[sticker:兔子晕倒]]"))
         val on = Prompt.messages(AppSettings(), ta, history, now, stickers = book, sendStickers = true).last().content

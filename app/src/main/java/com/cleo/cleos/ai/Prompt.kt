@@ -41,6 +41,8 @@ import java.util.Locale
  */
 object Prompt {
     private const val FORMAT_RULE = "这是手机上的聊天。像平常发消息那样回复，不用 Markdown 标题、列表和加粗。"
+    private const val CONTEXT_RULE = "消息编号、图片编号等辅助标记不属于对方说的话，只用于定位对应内容；" +
+        "正常回复不添加内部编号作为前缀或签名，不把编号当作对方的名字，也不复述系统或后台提示。对方正文中的正常编号、链接和原文引用可以保留。"
 
     /**
      * When to note something down (ai/Later.kt). A tool's description only says how to use it;
@@ -71,9 +73,9 @@ object Prompt {
      * is in them. "Not every time" because a model told it can send stickers sends one with every
      * message; the person's are written the same way, so it reads them the way it writes its own.
      */
-    private const val STICKER_RULE =
+    internal const val STICKER_RULE =
         "你可以发表情包：单独写一行 [[sticker:名字]]，对方看到的就是那张图。名字照下面的一字不差地写，别编没有的；" +
-            "一次最多发一张，不用每次都发，想发的时候再发。对方发来的表情包也是这样写的。你的表情包（名字：图里是什么）："
+            "必须保留 sticker: 前缀。一次最多发一张，不用每次都发，想发的时候再发。找不到合适的就用普通文字，不用描述或编造图片冒充表情包。[摸摸]这种方括号文字只是动作描述，不会变成图片，不能当作发出了表情包。对方发来的表情包也是这样写的。你的表情包（名字：图里是什么）："
 
     /**
      * On the phone (ai/Call.kt), at the end of the person's last turn: what the TA writes is read out
@@ -89,6 +91,7 @@ object Prompt {
 
     /** Where a call begins, on the person's side: they rang. */
     const val CALL_BEGAN = "（对方给你打来电话，你接了）"
+    const val INCOMING_CALL_BEGAN = "（你主动给对方打来电话，对方接听了）"
 
     /** Where a call ended, after the last thing said in it. */
     fun callEnded(talkedMs: Long?): String =
@@ -110,17 +113,24 @@ object Prompt {
         outside: List<McpTool> = emptyList(),
         stickers: List<StickerEntity> = emptyList(),
         lore: List<LoreEntity> = emptyList(),
+        incomingCalls: Boolean = false,
     ): String = buildList {
         if (ta.name.isNotBlank()) add("你叫${ta.name.trim()}。")
         if (settings.userName.isNotBlank()) add("和你说话的人叫${settings.userName.trim()}。")
         if (ta.persona.isNotBlank()) add(ta.persona.trim())
         toolRule(tools, outside)?.let(::add)
         add(FORMAT_RULE)
+        add(CONTEXT_RULE)
         if (stickers.isNotEmpty()) add(STICKER_RULE + "\n" + StickerText.menu(stickers))
+        else add("本次没有可发送的表情包，请用普通文字表达，不编造或声称发出了表情包图片。[摸摸]这种方括号文字只是动作描述，不会变成图片。")
         if (ToolGroup.Memory in tools) MemoryDigest.forChat(memories, zone)?.let(::add)
         if (ToolGroup.Lore in tools) LoreDigest.forChat(lore)?.let(::add)
         Recap.forChat(recap)?.let(::add)
         if (ToolGroup.FreeVisit in tools) add("本次 plan_next_visit 可选择 ${FreeTopicRules.intervalText(FreeTopicRules.level(ta.freeTopicLevel))} 后再看看；免打扰与次数上限优先。")
+        if (incomingCalls && ToolGroup.FreeVisit in tools) {
+            add("本次你可以用 request_call 邀请对方语音通话，包括对方在聊天里请你打来时。是否邀请由你根据话题决定；以本次提供的工具为准，不沿用旧聊天里没有拨号入口的判断，不需要让对方重启 App。实际调用成功才算发起来电邀请，仍要等待对方接听，不能说已经接通；成功后结束本次回复。拒绝、未接、免打扰和来电频率限制仍然有效，失败时按真实工具结果说明，不反复重试。")
+            add("你这位 TA 当前的来电设置：两次至少间隔${IncomingCallRules.intervalText(ta.incomingCallIntervalMinutes)}，最近 24 小时最多 ${IncomingCallRules.dailyMax(ta.incomingCallDailyMax)} 次。旧聊天里的频率说法以此为准。这是上限，不是必须来电的安排；拒绝或未接也计入次数并遵守间隔，实际能否发起以工具结果为准。")
+        }
     }.joinToString("\n\n")
 
     /**
@@ -159,7 +169,7 @@ object Prompt {
             add("你能用 get_location 查对方现在在哪。需要的时候再查：对方问附近、问路，或者问天气没说城市；别无缘无故去查，也别把坐标念给对方。")
         }
         if (ToolGroup.Later in tools) add(LATER_RULE)
-        if (ToolGroup.FreeVisit in tools) add("你可以用 plan_next_visit 决定聊天结束后多久再醒来看看；醒来仍可选择 SKIP，不必发消息。结合对方是否忙、话题是否告一段落，自然决定，不要催回复或为占次数找话题。具体事情用 note_for_later（若可用），不要用它预约例行聊天。对方开始输入会取消旧安排；本次只保留最后一次 plan_next_visit。")
+        if (ToolGroup.FreeVisit in tools) add("你可以用 plan_next_visit 决定聊天结束后多久再醒来看看；自主醒来时也可以保持安静，不必每次发消息。当前有人与你聊天时正常回答对方。结合对方是否忙、话题是否告一段落，自然决定，不要催回复或为占次数找话题。具体事情用 note_for_later（若可用），不要用它预约例行聊天。对方开始输入会取消旧安排；本次只保留最后一次 plan_next_visit。")
         if (ToolGroup.Alarm in tools) {
             add("对方让你定闹钟、叫醒、计时的时候，用 set_alarm 或 set_timer 在对方手机的时钟里定，定好了再说；没调用就别说定好了。对方没让，别自己给对方定闹钟。")
         }
@@ -223,10 +233,11 @@ object Prompt {
         calls: Map<Long, CallRecord> = emptyMap(),
         lore: List<LoreEntity> = emptyList(),
         preserveReasoning: Boolean = false,
+        incomingCalls: Boolean = false,
     ): List<ApiMessage> {
         val withTools = tools.isNotEmpty() || outside.isNotEmpty()
         val attached = if (images) attachedPictures(history) else emptySet()
-        val words: (String) -> String = if (sendStickers) { text -> text } else { text -> StickerText.described(text, stickers) }
+        val words: (String) -> String = { text -> StickerText.forHistory(text, stickers, sendStickers) }
         val reacted = reactions(history)
         // Each call's last row here, and how long the calls whose row is here went on.
         val lastInCall = HashMap<Long, Long>()
@@ -236,7 +247,9 @@ object Prompt {
         for (m in history) {
             if (m.role == "call") {
                 // One where nothing was said (hung up while it rang) is left out.
-                if (m.id == call || m.id in lastInCall) converted += m.id to ApiMessage("user", CALL_BEGAN)
+                val record=records[m.id]
+                if (m.id == call || m.id in lastInCall) converted += m.id to ApiMessage("user", if(record?.incoming==true) INCOMING_CALL_BEGAN else CALL_BEGAN)
+                else if(record?.incoming==true && record.endedAt!=null) converted += m.id to ApiMessage("user","（${CallRecords.label(record)}）")
                 continue
             }
             m.toApi(withTools, images, attached, words, reacted)?.let { converted += m.id to it }
@@ -278,7 +291,7 @@ object Prompt {
             merged[lastUser] = merged[lastUser].let { it.copy(content = "（${timeLine(now)}）\n$heard$noted${it.content}$phone") }
         }
         val offered = if (sendStickers) stickers.all else emptyList()
-        return listOf(ApiMessage("system", system(settings, ta, tools, memories, now.zone, recap, outside, offered, lore))) + merged
+        return listOf(ApiMessage("system", system(settings, ta, tools, memories, now.zone, recap, outside, offered, lore, incomingCalls))) + merged
     }
 
     /**
@@ -334,8 +347,9 @@ object Prompt {
     fun withWake(messages: List<ApiMessage>, text: String): List<ApiMessage> {
         val cleared = messages.map { if (it.reasoning != null) it.copy(reasoning = null) else it }
         val last = cleared.last()
-        return if (last.role == "user") cleared.dropLast(1) + last.copy(content = last.content + "\n\n" + text)
-        else cleared + ApiMessage("user", text)
+        val instruction = WakeOutput.CONTROL_RULE + "\n\n" + text
+        return if (last.role == "user") cleared.dropLast(1) + last.copy(content = last.content + "\n\n" + instruction)
+        else cleared + ApiMessage("user", instruction)
     }
 
     /**
@@ -438,11 +452,14 @@ object Prompt {
         }
         "assistant" -> {
             val calls = if (withTools) ToolCallCodec.decode(toolCalls) else emptyList()
+            // Preserve deliberate literal quotations in ordinary stored history.
+            val body = words(WakeOutput.message(content, proactive, literalAllowed = true).orEmpty())
+            val sentReasoning = reasoning.takeUnless { proactive }
             when {
                 // A half reply ending mid-sentence invites the model to continue it.
                 error != null -> null
-                calls.isNotEmpty() -> ApiMessage("assistant", content, calls, reasoning = reasoning)
-                content.isNotBlank() -> ApiMessage("assistant", content, reasoning = reasoning, spoken = audio != null, quoted = MessageQuotes.decode(quote)?.text)
+                calls.isNotEmpty() -> ApiMessage("assistant", body, calls, reasoning = sentReasoning)
+                body.isNotBlank() -> ApiMessage("assistant", body, reasoning = sentReasoning, spoken = audio != null, quoted = MessageQuotes.decode(quote)?.text)
                 else -> null
             }
         }

@@ -52,13 +52,14 @@ internal fun WakeActivitySection(vm: SettingsViewModel) {
                     Column(modifier = Modifier.padding(vertical = 6.dp)) {
                         val at = ZonedDateTime.ofInstant(Instant.ofEpochMilli(w.startedAt), ZoneId.systemDefault())
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("●", color = if (w.status == W.FAILED) palette.error else palette.contentSecondary, fontSize = 12.sp)
+                            Text("●", color = if (WakeActivityText.failed(w)) palette.error else palette.contentSecondary, fontSize = 12.sp)
                             Column(verticalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.weight(1f)) {
                                 Text("${LaterRules.at(at, ZonedDateTime.now())} · ${WakeActivityText.source(w.source)}", color = palette.contentSecondary, fontSize = 12.sp)
-                                Text(WakeActivityText.status(w), color = if (w.status == W.FAILED) palette.error else palette.content, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                                Text(WakeActivityText.status(w), color = if (WakeActivityText.failed(w)) palette.error else palette.content, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                                 Text(WakeActivityText.requests(w), color = palette.contentSecondary, fontSize = 12.sp)
                                 if (w.toolSummary.isNotBlank()) Text("尝试的工具：${w.toolSummary}", color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
-                                if (w.detail.isNotBlank()) Text(w.detail, color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 19.sp)
+                                val detail = WakeActivityText.detail(w)
+                                if (detail.isNotBlank()) Text(detail, color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 19.sp)
                             }
                         }
                     }

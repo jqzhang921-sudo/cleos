@@ -112,7 +112,7 @@ class Pcm(val samples: FloatArray, val rate: Int) {
         /** A decoder that doesn't finish in this long is given up on. */
         private const val LIMIT_MS = 20_000L
 
-        fun mono(file: File): Pcm {
+        fun mono(file: File, checkActive: () -> Unit = {}): Pcm {
             val extractor = MediaExtractor()
             try {
                 extractor.setDataSource(file.path)
@@ -138,6 +138,7 @@ class Pcm(val samples: FloatArray, val rate: Int) {
                     var inputDone = false
                     val until = System.currentTimeMillis() + LIMIT_MS
                     while (System.currentTimeMillis() < until) {
+                        checkActive()
                         if (!inputDone) {
                             val i = codec.dequeueInputBuffer(10_000)
                             if (i >= 0) {
@@ -166,6 +167,7 @@ class Pcm(val samples: FloatArray, val rate: Int) {
                             if (float) {
                                 val b = buffer.asFloatBuffer()
                                 while (b.remaining() >= channels) {
+                                    checkActive()
                                     var v = 0f
                                     repeat(channels) { v += b.get() }
                                     add(v / channels)
@@ -173,6 +175,7 @@ class Pcm(val samples: FloatArray, val rate: Int) {
                             } else {
                                 val b = buffer.asShortBuffer()
                                 while (b.remaining() >= channels) {
+                                    checkActive()
                                     var v = 0f
                                     repeat(channels) { v += b.get() / 32768f }
                                     add(v / channels)

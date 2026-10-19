@@ -20,7 +20,7 @@ class GroupPhotoBackupTest {
         assertNull(Json.decodeFromString<GroupMessageEntity>(old.toString()).images)
         val restored = Json.decodeFromString<GroupMessageEntity>(Json.encodeToString(reply))
         validate(restored); assertEquals(picture, MessageImages.decode(restored.images).single())
-        assertEquals(6, BackupFile.VERSION)
+        assertEquals(15, BackupFile.VERSION)
     }
     @Test fun corruptMediaPathsDuplicatesOverBudgetAndMissingCreditAreRejected() {
         val bad = listOf("../outside.jpg", "/absolute.jpg", "C:\\outside.jpg")

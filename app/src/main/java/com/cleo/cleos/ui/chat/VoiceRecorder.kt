@@ -18,7 +18,7 @@ import kotlin.math.sqrt
  * transcription service takes. It is written while recording, into ImageStore's folder, and
  * the header's lengths are filled in when it stops.
  */
-class VoiceRecorder(private val dir: File) {
+class VoiceRecorder(private val dir: File, private val prefix: String = "voice_") {
     private var record: AudioRecord? = null
     private var worker: Thread? = null
     private var file: File? = null
@@ -44,7 +44,7 @@ class VoiceRecorder(private val dir: File) {
             r.release()
             return false
         }
-        val f = File(dir, "voice_${System.currentTimeMillis()}_${(1000..9999).random()}.wav")
+        val f = File(dir, "${prefix}${System.currentTimeMillis()}_${(1000..9999).random()}.wav")
         val out = runCatching { RandomAccessFile(f, "rw") }.getOrNull()
         if (out == null || runCatching { r.startRecording() }.isFailure) {
             out?.close()
@@ -64,7 +64,8 @@ class VoiceRecorder(private val dir: File) {
                 // The header goes in last, once the length is known.
                 it.write(ByteArray(44))
                 while (running) {
-                    val n = r.read(buf, 0, buf.size)
+                    val received = r.read(buf, 0, buf.size)
+                    val n = minOf(received, ((Voice.RATE * 2L * Voice.MAX_MS / 1000 - bytes) / 2).toInt())
                     if (n < 0) break
                     if (n == 0) continue
                     pcm.clear()
@@ -76,6 +77,7 @@ class VoiceRecorder(private val dir: File) {
                     it.write(pcm.array(), 0, n * 2)
                     bytes += n * 2
                     level = (sqrt(sum / n) / 5000.0).coerceIn(0.0, 1.0).toFloat()
+                    if (bytes >= Voice.RATE * 2L * Voice.MAX_MS / 1000) running = false
                 }
                 it.seek(0)
                 it.write(Voice.wavHeader(bytes.toInt()))

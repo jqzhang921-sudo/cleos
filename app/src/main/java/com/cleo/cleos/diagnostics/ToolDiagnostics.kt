@@ -18,6 +18,6 @@ class ToolDiagnostics(context: Context) {
         if (text.isBlank()) return null
         return "Cleos $version 工具诊断\n${Build.MANUFACTURER} ${Build.MODEL}，Android ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）\n" +
             "${if (pinned) "已保留的异常现场" else "最近记录"}；时间为 UTC，逐行 build 为当时版本。\n" +
-            "只记录请求结构与结果类别，不含 Key、聊天正文、工具参数或原始响应。未自动上传。\n\n$text"
+            "只记录请求结构、结果类别与阶段耗时，不含 Key、聊天正文、工具参数或原始响应。未自动上传。\n\n$text"
     }
 }

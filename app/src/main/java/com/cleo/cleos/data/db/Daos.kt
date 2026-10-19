@@ -522,8 +522,8 @@ interface WakeActivityDao {
     @Query("UPDATE wake_activities SET status = :status, detail = :detail, sent = :sent, finishedAt = :at WHERE id = :id AND finishedAt IS NULL")
     suspend fun finish(id: Long, status: String, detail: String, sent: Int, at: Long): Int
 
-    @Query("UPDATE wake_activities SET status = 'interrupted', detail = '上次应用退出或进程中断，这次执行未完成', finishedAt = :now WHERE finishedAt IS NULL")
-    suspend fun interruptOpen(now: Long)
+    @Query("SELECT * FROM wake_activities WHERE finishedAt IS NULL")
+    suspend fun unfinished(): List<WakeActivityEntity>
 
     @Query("DELETE FROM wake_activities WHERE companionId = :id AND finishedAt IS NOT NULL AND id NOT IN (SELECT id FROM wake_activities WHERE companionId = :id ORDER BY startedAt DESC, id DESC LIMIT :keep)")
     suspend fun prune(id: Long, keep: Int)

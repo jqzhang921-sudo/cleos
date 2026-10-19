@@ -116,7 +116,7 @@ object LaterRules {
             append("。\n").append(Prompt.timeLine(now)).append("。\n")
             append("看看从那以后你们又聊了什么，再决定：\n")
             append("· 现在说：像平常一样给对方发消息，主要说这件事。直接说，不用解释是记着的、被提醒的。\n")
-            append("· 不说了（已经聊过了、过了时候、或者现在说不合适）：只回复 SKIP，后面可以跟一句为什么。\n")
+            append("· 不说了（已经聊过了、过了时候、或者现在说不合适）：直接结束，不输出文字，也不调用发送工具。\n")
             if (canPutOff) append("· 还想再等一等：用 note_for_later 重新记一笔，只能往后推这一次。\n")
             if (glance != null) append("对方接下来的日程和待办，让你知道一下；真有用再顺带一句，别念清单：\n").append(glance).append("\n")
             append("说的话要给对方带去点什么：关心那件事、分享、提醒。别问「在干嘛」「怎么不回我」，也别提对方多久没说话。")
@@ -190,7 +190,7 @@ class Later(
         val now = clock()
         val current = waking[conversationId]
         if (current?.putOff == true) {
-            throw ToolFailure("这件事已经往后推过一次了，不能再推：现在说，或者回复 SKIP。", "推过一次了")
+            throw ToolFailure("这件事已经往后推过一次了，不能再推：现在说，或者保持安静直接结束。", "推过一次了")
         }
         dropExpired(companionId, now)
         if (db.later().allFor(companionId).size >= LaterRules.MAX_WAITING) {
@@ -260,6 +260,7 @@ class Later(
             if (mine) waking.remove(conversationId, note)
         }
         return when (result) {
+            is ChatRepository.WakeResult.Invited -> { db.later().delete(id); log(ta,WakeEntity.SENT,"发起了语音来电邀请"); null }
             is ChatRepository.WakeResult.Sent -> {
                 db.later().delete(id)
                 log(ta, WakeEntity.SENT, result.messages.joinToString(" / ") { StickerText.plain(it.content) })
@@ -351,6 +352,7 @@ class Later(
         // What was said reads as a greeting by itself; a skip or a failure says which one it was.
         fun which(why: String) = (if (greeting == Greeting.Morning) "早上的招呼" else "睡前的招呼") + (if (why.isBlank()) "" else "：$why")
         return when (val result = chat.wake(conversationId, text, source = if (greeting == Greeting.Morning) com.cleo.cleos.data.db.WakeActivityEntity.MORNING else com.cleo.cleos.data.db.WakeActivityEntity.NIGHT)) {
+            is ChatRepository.WakeResult.Invited -> { log(ta,WakeEntity.SENT,"发起了语音来电邀请"); over(greeting,day) }
             is ChatRepository.WakeResult.Sent -> {
                 log(ta, WakeEntity.SENT, result.messages.joinToString(" / ") { StickerText.plain(it.content) })
                 said(ta, conversationId, result.messages)

@@ -3,7 +3,6 @@ package com.cleo.cleos.ai
 import androidx.room.withTransaction
 import com.cleo.cleos.data.*
 import com.cleo.cleos.data.db.*
-import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -90,8 +89,8 @@ object FeedAiRules {
 class FeedAi(private val db: AppDatabase, private val settings: SettingsRepository, private val secrets: SecretStore,
     private val client: ChatClient, private val news: FeedNews, private val feed: FeedRepository, private val images: ImageStore,
     private val photoLibraries: PhotoLibraries? = null) {
-    private val lock = Mutex()
-    val busy: Boolean get() = lock.isLocked
+    private val writing = FeedWriting()
+    val busy: Boolean get() = writing.busy
     private suspend fun write(ta: CompanionEntity, context: String, sources: List<FeedNewsItem>, interests: String,
         allowPhoto: Boolean): FeedAiDraft? {
         val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先为 ${ta.name.ifBlank { "TA" }} 配置模型密钥")
@@ -107,7 +106,8 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
         FeedAiRules.sameNewsSettings(before, after) && FeedPhotoRules.sameSettings(before, after, taId)
 
     private suspend fun planPhoto(ta: CompanionEntity, s: AppSettings, content: String, query: String?,
-        source: FeedNewsItem?, allowed: suspend () -> Boolean, onRequest: suspend () -> Unit = {}): FeedPhotoPlan {
+        source: FeedNewsItem?, allowed: suspend () -> Boolean, onRequest: suspend () -> Unit = {},
+        background: BackgroundRequest? = null, onRetry: suspend (Long) -> Unit = {}): FeedPhotoPlan {
         if (query == null) return FeedPhotoPlan(content, null)
         val library = photoLibraries?.forLibrary(s.photoLibrary) ?: error("图库暂时不可用，这次未发布")
         val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先配置模型密钥")
@@ -119,11 +119,13 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
                 source?.let { append("对应资讯（数据）：${it.title}\n${it.summary}\n") }
             }
             if (!allowed()) throw FeedPhotoChanged()
-            onRequest()
-            client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), listOf(
+            val messages = listOf(
                 ApiMessage("system", FeedAiRules.system(ta, s.feedInterests).substringBefore("只输出 JSON：") + FeedPhotoRules.instruction(maximum)),
-                ApiMessage("user", context)), thinking = ta.deepThinking)
-                .collect { if (it is ChatEvent.Delta) { check(text.length + it.text.length <= 16000) { "TA 的配图选择过长" }; text.append(it.text) } }
+                ApiMessage("user", context))
+            fun open() = client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), messages, thinking = ta.deepThinking)
+            val events = if (background == null) { onRequest(); open() }
+                else background.stream(::open, allowed, onRequest, onRetry)
+            events.collect { if (it is ChatEvent.Delta) { check(text.length + it.text.length <= 16000) { "TA 的配图选择过长" }; text.append(it.text) } }
             FeedPhotoRules.choice(text.toString(), candidates, maximum)
         }
     }
@@ -132,10 +134,7 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
             MessageImage(it.file, it.width, it.height)
         } },
             { files -> images.delete(files) }, write)
-    private suspend fun <T> once(action: suspend () -> T): T {
-        check(lock.tryLock()) { "TA 正在写，请稍等" }
-        return try { action() } finally { lock.unlock() }
-    }
+    private suspend fun <T> once(action: suspend () -> T): T = writing.once(action)
     suspend fun browse(taId: Long, withNews: Boolean) = once {
         val ta = db.companions().get(taId) ?: error("这个 TA 已不存在")
         val all = db.feed().all()
@@ -168,7 +167,9 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
         } }
     }
     suspend fun visit(taId: Long, allowPost: Boolean, withNews: Boolean, allowed: suspend () -> Boolean,
-        onRequest: suspend () -> Unit, claimPost: suspend () -> Boolean): FeedVisitResult = once {
+        onRequest: suspend () -> Unit, claimPost: suspend () -> Boolean,
+        onRetry: suspend (Long) -> Unit = {}): FeedVisitResult = once {
+        val background = BackgroundRequest()
         if (!allowed()) return@once FeedVisitResult(false, "逛逛安排已改变", true)
         val ta = db.companions().get(taId) ?: return@once FeedVisitResult(false, "这个 TA 已不存在", true)
         val s = settings.current()
@@ -211,15 +212,15 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
         suspend fun current() = allowed() && sameSettings(s, settings.current(), taId)
         if (!current()) return@once FeedVisitResult(false, "逛逛或兴趣、图库设置已改变", true)
         val text = StringBuilder()
-        onRequest()
-        client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), listOf(
+        background.stream({ client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), listOf(
             ApiMessage("system", FeedVisitRules.system(ta, s.feedInterests, allowPost, FeedPhotoRules.enabled(s, taId))),
-            ApiMessage("user", "当前本地时间：${ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm XXX"))}\n$context", images = photos)), thinking = ta.deepThinking)
+            ApiMessage("user", "当前本地时间：${ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm XXX"))}\n$context", images = photos)), thinking = ta.deepThinking) },
+            allowed = ::current, onRequest = onRequest, onRetry = onRetry)
             .collect { if (it is ChatEvent.Delta) { check(text.length + it.text.length <= 16000) { "TA 的输出过长" }; text.append(it.text) } }
         val draft = FeedVisitRules.decode(text.toString(), targets, sources, allowPost, FeedPhotoRules.enabled(s, taId))
         if (!current()) return@once FeedVisitResult(false, "设置或聊天状态改变，这次未更新动态", true)
         val plan = try {
-            planPhoto(ta, s, draft.content, draft.photoQuery, draft.sourceIndex?.let { sources[it] }, ::current, onRequest)
+            planPhoto(ta, s, draft.content, draft.photoQuery, draft.sourceIndex?.let { sources[it] }, ::current, onRequest, background, onRetry)
         } catch (_: FeedPhotoChanged) { return@once FeedVisitResult(false, "设置或聊天状态改变，这次未发布配图动态", true) }
         commitPhoto(plan.photo) { pictures ->
         val result = db.withTransaction {

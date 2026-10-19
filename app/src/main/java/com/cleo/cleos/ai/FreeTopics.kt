@@ -189,13 +189,14 @@ class FreeTopics(
                     log(id, WakeEntity.SENT, result.messages.joinToString(" / ") { StickerText.plain(it.content) })
                     if (!showing(target) && db.companions().get(id) != null) notifier.messages(ta, target, result.messages)
                 }
+                is ChatRepository.WakeResult.Invited -> log(id,WakeEntity.SENT,"发起了一次语音来电邀请，是否接通以通话记录为准")
                 is ChatRepository.WakeResult.Skipped -> log(id, WakeEntity.SKIPPED, result.why)
                 is ChatRepository.WakeResult.Failed -> log(id, WakeEntity.FAILED, result.why)
                 ChatRepository.WakeResult.Busy -> log(id, WakeEntity.HELD, "正在聊天，留到下一次机会")
             }
             if (plans.current(target, wakeRevision)) {
                 val (revision, minutes) = plans.finish(target)
-                if (minutes != null && (result is ChatRepository.WakeResult.Sent || result is ChatRepository.WakeResult.Skipped))
+                if (minutes != null && (result is ChatRepository.WakeResult.Sent || result is ChatRepository.WakeResult.Skipped || result is ChatRepository.WakeResult.Invited))
                     schedule(target, revision, minutes, expected = next)
             }
         } catch (e: CancellationException) {

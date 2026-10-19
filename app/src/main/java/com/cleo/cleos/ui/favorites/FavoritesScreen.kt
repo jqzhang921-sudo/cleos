@@ -147,7 +147,8 @@ fun FavoriteScreen(id: Long, onBack: () -> Unit, onFound: () -> Unit, onImage: (
     val scope = rememberCoroutineScope()
     val entry by remember(id) { c.db.favorites().observe(id) }.collectAsStateWithLifecycle(null)
     val settings by c.settings.settings.collectAsStateWithLifecycle(AppSettings())
-    val ta by remember { c.companions.current }.collectAsStateWithLifecycle(null)
+    val companions by remember { c.companions.all }.collectAsStateWithLifecycle(emptyList())
+    val ta=companions.firstOrNull { it.id==entry?.companionId }
     val parts = remember(entry?.parts) { entry?.let { FavoriteContent.decode(it.parts) }.orEmpty() }
     var editing by rememberSaveable { mutableStateOf(false) }
     var note by rememberSaveable { mutableStateOf("") }
@@ -216,7 +217,7 @@ fun FavoriteScreen(id: Long, onBack: () -> Unit, onFound: () -> Unit, onImage: (
                         }
                         if (settings.chatAvatars && mine) {
                             Spacer(Modifier.width(8.dp))
-                            Avatar(settings.userAvatar, avatarLetter(part.name, "我"), 32.dp)
+                            Avatar(com.cleo.cleos.data.UserAvatars.effective(settings,ta), avatarLetter(part.name, "我"), 32.dp)
                         }
                     }
                 }

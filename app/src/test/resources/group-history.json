@@ -1,0 +1,803 @@
+{
+  "cases": {
+    "normal_first": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "normal_second": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_A",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "retry_first": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_B",
+          "createdAt": 3,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "retry_middle": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_A",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 4,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_C",
+          "createdAt": 4,
+          "speakerId": 30,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "own_sent_also_excluded": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_B",
+          "createdAt": 3,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "next_turn": {
+      "before": 5,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_A",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_B",
+          "createdAt": 3,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 4,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_NEXT",
+          "createdAt": 4,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "future_turn_excluded": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_B",
+          "createdAt": 3,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "other_group_excluded": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_B",
+          "createdAt": 3,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "wrong_group_slot": {
+      "before": 2,
+      "limit": 40,
+      "history": []
+    },
+    "no_slot_no_forward_read": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "failed_partial": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "pending_partial": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "running_media": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "failed_saved_voice": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_VOICE\n\nUNFINISHED_SECRET",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "failed",
+          "images": null,
+          "audio": "{\"file\": \"voice_group_reply_1_10_fixture.wav\", \"ms\": 1000, \"text\": \"CTX_VOICE\"}"
+        }
+      ]
+    },
+    "cancelled_saved_voice": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_VOICE\n\nUNFINISHED_SECRET",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "cancelled",
+          "images": null,
+          "audio": "{\"file\": \"voice_group_reply_1_10_fixture.wav\", \"ms\": 1000, \"text\": \"CTX_VOICE\"}"
+        }
+      ]
+    },
+    "interrupted_saved_voice": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_VOICE\n\nUNFINISHED_SECRET",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "interrupted",
+          "images": null,
+          "audio": "{\"file\": \"voice_group_reply_1_10_fixture.wav\", \"ms\": 1000, \"text\": \"CTX_VOICE\"}"
+        }
+      ]
+    },
+    "retry_later_voice": {
+      "before": 2,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_VOICE\n\nUNFINISHED_SECRET",
+          "createdAt": 2,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "failed",
+          "images": null,
+          "audio": "{\"file\": \"voice_group_reply_1_20_fixture.wav\", \"ms\": 1000, \"text\": \"CTX_VOICE\"}"
+        }
+      ]
+    },
+    "failed_saved_photo": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_A",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "failed",
+          "images": "[{\"file\": \"fixture.jpg\", \"width\": 16, \"height\": 16}]",
+          "audio": null
+        }
+      ]
+    },
+    "invalid_audio": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_VOICE\n\nUNFINISHED_SECRET",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "failed",
+          "images": null,
+          "audio": "{}"
+        }
+      ]
+    },
+    "foreign_audio": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_VOICE\n\nUNFINISHED_SECRET",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "failed",
+          "images": null,
+          "audio": "{\"file\": \"voice_group_reply_2_10_fixture.wav\", \"ms\": 1000, \"text\": \"CTX_VOICE\"}"
+        }
+      ]
+    },
+    "mismatched_voice_words": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "UNCOMMITTED_BODY",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "failed",
+          "images": null,
+          "audio": "{\"file\": \"voice_group_reply_1_10_fixture.wav\", \"ms\": 1000, \"text\": \"CTX_VOICE\"}"
+        }
+      ]
+    },
+    "text_fallback_sent": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_TEXT_FALLBACK",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "text_fallback_then_failed": {
+      "before": 3,
+      "limit": 40,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "minimum_window": {
+      "before": 5,
+      "limit": 5,
+      "history": [
+        {
+          "id": 1,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 1,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_A",
+          "createdAt": 2,
+          "speakerId": 10,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_B",
+          "createdAt": 3,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 4,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_C",
+          "createdAt": 4,
+          "speakerId": 30,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    },
+    "bounded_retry": {
+      "before": 21,
+      "limit": 5,
+      "history": [
+        {
+          "id": 17,
+          "groupId": 1,
+          "role": "user",
+          "content": "OLD_17",
+          "createdAt": 17,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 18,
+          "groupId": 1,
+          "role": "user",
+          "content": "OLD_18",
+          "createdAt": 18,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 19,
+          "groupId": 1,
+          "role": "user",
+          "content": "OLD_19",
+          "createdAt": 19,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 20,
+          "groupId": 1,
+          "role": "user",
+          "content": "CTX_ANCHOR",
+          "createdAt": 20,
+          "speakerId": null,
+          "speakerName": "fixture-user",
+          "turnId": null,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        },
+        {
+          "id": 22,
+          "groupId": 1,
+          "role": "assistant",
+          "content": "CTX_B",
+          "createdAt": 3,
+          "speakerId": 20,
+          "speakerName": "same-name",
+          "turnId": 1,
+          "status": "sent",
+          "images": null,
+          "audio": null
+        }
+      ]
+    }
+  }
+}

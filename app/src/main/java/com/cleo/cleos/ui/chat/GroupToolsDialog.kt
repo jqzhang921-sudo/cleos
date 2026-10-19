@@ -25,18 +25,25 @@ internal fun GroupToolsDialog(message: GroupMessageEntity, onDismiss: () -> Unit
         GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(20.dp)) {
             Column(Modifier.heightIn(max = 580.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("${message.speakerName}的工具记录", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Text("本次回复的查询记录，结果在这个群共享。长按文字可以选择复制；返回结果也可能包含错误提示。",
+                Text("本次回复的工具记录，结果在这个群共享。长按文字可以选择复制；返回结果也可能包含错误提示。",
                     color = palette.contentSecondary, fontSize = 12.sp)
                 LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     items(trace.records, key = { it.id }) { record ->
                         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                             val state = when (record.state) {
-                                "running" -> if (message.status == "running") "正在查询" else "查询中断，未保存结果"
+                                "running" -> if (message.status == "running") {
+                                    when (record.name) {
+                                        "send_voice" -> "正在合成语音"
+                                        "invite_group_member" -> "正在记下接话邀请"
+                                        else -> "正在查询"
+                                    }
+                                } else "执行中断，未保存结果"
                                 "returned" -> record.note.ifEmpty { "已返回结果" }
                                 "rejected" -> "未执行"
-                                else -> "查询失败"
+                                else -> "执行失败"
                             }
-                            Text("${record.name} · $state", color = palette.content, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            val name = if (record.name == "invite_group_member") "请伙伴接话" else record.name
+                            Text("$name · $state", color = palette.content, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             Text("参数", color = palette.contentSecondary, fontSize = 12.sp)
                             SelectionContainer { Text(record.arguments, color = palette.content, fontSize = 13.sp) }
                             if (record.result.isNotEmpty()) {

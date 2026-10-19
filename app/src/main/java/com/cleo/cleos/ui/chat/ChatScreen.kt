@@ -28,8 +28,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,7 +48,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.horizontalScroll
@@ -59,19 +56,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.rounded.DynamicFeed
-import androidx.compose.material.icons.rounded.AddPhotoAlternate
-import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Call
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.EmojiEmotions
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Extension
@@ -80,10 +73,8 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Psychology
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import com.cleo.cleos.data.MessageEdits
@@ -114,18 +105,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -174,7 +161,6 @@ import com.cleo.cleos.data.MessageQuotes
 import com.cleo.cleos.data.FeedShare
 import com.cleo.cleos.data.FeedShares
 import com.cleo.cleos.data.MessageReactions
-import com.cleo.cleos.data.MessageThoughts
 import com.cleo.cleos.data.Pats
 import com.cleo.cleos.data.StickerBook
 import com.cleo.cleos.data.StickerText
@@ -207,9 +193,6 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.time.LocalDate
 
-/** A gap longer than this between two messages gets a time line between them. */
-private const val TIME_GAP_MS = 10 * 60 * 1000L
-
 private data class Face(val file: String?, val letter: String)
 
 /** Whose picture goes beside which bubbles; null when the chat shows no avatars. */
@@ -228,129 +211,9 @@ private val AvatarSlot = AvatarSize + AvatarGap
 private val MaxPictureHeight = 260.dp
 
 /** The input bar's height on one line; its round ends have half this as radius. */
-private val BarHeight = 50.dp
 
 /** Pictures in one message: as many as are sent along with a request. */
 private const val MAX_ATTACHMENTS = Prompt.MAX_IMAGES
-
-private sealed interface ChatRow {
-    val key: Any
-
-    data class Stamp(val at: Long) : ChatRow {
-        override val key: Any get() = "t$at"
-    }
-
-    /** Where the messages sent verbatim begin: before it, the TA has only the recap. */
-    data object RecapMark : ChatRow {
-        override val key: Any get() = "recap"
-    }
-
-    /** [showFace]: the newest of a run of messages from one side, which alone gets the avatar. */
-    data class Message(val message: MessageEntity, val isLast: Boolean, val showFace: Boolean = true, val tool: ToolKind? = null) : ChatRow {
-        override val key: Any get() = message.id
-    }
-
-    /** Above what the TA said on its own when something it noted came due (ai/Later.kt): nobody asked. */
-    data class Woke(val at: Long) : ChatRow {
-        override val key: Any get() = "w$at"
-    }
-
-    /** Tool calls that follow one another, folded into one line that opens: [lines] oldest first. */
-    data class ToolGroup(val lines: List<MessageEntity>, val kinds: List<ToolKind>) : ChatRow {
-        override val key: Any get() = "g${lines.first().id}"
-    }
-}
-
-/** A tool call's line in the chat (one without a line is silent). */
-private fun MessageEntity.isToolLine() = role == "tool" && !note.isNullOrBlank()
-
-/**
- * Two or more tool lines in a row (nothing between them in the chat but what is silent) become one
- * ToolGroup; one alone stays as it is. [rows] is newest first, as buildRows makes them.
- */
-private fun foldTools(rows: List<ChatRow>): List<ChatRow> {
-    val out = ArrayList<ChatRow>(rows.size)
-    var i = 0
-    while (i < rows.size) {
-        var j = i
-        while (j < rows.size && (rows[j] as? ChatRow.Message)?.message?.let {
-            it.isToolLine() && MessageImages.decode(it.images).isEmpty()
-        } == true) j++
-        if (j - i >= 2) {
-            val run = rows.subList(i, j).map { it as ChatRow.Message }.reversed()
-            out += ChatRow.ToolGroup(run.map { it.message }, run.map { it.tool ?: ToolKind.Other })
-            i = j
-        } else {
-            out += rows[i]
-            i++
-        }
-    }
-    return out
-}
-
-/**
- * Rows with nothing to draw: an assistant turn that only called tools, without a thought to
- * show (the results have their own lines), a tool result without a line (a request shows its
- * card instead), and what was said or done in a phone call (the call's card stands for it).
- */
-private fun MessageEntity.silent() =
-    (thoughtOnly() && thought == null) || (role == "tool" && note.isNullOrBlank()) || call != null
-
-/** An assistant turn that only called tools: at most its thinking is drawn, on a line of its own. */
-private fun MessageEntity.thoughtOnly() = role == "assistant" && content.isEmpty() && error == null
-
-/** Which side a bubble is on: true for the person's, false for the TA's, null for lines that aren't bubbles. */
-private fun MessageEntity.side(): Boolean? = when {
-    role == "user" && note == null -> true
-    role == "assistant" && !thoughtOnly() -> false
-    else -> null
-}
-
-/** Whether the message is folded into a recap that ends at [until] (a time, then an id). */
-private fun MessageEntity.foldedBy(until: Pair<Long, Long>) = createdAt < until.first || (createdAt == until.first && id <= until.second)
-
-/**
- * Newest first, because the list is laid out bottom-up. Several messages in a row from one
- * side show the avatar once, beside the newest, the way chat apps stack them; a line or a
- * time between them starts a new run. With [eachFace], every message shows it, the way
- * WeChat does. With a recap, its mark goes between the last message folded into it and the
- * first one after. What the TA said on its own gets a line above the first of it.
- */
-private fun buildRows(messages: List<MessageEntity>, recapUntil: Pair<Long, Long>? = null, eachFace: Boolean = false): List<ChatRow> {
-    val rows = ArrayList<ChatRow>(messages.size + 8)
-    var newerSide: Boolean? = null
-    var marked = false
-    // A pat (拍一拍) after the TA's last reply must not take its retry button away.
-    val last = messages.indexOfLast { it.role != "pat" }
-    for (i in messages.indices.reversed()) {
-        val m = messages[i]
-        if (recapUntil != null && !marked && m.foldedBy(recapUntil)) {
-            rows += ChatRow.RecapMark
-            marked = true
-            newerSide = null
-        }
-        if (m.silent()) continue
-        val side = m.side()
-        val tool = if (m.isToolLine()) ToolKinds.of(ToolDetails.nameOf(messages, m)) else null
-        rows += ChatRow.Message(m, isLast = i == last, showFace = eachFace || side == null || side != newerSide, tool = tool)
-        newerSide = side
-        val prev = messages.getOrNull(i - 1)
-        val gap = prev == null || m.createdAt - prev.createdAt > TIME_GAP_MS
-        if (m.proactive) {
-            // The first of a run: what is drawn just before it is not the TA's own too (or is, but long before).
-            val older = (i - 1 downTo 0).firstOrNull { !messages[it].silent() }?.let { messages[it] }
-            if (gap || older == null || !older.proactive) {
-                rows += ChatRow.Woke(m.createdAt)
-                newerSide = null
-            }
-        }
-        if (gap) {
-            rows += ChatRow.Stamp(m.createdAt)
-            newerSide = null
-        }
-    }
-    return foldTools(rows)
-}
 
 @Composable
 fun ChatTab(
@@ -523,7 +386,8 @@ fun ChatTab(
         val parts = Speech.readParts(text)
         if (parts.pieces.isEmpty()) return
         val dir = File(context.cacheDir, "read")
-        val settingsNow = appSettings
+        val readTa = companions.firstOrNull { it.id == state.companionId } ?: return
+        val settingsNow = com.cleo.cleos.ai.TaVoices.effective(appSettings, readTa)
         playing = mark
         preparing[0] = playScope.launch {
             try {
@@ -670,8 +534,11 @@ fun ChatTab(
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
     val inputBottom = if (imeBottom > bottomInset) imeBottom + 8.dp else bottomInset
-    val rows = remember(state.messages, state.recapUntil, state.avatarEachMessage) {
-        buildRows(state.messages, state.recapUntil, eachFace = state.avatarEachMessage)
+    val storedRows = remember(state.messages, state.recapUntil, state.avatarEachMessage, appSettings.showThought) {
+        buildRows(state.messages, state.recapUntil, eachFace = state.avatarEachMessage, showThought = appSettings.showThought)
+    }
+    val rows = remember(storedRows, state.streaming, appSettings.showThought) {
+        withLiveRows(storedRows, state.messages, state.streaming, appSettings.showThought)
     }
     // The calls something was said in: only those have words to open.
     val callsSaid = remember(state.messages) { state.messages.mapNotNullTo(HashSet()) { it.call } }
@@ -732,8 +599,8 @@ fun ChatTab(
     // where it was, so the index alone would read "scrolled up".
     var newestBefore by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(state.messages.lastOrNull()?.id, state.streaming?.text?.isEmpty(), state.streaming?.activity) {
-        val live = if (state.streaming != null) 1 else 0
-        val was = rows.indexOfFirst { it is ChatRow.Message && it.message.id == newestBefore }.coerceAtLeast(0) + live
+        val was = rows.indexOfFirst { (it is ChatRow.Message && it.message.id == newestBefore) ||
+            (it is ChatRow.Activity && newestBefore in it.ids) }.coerceAtLeast(0)
         newestBefore = state.messages.lastOrNull()?.id
         // Not while a searched-for message is being brought into view.
         if (c.chat.focus.value == null && listState.firstVisibleItemIndex <= was + 2) listState.animateScrollToItem(0)
@@ -800,6 +667,8 @@ fun ChatTab(
     fun rowOf(id: Long): Int {
         val own = rows.indexOfFirst { it is ChatRow.Message && it.message.id == id }
         if (own >= 0) return own
+        val activity = rows.indexOfFirst { it is ChatRow.Activity && id in it.ids }
+        if (activity >= 0) return activity
         val call = state.messages.firstOrNull { it.id == id }?.call ?: return -1
         return rows.indexOfFirst { it is ChatRow.Message && it.message.id == call }
     }
@@ -811,9 +680,7 @@ fun ChatTab(
             voiceHint = "原消息已经不在了"
             return
         }
-        // The live reply, while there is one, is the list's first item.
-        val at = index + if (state.streaming != null) 1 else 0
-        scope.launch { listState.animateScrollToItem(at) }
+        scope.launch { listState.animateScrollToItem(index) }
         flashed = id
     }
 
@@ -827,7 +694,7 @@ fun ChatTab(
         if (index < 0) {
             voiceHint = "那条消息已经不在了"
         } else {
-            listState.scrollToItem(index + if (state.streaming != null) 1 else 0)
+            listState.scrollToItem(index)
             flashed = f.messageId
             // Said on the phone: what was said in that call, opened.
             state.messages.firstOrNull { it.id == f.messageId }?.call?.let { readingCall = it }
@@ -1045,27 +912,24 @@ fun ChatTab(
                 // alignment would put it at the top even in a reversed list.
                 verticalArrangement = Arrangement.spacedBy(com.cleo.cleos.data.BubbleSpacing.normalized(appSettings.messageSpacing).dp, Alignment.Bottom),
             ) {
-                state.streaming?.let { live ->
-                    item(key = "live") { LiveBubble(live, state.aiName, vm::answerAsk) }
-                }
                 items(rows, key = { it.key }) { row ->
                     when (row) {
                         is ChatRow.Stamp -> TimeStamp(row.at)
                         ChatRow.RecapMark -> RecapMark(state.aiName) { readingRecap = true }
                         is ChatRow.Woke -> ToolNote("${state.aiName.ifBlank { "TA" }}自己想起来的", Icons.Rounded.Lightbulb)
-                        is ChatRow.ToolGroup -> Box(Modifier.fillMaxWidth().combinedClickable(
-                            onClick = { if (selecting) {
-                                val ids = row.lines.map { it.id }.toSet()
-                                selected = if (selected.containsAll(ids)) selected - ids else selected + ids
-                            } else readingTool = row.lines.first().id },
-                            onLongClick = { selected = row.lines.map { it.id }.toSet(); selecting = true })) {
-                            ToolGroupNote(row.key, row.lines, row.kinds) { readingTool = it }
-                            if (selecting) {
+                        is ChatRow.Live -> LiveBubble(row.reply, state.aiName, vm::answerAsk)
+                        is ChatRow.Activity -> Box(Modifier.fillMaxWidth().padding(start = if (LocalFaces.current != null) AvatarSlot else 0.dp)) {
+                            ActivityCard(
+                                events = row.events, live = row.live, identity = row.key, maxWidth = bubbleMaxWidth(),
+                                forceOpen = flashed in row.ids && rows.none { it is ChatRow.Message && it.message.id == flashed },
+                                onOpenCall = { readingTool = it },
+                                onLongClick = { if (row.ids.isNotEmpty()) { selected = row.ids; selecting = true } },
+                            )
+                            if (selecting && row.ids.isNotEmpty()) {
                                 Box(Modifier.matchParentSize().clickable {
-                                    val ids = row.lines.map { it.id }.toSet()
-                                    selected = if (selected.containsAll(ids)) selected - ids else selected + ids
+                                    selected = if (selected.containsAll(row.ids)) selected - row.ids else selected + row.ids
                                 })
-                                Checkbox(row.lines.all { it.id in selected }, null, modifier = Modifier.align(Alignment.CenterStart))
+                                Checkbox(row.ids.all { it in selected }, null, modifier = Modifier.align(Alignment.CenterStart))
                             }
                         }
                         is ChatRow.Message -> {
@@ -1093,7 +957,7 @@ fun ChatTab(
                                     }
                                 }
                                 m.role == "tool" || m.role == "note" -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Box(Modifier.fillMaxWidth().combinedClickable(
+                                    if (!row.activityFolded) Box(Modifier.fillMaxWidth().combinedClickable(
                                     onClick = { if (selecting) toggleFavorite(m.id) else if (m.role == "tool") readingTool = m.id },
                                     onLongClick = { selected = setOf(m.id); selecting = true })) {
                                     ToolNote(
@@ -1118,10 +982,6 @@ fun ChatTab(
                                 // The person's answer to a request: their turn, drawn as a line on their side.
                                 m.role == "user" && note != null -> ToolNote(note, Icons.Rounded.Key, mine = true)
                                 m.role == "pat" -> PatLine(Pats.decode(m.content), state.aiName)
-                                m.thoughtOnly() -> {
-                                    val thought = remember(m.thought) { MessageThoughts.decode(m.thought) }
-                                    if (thought != null) ThoughtLine(thought.text, thought.ms, key = m.id)
-                                }
                                 else -> {
                                     val quote = remember(m.quote) { MessageQuotes.decode(m.quote) }
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1433,13 +1293,18 @@ private fun MessageBubble(
         val cardFiles = FeedShares.decode(message.feedShare)?.images.orEmpty().map { it.file }.toSet()
         MessageImages.decode(message.images).filterNot { it.file in cardFiles }
     }
-    val thought = remember(message.thought) { MessageThoughts.decode(message.thought) }
     // Words and stickers, in order; the words alone are what 复制 copies.
     val book = LocalStickers.current
     val shared = remember(message.feedShare) { FeedShares.decode(message.feedShare) }
     val displayText = shared?.caption ?: message.content
     val pieces = remember(displayText, book) { StickerText.split(displayText, book) }
-    val words = remember(pieces, shared) { if (shared != null) message.content else pieces.filterIsInstance<StickerText.Piece.Words>().joinToString("\n") { it.text } }
+    val words = remember(pieces, shared) { if (shared != null) message.content else pieces.mapNotNull {
+        when (it) {
+            is StickerText.Piece.Words -> it.text
+            is StickerText.Piece.Unavailable -> "表情包不可用：${it.name}"
+            is StickerText.Piece.Sticker -> null
+        }
+    }.joinToString("\n") }
     val reactions = remember(message.reactions) { MessageReactions.decode(message.reactions) }
 
     Row(
@@ -1462,7 +1327,6 @@ private fun MessageBubble(
                     horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    if (thought != null && !mine) ThoughtBlock(thought.text, thought.ms, key = message.id)
                     if (pictures.isNotEmpty()) {
                         PictureGroup(pictures, onOpen = onOpenImage, onLongPress = { menu = true })
                     }
@@ -1483,6 +1347,7 @@ private fun MessageBubble(
                             when (piece) {
                                 // A sticker stands on its own, outside any bubble, as chat apps draw them.
                                 is StickerText.Piece.Sticker -> StickerView(piece.sticker) { menu = true }
+                                is StickerText.Piece.Unavailable -> UnavailableSticker(piece.name) { menu = true }
                                 is StickerText.Piece.Words -> ChatBubbleSurface(
                                     modifier = Modifier
                                         .widthIn(max = bubbleMaxWidth())
@@ -1587,7 +1452,7 @@ private fun MessageBubble(
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun VoiceBubble(
+internal fun VoiceBubble(
     audio: MessageAudio,
     mine: Boolean,
     playing: Boolean,
@@ -1673,46 +1538,6 @@ private fun RecordingPill(
 }
 
 /**
- * Hold to talk: pressing starts a recording, letting go sends it, and sliding up first then
- * letting go throws it away. The pointer stays this button's until it is lifted, wherever it goes.
- */
-@Composable
-private fun MicButton(button: Modifier, recording: Boolean, onStart: () -> Boolean, onMove: (Boolean) -> Unit, onEnd: (Boolean) -> Unit) {
-    val palette = LocalGlassPalette.current
-    val start by rememberUpdatedState(onStart)
-    val move by rememberUpdatedState(onMove)
-    val end by rememberUpdatedState(onEnd)
-    Box(
-        button
-            .background(if (recording) palette.accent else palette.content.copy(alpha = 0.1f))
-            .semantics { contentDescription = "按住说话" }
-            .pointerInput(Unit) {
-                val away = 72.dp.toPx()
-                awaitEachGesture {
-                    val down = awaitFirstDown()
-                    down.consume()
-                    if (!start()) return@awaitEachGesture
-                    var cancel = false
-                    while (true) {
-                        val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        val up = down.position.y - change.position.y > away
-                        if (up != cancel) {
-                            cancel = up
-                            move(cancel)
-                        }
-                        change.consume()
-                    }
-                    end(cancel)
-                }
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(Icons.Rounded.Mic, contentDescription = null, tint = if (recording) Color.White else palette.content, modifier = Modifier.size(22.dp))
-    }
-}
-
-/**
  * Pictures sent with a message, outside the bubble: a glass pane behind a photo would only
  * blur its edges. One picture keeps its shape; several become a grid of squares.
  */
@@ -1785,8 +1610,6 @@ private fun ToolPictureCard(pictures: List<MessageImage>, onOpen: (String) -> Un
 private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepository.Answer) -> Unit) {
     val palette = LocalGlassPalette.current
     val faces = LocalFaces.current
-    // Thinking with words to show: those stand in for the typing dots.
-    val thinkingAloud = live.text.isEmpty() && live.thought.isNotBlank()
     // What has come in so far, stickers drawn as they complete; one still being written isn't shown yet.
     val book = LocalStickers.current
     val pieces = remember(live.text, book) { StickerText.split(StickerText.finishedPart(live.text), book) }
@@ -1795,8 +1618,7 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
         horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (live.thought.isNotBlank()) ThoughtLine(live.thought, live.thoughtMs, key = "live")
-        if (live.text.isNotEmpty() || (!thinkingAloud && live.activity == null && live.asking == null)) {
+        if (live.text.isNotEmpty() || (live.activity == null && live.asking == null)) {
             Row {
                 if (faces != null) {
                     Avatar(faces.ai.file, faces.ai.letter, AvatarSize)
@@ -1821,6 +1643,7 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
                     pieces.forEach { piece ->
                         when (piece) {
                             is StickerText.Piece.Sticker -> StickerView(piece.sticker) {}
+                            is StickerText.Piece.Unavailable -> UnavailableSticker(piece.name) {}
                             is StickerText.Piece.Words -> ChatBubbleSurface(
                                 modifier = Modifier.widthIn(max = bubbleMaxWidth()),
                             ) { ink ->
@@ -1832,56 +1655,6 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
             }
         }
         live.asking?.let { AskCard(it, aiName, onAnswer) }
-        live.activity?.let { ToolNote(it + "…", Icons.Rounded.AutoAwesome, running = true) }
-    }
-}
-
-/**
- * What the TA thought before replying, in the notes' glass: folded into one line (想了 12 秒)
- * that opens on a tap. While it is still thinking ([ms] null), the newest lines show as they
- * come in.
- */
-@Composable
-private fun ThoughtBlock(text: String, ms: Long?, key: Any) {
-    val palette = LocalGlassPalette.current
-    var open by rememberSaveable(key) { mutableStateOf(false) }
-    val thinking = ms == null
-    GlassSurface(
-        modifier = Modifier
-            .widthIn(max = bubbleMaxWidth())
-            .clickable(interactionSource = null, indication = null) { open = !open },
-        style = palette.notice,
-        shape = GlassShape.Rounded(14.dp),
-        contentPadding = PaddingValues(start = 10.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Psychology, contentDescription = null, tint = palette.accentContent, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (ms == null) "在想…" else thoughtFor(ms), color = palette.contentSecondary, fontSize = 13.sp)
-                Spacer(Modifier.width(2.dp))
-                Icon(
-                    if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                    contentDescription = if (open) "收起" else "展开",
-                    tint = palette.contentSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-            if (open) {
-                Text(text.trim(), color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 19.sp)
-            } else if (thinking) {
-                // The newest lines: a window three lines high onto the bottom of the text.
-                Box(Modifier.heightIn(max = 57.dp).clipToBounds()) {
-                    Text(
-                        text.takeLast(THOUGHT_TAIL).trimStart(),
-                        color = palette.contentSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 19.sp,
-                        modifier = Modifier.wrapContentHeight(Alignment.Bottom, unbounded = true),
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -1907,27 +1680,6 @@ private fun QuoteBox(label: String, onOpen: () -> Unit) {
         )
     }
 }
-
-/** A thought on a line of its own: before the tools the TA used, or while it is still thinking. */
-@Composable
-private fun ThoughtLine(text: String, ms: Long?, key: Any) {
-    val slot = if (LocalFaces.current != null) AvatarSlot else 0.dp
-    Box(Modifier.fillMaxWidth().padding(start = slot)) { ThoughtBlock(text, ms, key) }
-}
-
-/** 想了 12 秒, 想了 1 分 5 秒; under a second, it only thought for a moment. */
-private fun thoughtFor(ms: Long): String {
-    val s = ms / 1000
-    return when {
-        s < 1 -> "想了一下"
-        s < 60 -> "想了 $s 秒"
-        s % 60 == 0L -> "想了 ${s / 60} 分钟"
-        else -> "想了 ${s / 60} 分 ${s % 60} 秒"
-    }
-}
-
-/** How much of a thought still coming in is laid out: more than the three lines shown. */
-private const val THOUGHT_TAIL = 400
 
 /** A TA's call to an outside service, waiting for the person to allow it. */
 @Composable
@@ -2002,128 +1754,6 @@ private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, 
     }
 }
 
-/**
- * Tool calls in a row, as one small line that opens: an icon for each kind of call, joined by a
- * hairline, and a red warning where one didn't go through. No words until it is opened; then the
- * calls hang on a thin vertical line, one row each, and a tap on one opens its call.
- */
-@Composable
-private fun ToolGroupNote(key: Any, lines: List<MessageEntity>, kinds: List<ToolKind>, onOpenCall: (Long) -> Unit) {
-    val palette = LocalGlassPalette.current
-    val slot = if (LocalFaces.current != null) AvatarSlot else 0.dp
-    var open by rememberSaveable(key) { mutableStateOf(false) }
-    val failed = remember(lines) { lines.map { ToolRuns.failed(it.note.orEmpty()) } }
-    val stack = remember(kinds, failed) { ToolKinds.stack(kinds, failed, TOOL_STACK_MAX) }
-    val hairline = palette.contentSecondary.copy(alpha = 0.35f)
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(start = slot),
-    ) {
-        GlassSurface(
-            modifier = Modifier
-                .widthIn(max = bubbleMaxWidth())
-                .clickable(interactionSource = null, indication = null) { open = !open },
-            style = palette.notice,
-            shape = GlassShape.Rounded(12.dp),
-            contentPadding = PaddingValues(start = 9.dp, end = 8.dp, top = 5.dp, bottom = 5.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                stack.shown.forEachIndexed { i, (kind, bad) ->
-                    if (i > 0) Box(Modifier.padding(horizontal = 3.dp).width(8.dp).height(1.dp).background(hairline))
-                    Icon(
-                        if (bad) Icons.Outlined.Warning else kind.icon(),
-                        contentDescription = null,
-                        tint = if (bad) palette.error else palette.contentSecondary,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
-                if (stack.more > 0) {
-                    Spacer(Modifier.width(6.dp))
-                    Text("+${stack.more}", color = palette.contentSecondary, fontSize = 12.sp)
-                }
-                if (stack.hiddenFailed) {
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Outlined.Warning, contentDescription = "有没成的", tint = palette.error, modifier = Modifier.size(14.dp))
-                }
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                    contentDescription = "用了 ${lines.size} 个工具，" + if (open) "收起" else "展开",
-                    tint = palette.contentSecondary,
-                    modifier = Modifier.size(16.dp),
-                )
-            }
-        }
-        AnimatedVisibility(visible = open, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-            GlassSurface(
-                modifier = Modifier
-                    .padding(top = 4.dp)
-                    .widthIn(max = bubbleMaxWidth()),
-                style = palette.notice,
-                shape = GlassShape.Rounded(12.dp),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-            ) {
-                Column {
-                    lines.forEachIndexed { i, line ->
-                        ToolTimelineRow(
-                            note = line.note.orEmpty(),
-                            kind = kinds[i],
-                            failed = failed[i],
-                            first = i == 0,
-                            last = i == lines.lastIndex,
-                            hairline = hairline,
-                        ) { onOpenCall(line.id) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** One call on the thin vertical line: its icon on the line, its words beside it. The line is drawn up and down from the icon, not through it. */
-@Composable
-private fun ToolTimelineRow(note: String, kind: ToolKind, failed: Boolean, first: Boolean, last: Boolean, hairline: Color, onClick: () -> Unit) {
-    val palette = LocalGlassPalette.current
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .drawBehind {
-                val x = 9.dp.toPx()
-                val mid = size.height / 2
-                val clear = 10.dp.toPx()
-                if (!first) drawLine(hairline, Offset(x, 0f), Offset(x, mid - clear), 1.dp.toPx())
-                if (!last) drawLine(hairline, Offset(x, mid + clear), Offset(x, size.height), 1.dp.toPx())
-            }
-            .padding(vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-            Icon(
-                if (failed) Icons.Outlined.Warning else kind.icon(),
-                contentDescription = null,
-                tint = if (failed) palette.error else palette.contentSecondary,
-                modifier = Modifier.size(16.dp),
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Text(
-            note,
-            color = if (failed) palette.error else palette.contentSecondary,
-            fontSize = 13.sp,
-            lineHeight = 18.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Text("  ›", color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 18.sp)
-    }
-}
-
-/** How many kinds of call a folded run shows an icon for; the calls of the rest are a number. */
-private const val TOOL_STACK_MAX = 3
-
 /** A tool call opened from its line in the chat: what was asked of the tool, and what it answered, to read and copy. */
 @Composable
 private fun ToolDetailDialog(detail: ToolDetail, onDismiss: () -> Unit, onDelete: () -> Unit, onSelect: () -> Unit) {
@@ -2195,11 +1825,7 @@ private fun CallNote(message: MessageEntity, said: Boolean, onOpen: () -> Unit) 
     val palette = LocalGlassPalette.current
     val record = remember(message.content) { CallRecords.decode(message.content) } ?: return
     val talked = record.talkedMs
-    val text = when {
-        record.endedAt == null -> "通话中"
-        talked == null -> "已取消"
-        else -> "语音通话 ${CallRecords.clock(talked)}"
-    }
+    val text = CallRecords.label(record)
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         GlassSurface(
             modifier = Modifier.clickable(interactionSource = null, indication = null, onClick = onOpen),
@@ -2419,13 +2045,24 @@ private fun ChatInputBar(
     val palette = LocalGlassPalette.current
     val c = appContainer()
     val canSend = text.isNotBlank() || attachments.isNotEmpty() || share != null
-    Column(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp)
-            .heightIn(min = BarHeight)
-            .liquidGlass(backdrop, palette.input, GlassShape.Rounded(BarHeight / 2)),
-    ) {
+    val action = when {
+        busy && !canSend && !editing -> ChatComposerAction.Stop
+        !canSend && !editing -> ChatComposerAction.Mic
+        else -> ChatComposerAction.Send
+    }
+    ChatComposer(backdrop, type, text, onTextChange, focus, action,
+        onAction = if (action == ChatComposerAction.Stop) onStop else onSend,
+        onLeading = onPick, leadingEnabled = !editing && attachments.size < MAX_ATTACHMENTS,
+        readOnly = editing && busy, onFieldFocus = onFieldFocus,
+        drawerOpen = drawerOpen, onDrawer = onDrawer, drawerEnabled = !editing,
+        actionEnabled = action != ChatComposerAction.Send || sendEnabled && canSend,
+        actionLabel = when (action) {
+            ChatComposerAction.Mic -> "按住说话"
+            ChatComposerAction.Stop -> "停止"
+            ChatComposerAction.Send -> if (editing) "修改并重新回答" else "发送"
+        },
+        recording = recording, onVoiceStart = onVoiceStart, onVoiceMove = onVoiceMove, onVoiceEnd = onVoiceEnd,
+        modifier = modifier) {
         if (editing) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(editHint, color = palette.contentSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 2)
@@ -2475,91 +2112,6 @@ private fun ChatInputBar(
                 attachments.forEach { img -> AttachmentThumb(c.images.file(img.file), if (editing) null else ({ onRemove(img) })) }
                 if (attaching) {
                     Box(Modifier.size(64.dp).background(palette.content.copy(alpha = 0.08f), RoundedCornerShape(14.dp)))
-                }
-            }
-        }
-        // Each button sits in the middle of a square as tall as the bar: on one line it is
-        // centred, concentric with the capsule's round end; as the text grows to more lines
-        // the squares stay at the bottom. (Padding the buttons by hand left them 4dp from
-        // the top and 8dp from the bottom: the text row was 48dp in a 50dp bar.)
-        Row(verticalAlignment = Alignment.Bottom) {
-            Box(Modifier.size(BarHeight), contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .clickable(enabled = !editing && attachments.size < MAX_ATTACHMENTS, onClick = onPick),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Rounded.AddPhotoAlternate, contentDescription = "发图片", tint = palette.contentSecondary, modifier = Modifier.size(24.dp))
-                }
-            }
-            Box(
-                Modifier
-                    .weight(1f)
-                    .heightIn(min = BarHeight)
-                    .padding(end = 4.dp, top = 13.dp, bottom = 13.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                if (text.isEmpty()) {
-                    Text("说点什么…", color = palette.contentSecondary, style = type.body)
-                }
-                BasicTextField(
-                    value = text,
-                    readOnly = editing && busy,
-                    onValueChange = onTextChange,
-                    textStyle = type.body.copy(color = palette.content),
-                    cursorBrush = SolidColor(palette.accentContent),
-                    maxLines = 6,
-                    // The placeholder above is drawn beside the field, so a screen reader
-                    // would otherwise announce an unnamed text box.
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focus)
-                        .onFocusChanged { if (it.isFocused) onFieldFocus() }
-                        .semantics { contentDescription = "输入消息" },
-                )
-            }
-            // Narrower than the squares either side: the text keeps as much of the bar as it can.
-            Box(Modifier.size(width = 40.dp, height = BarHeight), contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(if (drawerOpen) palette.content.copy(alpha = 0.1f) else Color.Transparent)
-                        .clickable(enabled = !editing, onClick = onDrawer),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Rounded.EmojiEmotions,
-                        contentDescription = if (drawerOpen) "收起表情包" else "表情包",
-                        tint = if (drawerOpen) palette.accentContent else palette.contentSecondary,
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-            Box(Modifier.size(BarHeight), contentAlignment = Alignment.Center) {
-                // Plain fills inside the glass, like the chips on a card: glass in glass reads as a hole.
-                val button = Modifier.size(38.dp).clip(CircleShape)
-                if (busy && !canSend && !editing) {
-                    Box(
-                        button.background(palette.content.copy(alpha = 0.1f)).clickable(onClick = onStop),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.Stop, contentDescription = "停止", tint = palette.content, modifier = Modifier.size(20.dp))
-                    }
-                } else if (!canSend && !editing) {
-                    // Nothing typed: the button is for talking instead.
-                    MicButton(button, recording, onVoiceStart, onVoiceMove, onVoiceEnd)
-                } else {
-                    Box(
-                        button
-                            .background(palette.accent.copy(alpha = if (sendEnabled && canSend) 1f else 0.35f))
-                            .clickable(enabled = sendEnabled && canSend, onClick = onSend),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Rounded.ArrowUpward, contentDescription = if (editing) "修改并重新回答" else "发送", tint = Color.White, modifier = Modifier.size(22.dp))
-                    }
                 }
             }
         }

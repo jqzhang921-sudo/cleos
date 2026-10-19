@@ -73,6 +73,7 @@ import java.util.UUID
 class McpEditViewModel(private val c: AppContainer, startId: String) : ViewModel() {
     val isNew = startId.isEmpty()
     private val id = startId.ifEmpty { UUID.randomUUID().toString() }
+    internal val httpOwner get() = id
     var name by mutableStateOf("")
     var url by mutableStateOf("")
     var token by mutableStateOf("")
@@ -127,12 +128,16 @@ class McpEditViewModel(private val c: AppContainer, startId: String) : ViewModel
 
     fun delete(then: () -> Unit) {
         deleted = true
-        c.appScope.launch { c.mcp.servers.delete(id) }
+        c.appScope.launch { c.mcp.servers.delete(id); c.httpPermissions.clearMcp(id) }
         then()
     }
 
     override fun onCleared() {
-        if (!loaded || deleted || url.isBlank()) return
+        if (!loaded || deleted) return
+        if (url.isBlank()) {
+            if (isNew) c.appScope.launch { c.httpPermissions.clearMcp(id) }
+            return
+        }
         val s = server().let { if (it.name.isEmpty()) it.copy(name = hostOf(it.url)) else it }
         c.appScope.launch { c.mcp.servers.save(s) }
     }
@@ -201,6 +206,7 @@ fun McpEditScreen(id: String, onBack: () -> Unit) {
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                HttpPermissionControl(vm.url, vm.httpOwner)
                 OutlinedTextField(
                     value = vm.header,
                     onValueChange = { vm.header = it },

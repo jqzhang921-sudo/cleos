@@ -54,6 +54,9 @@ class MainActivity : ComponentActivity() {
         val conversation = intent?.getLongExtra(Notifier.EXTRA_CONVERSATION, -1L) ?: -1L
         val letter = intent?.getLongExtra(Notifier.EXTRA_LETTER, -1L) ?: -1L
         when {
+            intent?.getStringExtra(Notifier.EXTRA_INCOMING) != null -> container.incomingCalls.open(
+                requireNotNull(intent.getStringExtra(Notifier.EXTRA_INCOMING)),intent.getBooleanExtra(Notifier.EXTRA_ANSWER,false))
+            intent?.getBooleanExtra(Notifier.EXTRA_CALL, false) == true -> container.showCall()
             conversation > 0 -> container.openConversation(conversation)
             letter > 0 -> container.openLetter(letter)
         }

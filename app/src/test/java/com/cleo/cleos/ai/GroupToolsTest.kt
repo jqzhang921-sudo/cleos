@@ -13,11 +13,13 @@ class GroupToolsTest {
     private val initial = listOf(ApiMessage("system", "group fixture"), ApiMessage("user", "weather please"))
     private val specs = listOf(ToolSpecs.getWeather)
     private val call = ToolCall("weather1", "get_weather", """{"city":"Tokyo"}""")
-    @Test fun onlyGroupReadToolsAndGalleryShareAreOfferedEvenWhenPrivateAndMcpToolsAreEnabled() {
+    @Test fun onlyGroupToolsIncludingEnabledCalendarAndClockAreOfferedEvenWhenPrivateAndMcpToolsAreEnabled() {
         val names = GroupToolRules.offered(AppSettings(tools = ToolGroup.entries.toSet())).map { it.name }
-        assertEquals(listOf("get_weather", "read_feed", "search_photos", "share_photo"), names)
+        assertEquals(listOf("get_weather", "read_feed", "search_photos", "share_photo", "read_calendar", "set_alarm", "set_timer"), names)
         assertTrue(GroupToolRules.offered(AppSettings(tools = emptySet())).isEmpty())
         assertEquals(listOf("search_photos", "share_photo"), GroupToolRules.offered(AppSettings(tools = setOf(ToolGroup.Photos))).map { it.name })
+        assertEquals(listOf("read_calendar"), GroupToolRules.offered(AppSettings(tools = setOf(ToolGroup.Calendar))).map { it.name })
+        assertEquals(listOf("set_alarm", "set_timer"), GroupToolRules.offered(AppSettings(tools = setOf(ToolGroup.Alarm))).map { it.name })
     }
     @Test fun roundTripPairsToolIdsAndReasoningAndKeepsPreludeSeparateFromHiddenThought() = runBlocking {
         val requests = mutableListOf<List<ApiMessage>>()

@@ -268,6 +268,10 @@ internal val NOTICES = listOf(
     "hrir/README.txt",
     "licenses/binaural-voice.txt",
     "licenses/datastore-protobuf.txt",
+    "licenses/transfer/journeyapps-zxing-COPYING.txt",
+    "licenses/transfer/zxing-core-LICENSE.txt",
+    "licenses/transfer/zxing-core-NOTICE.txt",
+    "licenses/transfer/scanner-copyrights.txt",
 )
 
 /** How much of the persona the profile page shows: a few lines' worth, never all of it. */

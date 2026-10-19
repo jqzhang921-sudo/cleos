@@ -25,7 +25,11 @@
 
 ### 通过包管理器引入的依赖
 
-版本和许可见 [依赖清单](docs/DEPENDENCY_LICENSES.md)。当前 release compile/package 元数据的并集为 116 个 Maven 坐标：115 个声明 Apache-2.0，1 个声明 BSD-3-Clause。这是构建元数据清单，不等于 R8 后 APK 中实际保留的类库数量。
+版本和许可见 [依赖清单](docs/DEPENDENCY_LICENSES.md)。0.41.88 的 release compile/package 审计快照并集为 116 个 Maven 坐标：115 个声明 Apache-2.0，1 个声明 BSD-3-Clause。这是历史构建元数据清单，不等于当前版本或 R8 后 APK 中实际保留的类库数量。
+
+0.41.127 的局域网迁移新增包管理依赖 `com.journeyapps:zxing-android-embedded:4.3.0`（Journey Mobile, Inc. 与贡献者）和 `com.google.zxing:core:3.5.3`（ZXing authors），均为 Apache-2.0，用于设备本地扫码/二维码，不使用远程扫码服务。上游原始许可与项目 NOTICE 保留在 `licenses/transfer/`，并随 Android assets 和桌面包提供。ZXing 根 NOTICE 原样保留，其中提及的其他上游组件不表示本项目也打包了那些组件。
+
+桌面 0.3.0 另通过包管理器引入 Bouncy Castle 的 `bcpkix-jdk18on`、`bcprov-jdk18on`、`bcutil-jdk18on` 1.86，只为临时传输证书生成使用；许可为 MIT，版权为 The Legion of the Bouncy Castle Inc.，完整原文随桌面 `licenses/upstream/transfer/` 及对应 JAR 许可提供。Bouncy Castle 未加入 Android APK。完整桌面依赖清单随预览包提供，不能把 Android 清单当作桌面全部依赖清单。
 
 `androidx.datastore:datastore-preferences-external-protobuf:1.2.1` 是 BSD-3-Clause 的 Protocol Buffers 重打包依赖；随实际制品提供的 [许可原文](app/src/main/assets/licenses/datastore-protobuf.txt) 原样保留，也保留制品的 META-INF 声明。该原文未列具体版权年份和姓名，本文没有替上游猜写年份；发布时还应保留实际制品随附的其他版权声明。
 

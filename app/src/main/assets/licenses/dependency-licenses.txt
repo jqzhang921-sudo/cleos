@@ -3,6 +3,19 @@
 2026-10-13 根据本地 release lint 元数据及对应缓存 POM 核对。清单覆盖 compile 与 package 的并集，不声明所有依赖代码都被 R8 保留在 APK 中。未来更新依赖时需要重新解析、核对并更新此表。
 许可名称及项目地址取自实际制品的 POM；有一项许可从父 POM 继承。它们是来源证据，不表示 Cleos 拥有这些依赖的版权。
 
+## 0.41.127 迁移功能增量（2026-10-18）
+
+本轮对实际 `releaseRuntimeClasspath` 与下方历史表比较，新出现的第三方坐标仅有以下两项（`cleos:transfer` 是本仓库原创模块）。ZXing core 的许可从同版本 `zxing-parent` POM 继承；两项上游许可原文随 App 提供。此增量不把旧 compile/package 并集改称当前完整审计，也不代表下方旧版本未来会自动保持准确。
+
+| Maven 坐标 | 许可 | 用途与来源 |
+| --- | --- | --- |
+| com.google.zxing:core:3.5.3 | Apache-2.0 | 本地二维码编码/解码；https://github.com/zxing/zxing |
+| com.journeyapps:zxing-android-embedded:4.3.0 | Apache-2.0 | Android 本地相机扫码；https://github.com/journeyapps/zxing-android-embedded |
+
+桌面单独新增 Bouncy Castle `bcpkix-jdk18on`、`bcprov-jdk18on`、`bcutil-jdk18on` 1.86，三个实际 JAR 的 `META-INF/LICENSE.md` 为 MIT 原文。桌面完整制品清单在发行包 `licenses/DEPENDENCIES.tsv`，Bouncy Castle 不在 Android 依赖中。
+
+## 0.41.88 历史表
+
 | Maven 坐标 | 许可 | compile | package | POM 声明的项目来源 |
 |---|---|---|---|---|
 | androidx.activity:activity-compose:1.13.0 | Apache-2.0 | 是 | 是 | https://cs.android.com/androidx/platform/frameworks/support |

@@ -198,6 +198,7 @@ private fun ConnectionFields(fields: EndpointFields) {
     var pickingModel by remember { mutableStateOf(false) }
 
     Field("接口地址", fields.baseUrl, { fields.baseUrl = it }, keyboardType = KeyboardType.Uri)
+    HttpPermissionControl(fields.baseUrl)
     OutlinedTextField(
         value = fields.keyInput,
         onValueChange = { fields.keyInput = it },

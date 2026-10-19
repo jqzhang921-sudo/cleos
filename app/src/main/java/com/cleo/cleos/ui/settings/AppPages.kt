@@ -119,6 +119,16 @@ internal fun ChatPage(vm: SettingsViewModel) {
 
     Section("消息间距") { MessageSpacingControls(settings.messageSpacing, vm::setMessageSpacing) }
 
+    ListCard("思考卡片") {
+        ExplainedSwitch(
+            "显示思考卡片",
+            "与工具记录一起收起，点开查看思考内容",
+            "接口返回的思考内容会与这一轮的工具记录合在小玻璃按钮里，不显示用时，也不会自动展开。材质跟随玻璃实验室的「卡片」。关掉只隐藏思考部分，工具记录仍可查看，不改变模型的深度思考设置。" +
+                "想过什么也照旧存在聊天记录里，随时打开这个开关就能重新看到。",
+            settings.showThought,
+        ) { vm.setShowThought(it) }
+    }
+
     // Moved here from the home page, where they sat among the TA's things.
     ListCard("头像") {
         ExplainedSwitch("聊天里显示头像", "消息旁边放上各自的头像", null, settings.chatAvatars) { vm.setChatAvatars(it) }
@@ -294,16 +304,18 @@ internal fun DataPage(vm: SettingsViewModel) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip(if (vm.backupBusy) "正在处理…" else "导出备份", selected = false) {
-                if (!vm.backupBusy) exportPicker.launch("cleos-备份-${java.time.LocalDate.now()}.zip")
+                if (!vm.backupBusy && !vm.desktopTransfer.busy) exportPicker.launch("cleos-备份-${java.time.LocalDate.now()}.zip")
             }
             Chip("从备份恢复", selected = false) {
-                if (!vm.backupBusy) restorePicker.launch(arrayOf("application/zip", "application/octet-stream"))
+                if (!vm.backupBusy && !vm.desktopTransfer.busy) restorePicker.launch(arrayOf("application/zip", "application/octet-stream"))
             }
         }
         if (vm.canUndoRestore) {
             Chip("撤销上次恢复", selected = false) { confirmUndo = true }
         }
     }
+
+    DesktopTransferSection(vm.desktopTransfer,vm.backupBusy || vm.memoryBusy)
 
     Section("从别的 app 搬过来") {
         Text(
@@ -317,7 +329,7 @@ internal fun DataPage(vm: SettingsViewModel) {
         )
         // Any type: a file passed along through a chat app often comes back without a JSON type.
         Chip(if (vm.memoryBusy) "正在导入…" else "选个文件", selected = false) {
-            if (!vm.memoryBusy) memoryPicker.launch(arrayOf("*/*"))
+            if (!vm.memoryBusy && !vm.desktopTransfer.busy) memoryPicker.launch(arrayOf("*/*"))
         }
         vm.memoryMessage?.let { Text(it, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }
     }
@@ -392,6 +404,8 @@ private fun TipDialog(onDismiss: () -> Unit) {
 }
 
 /** Copies the code into the gallery, under Pictures/Cleos; what to tell the person comes back. */
+// This drawable-nodpi PNG is copied as encoded bytes, without density scaling or re-encoding.
+@android.annotation.SuppressLint("ResourceType")
 private suspend fun saveTipCode(context: Context): String = withContext(Dispatchers.IO) {
     val resolver = context.contentResolver
     val values = ContentValues().apply {

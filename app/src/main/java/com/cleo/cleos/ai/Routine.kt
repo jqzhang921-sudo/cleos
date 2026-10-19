@@ -129,7 +129,7 @@ object RoutineRules {
         "（这条不是对方发的，对方看不到。）\n" +
             Prompt.timeLine(now) + "。对方平时差不多这个时候起来，看样子已经醒了；今天你们还没说过话。\n" +
             "想的话可以打个招呼，像平常那样一两句。" + open(glance) +
-            "不想说就只回复 SKIP，后面可以跟一句为什么。别每天都说得差不多；别问「怎么还不起」「在干嘛」，也别提对方多久没理你。"
+            "不想说就直接结束，不输出文字，也不调用发送工具。别每天都说得差不多；别问「怎么还不起」「在干嘛」，也别提对方多久没理你。"
 
     /** And when it seems to be ending. */
     fun nightText(now: ZonedDateTime, lastTalked: ZonedDateTime?, glance: String?): String =
@@ -137,7 +137,7 @@ object RoutineRules {
             Prompt.timeLine(now) + "。对方平时差不多这个时候睡，这会儿还醒着" +
             (lastTalked?.let { "；你们上次说话是" + LaterRules.at(it, now) } ?: "") + "。\n" +
             "想的话可以道个晚安，或者提一句明天要记得的，一两句就好。" + open(glance) +
-            "不想说就只回复 SKIP，后面可以跟一句为什么。别说教、别催对方睡，也别提对方多久没理你。"
+            "不想说就直接结束，不输出文字，也不调用发送工具。别说教、别催对方睡，也别提对方多久没理你。"
 }
 
 /**

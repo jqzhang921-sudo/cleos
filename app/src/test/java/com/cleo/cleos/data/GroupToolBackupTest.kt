@@ -38,4 +38,19 @@ class GroupToolBackupTest {
         assertEquals("interrupted", restored.status); assertEquals(running.toolTrace, restored.toolTrace)
         assertEquals("", GroupToolRules.context(restored.toolTrace)); validate(listOf(user, restored))
     }
+
+    @Test fun deviceToolRecordsRoundtripAndOldBackupVersionIsStillReadable() {
+        for (name in listOf("read_calendar", "set_alarm", "set_timer")) {
+            val trace = GroupToolRules.encode(GroupToolTrace(listOf(record.copy(name = name))))
+            val source = reply.copy(toolTrace = trace)
+            val restored = Json.decodeFromString<GroupMessageEntity>(Json.encodeToString(source))
+            validate(listOf(user, restored))
+            assertEquals(source, restored)
+        }
+        assertEquals(15, BackupFile.VERSION)
+        val setting = BackupSettings(apiBaseUrl = "https://example.invalid", apiModel = "fixture", aiName = "TA", userName = "user",
+            persona = "", historySize = 40, wallpaper = null, glassMode = "Auto", wallpaperDark = null, wallpaperHue = null, wallpaperChroma = null)
+        val old = BackupFile(BackupFile.FORMAT, 11, 0, setting, emptyList(), emptyList(), emptyList(), emptyList())
+        assertEquals(11, Json.decodeFromString<BackupFile>(Json.encodeToString(old)).version)
+    }
 }

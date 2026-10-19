@@ -230,7 +230,8 @@ object Mcp {
  * out goes along with every request after, and when the service has forgotten it (404) the
  * client starts over, once.
  */
-class McpClient(http: OkHttpClient, private val version: String) {
+class McpClient(http: OkHttpClient, private val version: String,
+    private val prepare: suspend (Request, McpServer) -> Request = { request, _ -> request }) {
     // Some tools take a while (ordering goes through the shop's own systems).
     private val http = http.newBuilder().readTimeout(90, TimeUnit.SECONDS).build()
     private val sessions = ConcurrentHashMap<String, Session>()
@@ -262,7 +263,7 @@ class McpClient(http: OkHttpClient, private val version: String) {
         })
     }
 
-    private suspend fun <T> withSession(server: McpServer, block: (Session) -> T): T = withContext(Dispatchers.IO) {
+    private suspend fun <T> withSession(server: McpServer, block: suspend (Session) -> T): T = withContext(Dispatchers.IO) {
         val key = server.id + "\n" + server.connection
         val session = sessions[key] ?: open(server).also { sessions[key] = it }
         try {
@@ -273,7 +274,7 @@ class McpClient(http: OkHttpClient, private val version: String) {
         }
     }
 
-    private fun open(server: McpServer): Session {
+    private suspend fun open(server: McpServer): Session {
         val id = ids.getAndIncrement()
         val (message, sessionId) = post(server, null, Mcp.request(id, "initialize", Mcp.initializeParams(version)), id)
         val result = Mcp.resultOf(message)
@@ -284,16 +285,16 @@ class McpClient(http: OkHttpClient, private val version: String) {
         return session
     }
 
-    private fun send(server: McpServer, session: Session, method: String, params: JsonObject?): JsonObject {
+    private suspend fun send(server: McpServer, session: Session, method: String, params: JsonObject?): JsonObject {
         val id = ids.getAndIncrement()
         return Mcp.resultOf(post(server, session, Mcp.request(id, method, params), id).first)
     }
 
     /** One POST. [id] null for a notification, which gets no answer. */
-    private fun post(server: McpServer, session: Session?, body: String, id: Int?): Pair<JsonObject, String?> {
+    private suspend fun post(server: McpServer, session: Session?, body: String, id: Int?): Pair<JsonObject, String?> {
         val url = server.url.trim()
         if (!url.startsWith("https://", ignoreCase = true) && !url.startsWith("http://", ignoreCase = true)) {
-            throw McpException("地址要以 https:// 开头")
+            throw McpException("地址要以 https:// 或 http:// 开头")
         }
         val request = Request.Builder()
             .url(url)
@@ -301,7 +302,7 @@ class McpClient(http: OkHttpClient, private val version: String) {
             .post(body.toRequestBody(JSON))
             .build()
         try {
-            http.newCall(request).execute().use { response ->
+            http.newCall(prepare(request, server)).execute().use { response ->
                 if (response.code == 404 && session?.id != null) throw SessionGone()
                 if (!response.isSuccessful) throw McpException(describe(response.code,
                     McpPayloadStream(response.body.byteStream()).bufferedReader(Charsets.UTF_8).use { it.readText() }))
@@ -322,7 +323,8 @@ class McpClient(http: OkHttpClient, private val version: String) {
                 when (e) {
                     is UnknownHostException -> "找不到这个地址的服务器：检查地址，或者网络是不是断了"
                     is SocketTimeoutException -> "等太久没有回应"
-                    else -> if (e.message?.contains("CLEARTEXT", ignoreCase = true) == true) "只支持 https:// 开头的地址" else "网络出错：${e.message ?: e.javaClass.simpleName}"
+                    is com.cleo.cleos.network.EndpointTransportException -> e.message ?: "这个服务尚未获得 HTTP 授权"
+                    else -> if (e.message?.contains("CLEARTEXT", ignoreCase = true) == true) "HTTP 连接被系统阻止，请检查服务设置或使用 HTTPS" else "网络出错：${e.message ?: e.javaClass.simpleName}"
                 },
             )
         }
@@ -367,6 +369,7 @@ class McpHub(
     private val client: McpClient,
     private val clock: () -> Long = System::currentTimeMillis,
     private val diagnostic: (String) -> Unit = {},
+    private val permitted: suspend (McpServer) -> Boolean = { true },
 ) {
     private class Listed(val connection: String, val tools: List<McpTool>, val at: Long, val failed: Boolean)
 
@@ -374,7 +377,7 @@ class McpHub(
 
     /** The tools of every service switched on. A service that can't be reached brings none. */
     suspend fun tools(): List<McpTool> = coroutineScope {
-        val enabled = servers.current().filter { it.enabled && it.url.isNotBlank() }
+        val enabled = servers.current().filter { it.enabled && it.url.isNotBlank() && permitted(it) }
         enabled.map { async { toolsOf(it) } }.awaitAll().flatten().also {
             diagnostic("event=mcp_discovery enabled=${enabled.size} tools=${it.size}")
         }

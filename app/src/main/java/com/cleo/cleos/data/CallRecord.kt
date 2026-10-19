@@ -9,7 +9,8 @@ import kotlinx.serialization.json.Json
  * [answeredAt] was hung up before the TA said anything.
  */
 @Serializable
-data class CallRecord(val answeredAt: Long? = null, val endedAt: Long? = null) {
+data class CallRecord(val answeredAt: Long? = null, val endedAt: Long? = null,
+    val incoming: Boolean = false, val outcome: String? = null) {
     /** How long the two talked; null while it is on, and for one never answered. */
     val talkedMs: Long?
         get() = if (answeredAt != null && endedAt != null) (endedAt - answeredAt).coerceAtLeast(0) else null
@@ -22,6 +23,25 @@ object CallRecords {
 
     fun decode(raw: String?): CallRecord? =
         if (raw.isNullOrBlank()) null else runCatching { json.decodeFromString<CallRecord>(raw) }.getOrNull()
+
+    fun restored(record: CallRecord, at: Long): CallRecord =
+        if (record.incoming && record.endedAt == null) record.copy(endedAt = maxOf(at, record.answeredAt ?: at),
+            outcome = if (record.answeredAt == null) "missed" else "answered") else record
+
+    fun label(record: CallRecord): String = when {
+        record.incoming && record.outcome == "ringing" -> "TA 来电中"
+        record.incoming && record.outcome == "connecting" -> "正在接通 TA 来电"
+        record.endedAt == null -> "通话中"
+        record.talkedMs != null -> (if (record.incoming) "TA 来电 " else "语音通话 ") + clock(record.talkedMs!!)
+        record.incoming -> when (record.outcome) {
+            "declined" -> "已拒绝 TA 来电"
+            "busy" -> "TA 来电 · 忙线"
+            "failed" -> "TA 来电 · 未接通"
+            "cancelled" -> "TA 来电已取消"
+            else -> "TA 来电 · 未接听"
+        }
+        else -> "已取消"
+    }
 
     /** The way a phone shows a call's length: 03:12, 1:02:45. */
     fun clock(ms: Long): String {

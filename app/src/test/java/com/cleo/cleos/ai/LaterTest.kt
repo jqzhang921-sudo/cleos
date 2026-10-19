@@ -57,7 +57,8 @@ class LaterTest {
         assertTrue("「问问糖醋排骨做成没有」" in text)
         assertTrue("记下的时候是今天 18:20，当时对方说去做饭了。" in text)
         assertTrue(Prompt.timeLine(now) in text)
-        assertTrue("SKIP" in text)
+        assertFalse("SKIP" in text)
+        assertTrue("直接结束，不输出文字" in text)
         assertTrue("note_for_later" in text)
         // Put off once already: no second time.
         assertFalse("note_for_later" in LaterRules.wakeText(note.copy(putOff = true), now, canPutOff = false))

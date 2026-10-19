@@ -45,6 +45,14 @@ class GroupChatTest {
         assertFalse(sent.any { it.content.contains("半句话") })
         assertTrue(sent.first().content.contains("按顺序轮到你"))
     }
+    @Test fun groupHistoryDoesNotPresentUnsupportedStickerMarkersAsPictures() {
+        val out = GroupChatRules.request(group, members, ta, listOf(row(1, "user", text = "[摸摸]"),
+            row(2, "assistant", 10, "[[sticker:摸摸]]"), row(3, "user", text = "继续")), "用户", emptyList(), ZonedDateTime.now())
+        assertTrue(out.first().content.contains("本次没有可发送的表情包"))
+        assertTrue(out[1].content.endsWith("[摸摸]"))
+        assertTrue(out[2].content.contains("表情包不可用：摸摸，本次没有可用的对应图片"))
+        assertFalse(out[2].content.contains("[[sticker:"))
+    }
     @Test fun successfulMemberIsNeverRequestedAgainOnRetry() = runBlocking {
         val calls = mutableListOf<Long>()
         GroupReplyEngine.round(listOf(row(2, "assistant", 10), row(3, "assistant", 20, status = "failed")), 3,

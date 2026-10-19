@@ -113,13 +113,17 @@ fun StickerView(sticker: StickerEntity, onLongClick: () -> Unit) {
     val c = appContainer()
     val (w, h) = sizeOf(sticker)
     val file = c.images.file(sticker.file)
-    if (sticker.animated) {
+    var failed by remember(file) { mutableStateOf(false) }
+    if (failed || !file.isFile) {
+        UnavailableSticker(sticker.name, onLongClick)
+    } else if (sticker.animated) {
         MovingSticker(file, sticker.name, w, h, onLongClick)
     } else {
         AsyncImage(
             model = file,
             contentDescription = "表情包：${sticker.name}",
             contentScale = ContentScale.Fit,
+            onError = { failed = true },
             modifier = Modifier
                 .size(w, h)
                 .combinedClickable(interactionSource = null, indication = null, onClick = {}, onLongClick = onLongClick),
@@ -127,11 +131,22 @@ fun StickerView(sticker: StickerEntity, onLongClick: () -> Unit) {
     }
 }
 
+/** A failed/missing picture is a notice, not a chat bubble claiming a sticker was sent. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun UnavailableSticker(name: String, onLongClick: () -> Unit) {
+    val palette = LocalGlassPalette.current
+    GlassSurface(Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick), style = palette.notice,
+        shape = GlassShape.Rounded(12.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+        Text("表情包不可用：$name", color = palette.contentSecondary, fontSize = 12.sp)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun MovingSticker(file: File, name: String, w: Dp, h: Dp, onLongClick: () -> Unit) {
     val edge = with(LocalDensity.current) { maxOf(w, h).roundToPx() }
-    val drawable by produceState<AnimatedImageDrawable?>(null, file, edge) {
+    val decoded by produceState<Result<AnimatedImageDrawable>?>(null, file, edge) {
         value = withContext(Dispatchers.IO) {
             runCatching {
                 ImageDecoder.decodeDrawable(ImageDecoder.createSource(file)) { decoder, info, _ ->
@@ -142,13 +157,13 @@ private fun MovingSticker(file: File, name: String, w: Dp, h: Dp, onLongClick: (
                             (info.size.height * scale).roundToInt().coerceAtLeast(1),
                         )
                     }
-                } as? AnimatedImageDrawable
-            }.getOrNull()
+                } as? AnimatedImageDrawable ?: error("Not an animated sticker")
+            }
         }
     }
-    val d = drawable
+    val d = decoded?.getOrNull()
     if (d == null) {
-        Box(Modifier.size(w, h))
+        if (decoded?.isFailure == true) UnavailableSticker(name, onLongClick) else Box(Modifier.size(w, h))
         return
     }
     val painter = remember(d) { MovingPainter(d) }
@@ -266,6 +281,7 @@ fun StickerDrawer(
     onAdd: () -> Unit,
     onRename: (StickerEntity) -> Unit,
     onDelete: (StickerEntity) -> Unit,
+    enabled: Boolean = true,
 ) {
     val palette = LocalGlassPalette.current
     LazyVerticalGrid(
@@ -285,7 +301,7 @@ fun StickerDrawer(
                         .size(CellPicture)
                         .clip(RoundedCornerShape(12.dp))
                         .background(palette.content.copy(alpha = 0.08f))
-                        .clickable(onClick = onAdd),
+                        .clickable(enabled = enabled, onClick = onAdd),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Rounded.Add, contentDescription = "加表情包", tint = palette.contentSecondary, modifier = Modifier.size(26.dp))
@@ -293,7 +309,7 @@ fun StickerDrawer(
                 Text("加一张", color = palette.contentSecondary, fontSize = 11.sp, maxLines = 1)
             }
         }
-        items(stickers, key = { it.id }) { s -> StickerCell(s, onSend, onRename, onDelete) }
+        items(stickers, key = { it.id }) { s -> StickerCell(s, onSend, onRename, onDelete, enabled) }
         if (stickers.isEmpty()) {
             item(key = "hint", span = { GridItemSpan(maxLineSpan) }) {
                 Text(
@@ -315,6 +331,7 @@ private fun StickerCell(
     onSend: (StickerEntity) -> Unit,
     onRename: (StickerEntity) -> Unit,
     onDelete: (StickerEntity) -> Unit,
+    enabled: Boolean,
 ) {
     val palette = LocalGlassPalette.current
     val c = appContainer()
@@ -329,7 +346,7 @@ private fun StickerCell(
                 modifier = Modifier
                     .size(CellPicture)
                     .clip(RoundedCornerShape(12.dp))
-                    .combinedClickable(onClick = { onSend(sticker) }, onLongClick = { menu = true }),
+                    .combinedClickable(enabled = enabled, onClick = { onSend(sticker) }, onLongClick = { menu = true }),
             )
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 DropdownMenuItem(text = { Text("改名字和说明") }, onClick = {
@@ -425,7 +442,7 @@ fun DeleteStickerDialog(sticker: StickerEntity, onConfirm: () -> Unit, onDismiss
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("删掉「${sticker.name}」？") },
-        text = { Text("聊天里发过的这张，会变成一行字：[表情包：${sticker.name}]。", fontSize = 14.sp, lineHeight = 20.sp) },
+        text = { Text("聊天里发过的这张会保留记录，并显示「表情包不可用」。", fontSize = 14.sp, lineHeight = 20.sp) },
         confirmButton = { TextButton(onClick = onConfirm) { Text("删除") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )

@@ -72,7 +72,7 @@ data class ToolCall(val id: String, val name: String, val arguments: String)
 data class ToolOutcome(val result: String, val note: String, val request: SecretRequest? = null, val sharedDiaryId: Long? = null, val sharedExcerpt: String? = null,
     /** Inline MCP content awaits bounded decoding and durable storage with its tool-result row. */
     val imageResult: JsonObject? = null, val imageSource: String? = null,
-    val photo: DownloadedPhoto? = null)
+    val photo: DownloadedPhoto? = null, val incomingCallId: String? = null)
 
 /**
  * A tool that could not do its job. [result] tells the model what to do instead;
@@ -434,7 +434,10 @@ object ToolSpecs {
         parameters = schema(required = listOf("minutes"),
             "minutes" to prop("integer", "多少分钟后再看看，正整数；按当前提示中的频率范围选择")),
     )
-    val quiet = setOf(noteForLater.name, patUser.name, reactMessage.name, planNextVisit.name)
+    val requestCall = ToolSpec(name="request_call",groups=setOf(ToolGroup.FreeVisit),action="邀请语音通话",
+        description="你想通过声音和对方聊一会儿，或对方在聊天里请你打来时，发起一次真实语音来电邀请。reason 是对方可见的一句自然理由，最多 120 字。对方接听后你先开口。成功只表示正在等接听，不表示已接通；成功后结束本次回复，不再发正文。不能催接或因拒绝而连续重拨。",
+        parameters=schema(required=listOf("reason"),"reason" to prop("string","对方可见的一句来电理由，1–120 字，不含系统提示或工具参数")))
+    val quiet = setOf(noteForLater.name, patUser.name, reactMessage.name, planNextVisit.name, requestCall.name)
 
     val setAlarm = ToolSpec(
         name = "set_alarm",
@@ -545,6 +548,7 @@ object ToolSpecs {
         getLocation,
         noteForLater,
         planNextVisit,
+        requestCall,
         setAlarm,
         setTimer,
         readCalendar,
@@ -564,7 +568,8 @@ object ToolSpecs {
     val byName = all.associateBy { it.name }
 
     /** What to offer for the groups that are on, each worded for what it can reach. */
-    fun offered(groups: Set<ToolGroup>): List<ToolSpec> = all
+    fun offered(groups: Set<ToolGroup>, incomingCalls: Boolean = false): List<ToolSpec> = all
+        .filter { incomingCalls || it.name != requestCall.name }
         .filter { spec -> spec.groups.any { it in groups } }
         .map { if (it.name == readDiary.name) it.copy(description = readDiaryDescription(groups)) else it }
 
@@ -646,11 +651,12 @@ class ToolBox(
     private val feed: FeedBook? = null,
     private val feedActions: FeedActions? = null,
     private val photos: PhotoBook? = null,
+    private val requestCall: suspend (Long,Long,String) -> String = { _,_,_ -> throw ToolFailure("主动来电当前不可用。","") },
 ) {
     private val book = memories?.let { MemoryBook(it, clock) }
     private val loreBook = lore?.let { LoreBook(it) }
 
-    fun specs(groups: Set<ToolGroup>): List<ToolSpec> = ToolSpecs.offered(groups)
+    fun specs(groups: Set<ToolGroup>, incomingCalls: Boolean = false): List<ToolSpec> = ToolSpecs.offered(groups,incomingCalls)
 
     /** "在…" while [name] runs; null for a quiet one, which shows only the dots. */
     fun activity(name: String): String? = if (name in ToolSpecs.quiet) null else ToolSpecs.byName[name]?.activity ?: "在用工具"
@@ -699,6 +705,11 @@ class ToolBox(
                     val minutes = ToolArgs.int(args["minutes"])?.takeIf { it > 0 }
                         ?: throw ToolFailure("minutes 必须是正整数", "")
                     ToolOutcome(planVisit(conversationId, minutes), "")
+                }
+                ToolSpecs.requestCall.name -> {
+                    val reason=ToolArgs.text(args,"reason").orEmpty()
+                    val id=requestCall(conversationId,companionId,reason)
+                    ToolOutcome(IncomingCallRules.INVITED,"",incomingCallId=id)
                 }
                 ToolSpecs.setAlarm.name -> setAlarm(args)
                 ToolSpecs.setTimer.name -> setTimer(args)

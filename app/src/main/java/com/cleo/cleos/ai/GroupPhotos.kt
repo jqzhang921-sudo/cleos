@@ -32,19 +32,25 @@ object GroupPhotoRules {
         val original = MessageImages.decode(row.images)
         val remaining = original.filter { exists(it.file) }
         val missingOnly = original.isNotEmpty() && remaining.isEmpty() && row.content.isBlank()
+        val userMissing = row.role == "user" && original.size != remaining.size
         return row.copy(images = MessageImages.encode(remaining),
-            status = if (missingOnly && row.status == "sent") "failed" else row.status,
-            error = if (missingOnly) "备份中的图片文件缺失，可以单独重试" else row.error)
+            content = if (userMissing && row.content.isBlank() && remaining.isEmpty()) "（备份中的图片文件缺失）" else row.content,
+            status = if (missingOnly && row.status == "sent" && row.role != "user") "failed" else row.status,
+            error = if (userMissing) "备份中有 ${original.size - remaining.size} 张图片缺失，请重新选择后发送"
+                else if (missingOnly) "备份中的图片文件缺失，可以单独重试" else row.error)
     }
 
-    fun context(raw: String?): String {
+    fun context(raw: String?, pixelsProvided: Boolean = false): String {
         val photos = MessageImages.decode(raw).take(MAX_IMAGES)
         if (photos.isEmpty()) return ""
         val references = photos.map { picture -> buildJsonObject {
             put("来源", picture.source.orEmpty())
             picture.credit?.let { put("标题", it.title); put("作者", it.creator); put("许可", it.license); put("来源链接", it.pageUrl) }
         } }
-        return "\n[这位作者在本群已发出的图库图片：只提供来源说明，没有提供画面，不要猜细节]\n" + JsonArray(references).toString()
+        val kind = if (photos.any { it.source == GroupUploadRules.SOURCE }) "上传图片" else "图库图片"
+        val note = if (pixelsProvided) "是否提供画面以实际附图标记为准，不推断未附的图片细节"
+            else "只提供来源说明，没有提供画面，不要猜细节"
+        return "\n[这位作者在本群已发出的$kind：$note]\n" + JsonArray(references).toString()
     }
 }
 

@@ -26,8 +26,8 @@ android {
         applicationId = "com.cleo.cleos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 165
-        versionName = "0.41.88"
+        versionCode = 204
+        versionName = "0.41.127"
     }
 
     signingConfigs {
@@ -72,6 +72,9 @@ room {
 }
 
 dependencies {
+    implementation(project(":transfer"))
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+    implementation("com.google.zxing:core:3.5.3")
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

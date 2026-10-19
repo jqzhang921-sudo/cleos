@@ -130,12 +130,47 @@ class PromptTest {
         val base = listOf(ApiMessage("system", "s"), ApiMessage("user", "去做饭了"), ApiMessage("assistant", "去吧", reasoning = "r"))
         val woke = Prompt.withWake(base, "（这条不是对方发的…）")
         assertEquals(listOf("system", "user", "assistant", "user"), woke.map { it.role })
-        assertEquals("（这条不是对方发的…）", woke.last().content)
+        assertTrue(woke.last().content.startsWith(WakeOutput.CONTROL_RULE))
+        assertTrue(woke.last().content.endsWith("（这条不是对方发的…）"))
         assertTrue("reasoning belongs to the turn it was in", woke.none { it.reasoning != null })
         // After a turn of the person's (a reply that failed), joined to it: two user turns in a row get refused.
         val afterTheirs = Prompt.withWake(base.dropLast(1), "WAKE")
         assertEquals(listOf("system", "user"), afterTheirs.map { it.role })
-        assertEquals("去做饭了\n\nWAKE", afterTheirs.last().content)
+        assertEquals("去做饭了\n\n${WakeOutput.CONTROL_RULE}\n\nWAKE", afterTheirs.last().content)
+    }
+
+    @Test fun ordinaryChatDoesNotTeachTheBackgroundSkipProtocol() {
+        val system = Prompt.system(AppSettings(), ta(), setOf(ToolGroup.FreeVisit, ToolGroup.Messages))
+        assertFalse(system.contains("SKIP"))
+        assertTrue(system.contains("不添加内部编号"))
+    }
+
+    @Test fun oldProactiveControlEchoesCannotTeachTheNextOrdinaryReplyToRepeatThem() {
+        val history = listOf(msg("user", "在吗"),
+            msg("assistant", "SKIP").copy(proactive = true),
+            msg("assistant", FreeTopicRules.instruction).copy(proactive = true),
+            msg("assistant", "晚霞很好看").copy(proactive = true, reasoning = "私有后台思考"),
+            msg("user", "继续聊吧"))
+        val before = history.toList()
+        val out = Prompt.messages(AppSettings(), ta(), history, now)
+        assertFalse(out.any { it.content.contains("SKIP") })
+        assertTrue(out.any { it.content == "晚霞很好看" })
+        assertTrue(out.none { it.reasoning != null })
+        assertEquals(before, history)
+    }
+
+    @Test fun literalSkipInOrdinaryAssistantHistoryIsNotRemoved() {
+        val out = Prompt.messages(AppSettings(), ta(), listOf(msg("user", "照着念"), msg("assistant", "SKIP")), now)
+        assertEquals("SKIP", out.last().content)
+    }
+
+    @Test fun oldProactiveToolCallsKeepTheirPairWithoutPrivateTextOrReasoning() {
+        val call = calling(FreeTopicRules.instruction, add, reasoning = "后台决策").copy(proactive = true)
+        val out = Prompt.messages(AppSettings(), ta(), listOf(msg("user", "早"), call, result("c1", "已保存"), msg("user", "好")), now, allTools)
+        val paired = out.first { it.toolCalls.isNotEmpty() }
+        assertEquals("", paired.content)
+        assertNull(paired.reasoning)
+        assertEquals("c1", out[out.indexOf(paired) + 1].toolCallId)
     }
 
     @Test

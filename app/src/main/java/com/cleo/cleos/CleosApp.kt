@@ -86,11 +86,12 @@ class AppContainer(context: Context) {
     val db: AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "cleos.db").build()
     val settings = SettingsRepository(context)
     val secrets = SecretStore(context)
+    val httpPermissions = com.cleo.cleos.data.HttpPermissions(secrets)
     val modelProfiles = com.cleo.cleos.data.ModelProfiles(secrets)
     val images = ImageStore(context)
     val feed = com.cleo.cleos.data.FeedRepository(db, images)
 
-    private val http = OkHttpClient.Builder()
+    private val http = com.cleo.cleos.network.EndpointTransport.clientBuilder()
         .connectTimeout(20, TimeUnit.SECONDS)
         // Reasoning models can think for a long time before the first visible token.
         .readTimeout(180, TimeUnit.SECONDS)
@@ -103,7 +104,9 @@ class AppContainer(context: Context) {
 
     val companions = Companions(db, settings, secrets, images)
     val toolDiagnostics = com.cleo.cleos.diagnostics.ToolDiagnostics(context)
-    val chatClient = ChatClient(http, diagnostic = { toolDiagnostics.record(it) })
+    val chatClient = ChatClient(http, diagnostic = { toolDiagnostics.record(it) }, prepare = { request, url ->
+        com.cleo.cleos.network.EndpointTransport.prepare(request, url, httpPermissions.allowed(url))
+    })
     val feedNews = com.cleo.cleos.ai.FeedNews(http.newBuilder().callTimeout(18, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build())
     val photoSource = com.cleo.cleos.ai.PhotoLibraries(
         com.cleo.cleos.ai.OpenversePhotos(http, version) { toolDiagnostics.record(it) },
@@ -137,19 +140,23 @@ class AppContainer(context: Context) {
         feedActions = com.cleo.cleos.ai.FeedActions(db.feed(), { id -> db.companions().get(id) != null },
             { action -> db.withTransaction { action() } }),
         photos = com.cleo.cleos.ai.PhotoBook(photoSource, diagnostic = { toolDiagnostics.record(it) }),
+        requestCall = { conversation,ta,reason -> incomingCalls.request(conversation,ta,reason).id },
     )
     val recaps = Recaps(db, settings, secrets, chatClient, appScope)
     val mcp = McpHub(
         McpServers(secrets),
-        McpClient(http, version),
+        McpClient(http, version, prepare = { request, server ->
+            com.cleo.cleos.network.EndpointTransport.prepare(request, server.url, httpPermissions.allowed(server.url, server.id))
+        }),
         diagnostic = { toolDiagnostics.record(it) },
+        permitted = { server -> com.cleo.cleos.network.EndpointTransport.httpOrigin(server.url) == null || httpPermissions.allowed(server.url, server.id) },
     )
     val transcriber = Transcriber(http, secrets)
     val speaker = Speaker(images, http, secrets)
 
     /** The TA's voice messages beside the ear, on headphones. */
     val ear = EarVoice(context, images)
-    val wakeActivities = com.cleo.cleos.ai.WakeActivities(db)
+    val wakeActivities = com.cleo.cleos.ai.WakeActivities(db) { com.cleo.cleos.ai.WakeRecovery.exits(context) }
     val chat: ChatRepository = ChatRepository(
         db, settings, secrets, chatClient, tools, images, companions, recaps, mcp, transcriber, speaker, appScope,
         // A reply finished where the person isn't looking (they left, or went to another page): as a notification.
@@ -158,14 +165,16 @@ class AppContainer(context: Context) {
             followUps.plan(ta, conversationId, said)
             freeTopics.replied(conversationId)
         },
-        interrupted = { followUps.cancel(it); freeTopics.interrupt(it); feedVisits.interrupt(it) },
+        interrupted = { followUps.cancel(it); freeTopics.interrupt(it); feedVisits.interrupt(it); incomingCalls.cancelForConversation(it) },
         activities = wakeActivities,
         listening = { Listening(music, lyrics).line() },
     )
     val stickers = Stickers(context, db, images)
     val groupChat = com.cleo.cleos.ai.GroupChatRepository(db, settings, secrets, chatClient, images, appScope,
         groupTools = com.cleo.cleos.ai.GroupTools(tools) { settings.current() },
-        diagnostic = { toolDiagnostics.record(it) }) { id ->
+        diagnostic = { toolDiagnostics.record(it) }, transcribeVoice = transcriber::transcribe,
+        synthesizeVoice = speaker::sound,
+        storeVoice = { words, bytes, mime, prefix -> speaker.store(words, bytes, mime, prefix) }) { id ->
         db.conversations().idsFor(id).any { chat.busy(it) || chat.isTyping(it) }
     }
     val favorites = com.cleo.cleos.data.Favorites(db, settings, images)
@@ -174,7 +183,30 @@ class AppContainer(context: Context) {
     val notifier = Notifier(context, images)
 
     /** Phone calls with a TA. */
-    val calls = Calls(context, db, chat, companions, settings, transcriber, speaker, appScope)
+    val calls = Calls(context, db, chat, companions, settings, transcriber, speaker, appScope,
+        diagnostic={toolDiagnostics.record(it)})
+    val groupCalls = com.cleo.cleos.ai.GroupCalls(context, db, groupChat, chat, settings, secrets, transcriber, speaker, appScope,
+        diagnostic = { toolDiagnostics.record(it) })
+    val incomingCalls = com.cleo.cleos.ai.IncomingCalls(context,db,settings,secrets,chat,notifier,appScope,
+        visible={visible},start={ invitation ->
+            settings.setCurrentCompanion(invitation.companionId)
+            settings.setCurrentConversation(invitation.conversationId)
+            opening.value=Opening.Chat(invitation.conversationId)
+            if(visible) calls.startIncoming(invitation) else false
+        },stopAccepted=calls::stopIncoming)
+
+    /** Presentation only: audio outlives destinations and Activity recreation. A new session never matches this ID. */
+    val minimizedGroupCall = MutableStateFlow<Long?>(null)
+    fun showCall() {
+        minimizedGroupCall.value = null
+        if (groupCalls.state.value != null) toolDiagnostics.record("event=group_call_ui route=group_call result=show_requested")
+    }
+    fun minimizeGroupCall() {
+        groupCalls.state.value?.takeIf { it.phase != com.cleo.cleos.ai.CallPhase.Ended }?.let {
+            minimizedGroupCall.value = it.session
+            toolDiagnostics.record("event=group_call_ui route=group_call result=minimize_requested")
+        }
+    }
 
     /** Whether the app is on screen (MainActivity, between onStart and onStop). */
     @Volatile
@@ -238,6 +270,7 @@ class AppContainer(context: Context) {
             // What a TA brought from another app used to sit in their persona; it moves into their memory, once.
             PersonaMemory.migrate(db, System.currentTimeMillis())
             // A call the app was stopped in the middle of ended there.
+            incomingCalls.restored()
             chat.closeOpenCalls()
         }
         // Notes still waiting and letters on their way get their background work back, if it was lost.

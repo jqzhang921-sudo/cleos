@@ -2,7 +2,6 @@
 <resources>
     <style name="Theme.Cleos" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/window_background</item>
-        <item name="android:windowSplashScreenBackground">@color/window_background</item>
     </style>
 
     <color name="window_background">#FF15131C</color>

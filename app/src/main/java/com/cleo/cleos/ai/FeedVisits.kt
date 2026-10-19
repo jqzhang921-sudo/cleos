@@ -112,7 +112,7 @@ class FeedVisits(context: Context, private val db: AppDatabase, private val ai: 
         try {
             if (paused) return null
             if (db.feedVisits().claim(id, state.nextAt, next, day, FeedVisitRules.level(ta.feedVisitLevel).dailyMax) != 1) return null
-            activity = activities.begin(id, null, W.FEED)
+            withContext(NonCancellable) { activity = activities.begin(id, null, W.FEED) }
             val result = ai.visit(id, ta.feedVisitPosts && (state.attemptDay != day || state.posts < 1), ta.feedVisitNews,
                 allowed = {
                     val current = db.companions().get(id)
@@ -122,7 +122,8 @@ class FeedVisits(context: Context, private val db: AppDatabase, private val ai: 
                         !groupBusy(id) && !conversations.any { chat.busy(it) || chat.isTyping(it) }
                 },
                 onRequest = { requested = true; activities.request(activity) },
-                claimPost = { db.feedVisits().posted(id, next, day) == 1 })
+                claimPost = { db.feedVisits().posted(id, next, day) == 1 },
+                onRetry = { wait -> activities.retrying(activity, wait) })
             activities.finish(activity, when {
                 result.cancelled -> W.CANCELLED
                 result.changed -> W.ACTED
@@ -130,8 +131,10 @@ class FeedVisits(context: Context, private val db: AppDatabase, private val ai: 
                 else -> W.HELD
             }, result.detail)
         } catch (e: CancellationException) {
-            withContext(NonCancellable) { activities.finish(activity, W.CANCELLED, "设置改变或开始聊天，本次逛逛已取消") }
+            activities.cancelled(activity)
             throw e
+        } catch (_: FeedWritingBusy) {
+            activities.finish(activity, W.HELD, WakeActivityText.FEED_BUSY)
         } catch (e: Exception) {
             activities.finish(activity, W.FAILED, e.message ?: "本次逛逛没有完成，下次机会再试")
         } finally { active.remove(id, mine) }

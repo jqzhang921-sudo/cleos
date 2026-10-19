@@ -74,6 +74,8 @@ data class AppSettings(
     val weatherCity: String = "",
     /** A file name inside ImageStore, or null for the lettered circle. */
     val userAvatar: String? = null,
+    /** Device-local opt-in: full-screen intent can also show an incoming-call page while locked. */
+    val persistentIncomingAlerts: Boolean = false,
     /** Avatars beside the bubbles in the chat. */
     val chatAvatars: Boolean = true,
     /** Beside every bubble, the way WeChat does; otherwise once for several in a row from one side. */
@@ -82,6 +84,8 @@ data class AppSettings(
     val chatTextSize: Int = 15,
     /** Voice transcripts start collapsed unless the person prefers reading alongside audio. */
     val expandVoiceText: Boolean = false,
+    /** Whether the TA's thinking shows as a card in the chat ("想了 12 秒"). Purely how it is drawn. */
+    val showThought: Boolean = true,
     /** 拍一拍 (Pats): the verb's one character, what follows the TA's name, and whether the phone buzzes. */
     val patVerb: String = Pats.VERB,
     val patSuffix: String = "",
@@ -193,10 +197,12 @@ class SettingsRepository(private val context: Context) {
         val feedPhotoTas = stringPreferencesKey("feed_photo_tas")
         val weatherCity = stringPreferencesKey("weather_city")
         val userAvatar = stringPreferencesKey("user_avatar")
+        val persistentIncomingAlerts = booleanPreferencesKey("persistent_incoming_alerts")
         val chatAvatars = booleanPreferencesKey("chat_avatars")
         val avatarEachMessage = booleanPreferencesKey("avatar_each_message")
         val chatTextSize = intPreferencesKey("chat_text_size")
         val expandVoiceText = booleanPreferencesKey("expand_voice_text")
+        val showThought = booleanPreferencesKey("show_thought")
         val patVerb = stringPreferencesKey("pat_verb")
         val patSuffix = stringPreferencesKey("pat_suffix")
         val patBuzz = booleanPreferencesKey("pat_buzz")
@@ -269,10 +275,12 @@ class SettingsRepository(private val context: Context) {
             feedPhotoTas = decodeFeedPhotoTas(this[Keys.feedPhotoTas]),
             weatherCity = this[Keys.weatherCity] ?: d.weatherCity,
             userAvatar = this[Keys.userAvatar],
+            persistentIncomingAlerts = this[Keys.persistentIncomingAlerts] ?: d.persistentIncomingAlerts,
             chatAvatars = this[Keys.chatAvatars] ?: d.chatAvatars,
             avatarEachMessage = this[Keys.avatarEachMessage] ?: d.avatarEachMessage,
             chatTextSize = this[Keys.chatTextSize] ?: d.chatTextSize,
             expandVoiceText = this[Keys.expandVoiceText] ?: d.expandVoiceText,
+            showThought = this[Keys.showThought] ?: d.showThought,
             patVerb = this[Keys.patVerb]?.takeIf { it.isNotBlank() } ?: d.patVerb,
             patSuffix = this[Keys.patSuffix] ?: d.patSuffix,
             patBuzz = this[Keys.patBuzz] ?: d.patBuzz,
@@ -321,6 +329,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.feedPhotoTas] = tuningJson.encodeToString(next.feedPhotoTas.filter { it > 0 }.sorted())
             prefs[Keys.weatherCity] = next.weatherCity
             if (next.userAvatar != null) prefs[Keys.userAvatar] = next.userAvatar else prefs.remove(Keys.userAvatar)
+            prefs[Keys.persistentIncomingAlerts] = next.persistentIncomingAlerts
             prefs[Keys.chatAvatars] = next.chatAvatars
             prefs[Keys.avatarEachMessage] = next.avatarEachMessage
             prefs[Keys.chatTextSize] = next.chatTextSize
@@ -333,6 +342,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.bubbleBackgrounds] = tuningJson.encodeToString(next.bubbleBackgrounds.mapValues { it.value.normalized() })
             prefs[Keys.taBubbleThemes] = encodeVoices(next.taBubbleThemes)
             prefs[Keys.expandVoiceText] = next.expandVoiceText
+            prefs[Keys.showThought] = next.showThought
             prefs[Keys.patVerb] = next.patVerb
             prefs[Keys.patSuffix] = next.patSuffix
             prefs[Keys.patBuzz] = next.patBuzz

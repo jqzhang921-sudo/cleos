@@ -129,7 +129,9 @@ object Recap {
         return when {
             m.error != null -> null
             // A call: where it began, and how long it went on. One where nothing was said is nothing.
-            m.role == "call" -> CallRecords.decode(m.content)?.talkedMs?.let { "（对方打来电话，打了${CallRecords.spoken(it)}）" }
+            m.role == "call" -> CallRecords.decode(m.content)?.let { r -> r.talkedMs?.let {
+                "（${if(r.incoming) "你主动打来" else "对方打来"}电话，打了${CallRecords.spoken(it)}）"
+            } ?: if(r.incoming && r.endedAt!=null) "（${CallRecords.label(r)}）" else null }
             // The person's answer to a request for a secret: the line the chat shows, not the entry.
             m.role == "user" && m.note != null -> "（${m.note}）"
             m.role == "user" -> {

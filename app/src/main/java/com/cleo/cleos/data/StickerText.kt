@@ -67,10 +67,18 @@ object StickerText {
     /**
      * What a model sometimes writes instead, having seen stickers told in words (a quote, a line
      * about a reaction): [表情包：兔子晕倒], 【表情包：兔子晕倒】. Taken only on a line of its own and
-     * for a name in the collection: inside a sentence it is the model saying something about a
+     * inside a sentence it is the model saying something about a
      * sticker, and turning that into the picture put one in the middle of what it said.
      */
     private val LOOSE = Regex("""^[ \t]*[\[【]\s*表情包?\s*[:：]\s*([^\[\]【】\n]{1,40}?)\s*[\]】][ \t]*$""", RegexOption.MULTILINE)
+
+    private val SHORT_MODEL_TOKEN = Regex("""^[ \t]*\[\[([^\[\]\n:：]{1,40})]][ \t]*$""", RegexOption.MULTILINE)
+
+    /** Only assistant output: repair a standalone short marker; user wiki links and [动作] stay text. */
+    fun normalizeModelTokens(text: String, book: StickerBook): String = SHORT_MODEL_TOKEN.replace(text) {
+        val name = it.groupValues[1].trim()
+        token(book.find(name)?.name ?: name)
+    }
 
     /** How many of the collection the TA is told about: past this the list costs more than it gives. */
     const val MAX_LISTED = 100
@@ -87,13 +95,15 @@ object StickerText {
         data class Words(val text: String) : Piece
 
         data class Sticker(val sticker: StickerEntity) : Piece
+
+        data class Unavailable(val name: String) : Piece
     }
 
     private class Hit(val range: IntRange, val name: String, val sticker: StickerEntity?)
 
     private fun hits(text: String, book: StickerBook): List<Hit> {
         val found = TOKEN.findAll(text).map { Hit(it.range, it.groupValues[1].trim(), book.find(it.groupValues[1])) } +
-            LOOSE.findAll(text).mapNotNull { m -> book.find(m.groupValues[1])?.let { Hit(m.range, m.groupValues[1].trim(), it) } }
+            LOOSE.findAll(text).map { Hit(it.range, it.groupValues[1].trim(), book.find(it.groupValues[1])) }
         val out = ArrayList<Hit>()
         // Where two overlap ([[表情包:x]] holds a [表情包:x]), the one starting first.
         for (h in found.sortedBy { it.range.first }) {
@@ -105,7 +115,7 @@ object StickerText {
 
     /**
      * [text] as the chat draws it: words and stickers, in order. A name the collection doesn't
-     * have (any more) stays in the words as [表情包：名字], so what was sent can still be read.
+     * have (any more) is explicitly unavailable, never a text pretending a picture was sent.
      */
     fun split(text: String, book: StickerBook): List<Piece> {
         if ('[' !in text && '【' !in text) return if (text.isEmpty()) emptyList() else listOf(Piece.Words(text))
@@ -121,12 +131,8 @@ object StickerText {
         var at = 0
         for (h in hits) {
             words.appendRange(text, at, h.range.first)
-            if (h.sticker != null) {
-                flush()
-                out += Piece.Sticker(h.sticker)
-            } else {
-                words.append(shown(h.name))
-            }
+            flush()
+            out += h.sticker?.let { Piece.Sticker(it) } ?: Piece.Unavailable(h.name)
             at = h.range.last + 1
         }
         words.appendRange(text, at, text.length)
@@ -158,10 +164,27 @@ object StickerText {
      * The person's message for a TA that doesn't send stickers (its switch is off): each one told
      * in words rather than as the token, which it would take as something to answer in kind.
      */
-    fun described(text: String, book: StickerBook): String = if ('[' !in text) text else TOKEN.replace(text) { m ->
-        val name = m.groupValues[1].trim()
-        val about = book.find(name)?.description?.trim().orEmpty()
-        if (about.isEmpty()) "（发了一张表情包：$name）" else "（发了一张表情包：$name，$about）"
+    fun described(text: String, book: StickerBook): String = forHistory(text, book, sendTokens = false)
+
+    /** Historical unknown/deleted names must not teach the model that those pictures exist. */
+    fun forHistory(text: String, book: StickerBook, sendTokens: Boolean): String {
+        val hits = hits(text, book)
+        if (hits.isEmpty()) return text
+        return buildString {
+            var at = 0
+            for (h in hits) {
+                append(text, at, h.range.first)
+                val s = h.sticker
+                append(when {
+                    s == null -> "（表情包不可用：${h.name}，本次没有可用的对应图片）"
+                    sendTokens -> token(s.name)
+                    s.description.isBlank() -> "（发了一张表情包：${s.name}）"
+                    else -> "（发了一张表情包：${s.name}，${s.description.trim()}）"
+                })
+                at = h.range.last + 1
+            }
+            append(text, at, text.length)
+        }
     }
 
     /** The collection as the TA's prompt lists it, one per line: the name, and what is in the picture. */

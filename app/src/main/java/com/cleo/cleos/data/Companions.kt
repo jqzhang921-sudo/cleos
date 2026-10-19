@@ -92,11 +92,52 @@ class Companions(
         lock.withLock { db.companions().get(id)?.let { db.companions().update(transform(it)) } }
     }
 
+    suspend fun setVoiceChoice(id: Long, createdAt: Long, expected: String, scope: String, voice: String?): String = lock.withLock {
+        val ta = db.companions().get(id) ?: error("这位 TA 已不存在，音色未保存")
+        check(ta.createdAt == createdAt) { "这位 TA 的资料已替换，请重新打开后再保存" }
+        check(ta.voiceChoices == expected) { "音色已在别处改过，请重新打开后再保存" }
+        check(com.cleo.cleos.ai.TaVoices.scope(settings.current()) == scope) { "共用声音平台已变化，请重新打开后再保存" }
+        val next = com.cleo.cleos.ai.TaVoices.saved(ta.voiceChoices, scope, voice)
+        db.companions().update(ta.copy(voiceChoices = next))
+        next
+    }
+
     /** A picture ([file]) or an emoji, or neither for the initial; the replaced picture file is removed. */
-    suspend fun setAvatar(id: Long, file: String?, emoji: String?) {
-        val old = get(id)?.avatar
-        update(id) { it.copy(avatar = file, avatarEmoji = emoji) }
-        if (old != null && old != file) images.delete(listOf(old))
+    suspend fun setAvatar(id: Long, file: String?, emoji: String?, expectedCreatedAt: Long? = null) = lock.withLock {
+        val old=db.withTransaction {
+            val ta=db.companions().get(id) ?: error("这位 TA 已不存在，头像未保存")
+            check(expectedCreatedAt==null || ta.createdAt==expectedCreatedAt) { "这位 TA 的资料已变化，请重新选择头像" }
+            db.companions().update(ta.copy(avatar=file,avatarEmoji=emoji))
+            ta.avatar
+        }
+        if (old != file) discardAvatar(old)
+    }
+
+    /** Picker/crop callbacks keep the TA they began with, even after a switch or deletion. */
+    suspend fun setUserAvatar(target: UserAvatars.Target, file: String?) = lock.withLock {
+        require(file==null || UserAvatars.filename(file)==file) { "头像文件无效，请重新选择" }
+        db.withTransaction {
+            val ta=db.companions().get(target.id)
+            check(target.matches(ta)) { "这位 TA 的资料或头像已变化，请重新选择" }
+            db.companions().update(requireNotNull(ta).copy(userAvatar=file))
+        }
+        if(target.previous!=file) discardAvatar(target.previous)
+    }
+
+    suspend fun setDefaultUserAvatar(expected: String?, file: String?) = lock.withLock {
+        require(file==null || UserAvatars.filename(file)==file) { "头像文件无效，请重新选择" }
+        settings.update { s ->
+            check(s.userAvatar==expected) { "默认头像已变化，请重新选择" }
+            s.copy(userAvatar=file)
+        }
+        if(expected!=file) discardAvatar(expected)
+    }
+
+    /** Keep shared/restored references. A failed reference check retains the file. */
+    suspend fun discardAvatar(file: String?) {
+        val name=UserAvatars.filename(file) ?: return
+        val unused=runCatching { name !in UserAvatars.settingsFiles(settings.current()) && !db.groups().mediaReferenced(name) }.getOrDefault(false)
+        if(unused) images.delete(listOf(name))
     }
 
     /**
@@ -122,7 +163,7 @@ class Companions(
             db.favorites().deleteFor(id)
             db.companions().delete(id)
         }
-        images.delete(pictures + keptFiles + listOfNotNull(gone.avatar))
+        for(file in (pictures + keptFiles + listOfNotNull(gone.avatar,gone.userAvatar)).distinct()) discardAvatar(file)
         settings.update { it.copy(feedPhotoTas = it.feedPhotoTas - id) }
         val talkingTo = settings.currentCompanion.first() ?: list.first().id
         if (talkingTo == id) select(list.first { it.id != id }.id)

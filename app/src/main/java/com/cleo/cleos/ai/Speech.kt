@@ -56,6 +56,8 @@ data class VoiceOption(val id: String, val label: String)
 class SpeechException(
     message: String,
     override val wrongEndpoint: Boolean = false,
+    /** Controlled structural label, never a service's response prose. */
+    val category: String = "unknown",
 ) : Exception(message), EndpointFailure
 
 /** The TA's voice: each service's request and answer. Nothing here touches the network. */
@@ -375,9 +377,15 @@ class Speaker(
     suspend fun speak(s: AppSettings, text: String): MessageAudio {
         val words = text.trim().take(Speech.MAX_CHARS)
         val (bytes, mime) = sound(s, words)
+        return store(words, bytes, mime)
+    }
+
+    /** Store already obtained sound; group delivery controls cancellation and ownership around this write. */
+    suspend fun store(words: String, bytes: ByteArray, mime: String?, prefix: String = "voice_"): MessageAudio {
+        require(prefix.matches(Regex("[A-Za-z0-9_-]+")))
         return withContext(Dispatchers.IO) {
-            val file = images.file("voice_${System.currentTimeMillis()}_${(1000..9999).random()}.${Speech.extension(mime)}")
-            file.writeBytes(bytes)
+            val file = images.file("${prefix}${System.currentTimeMillis()}_${(1000..9999).random()}.${Speech.extension(mime)}")
+            try { file.writeBytes(bytes) } catch (e: Exception) { file.delete(); throw e }
             val ms = runCatching {
                 MediaMetadataRetriever().use { r ->
                     r.setDataSource(file.path)
@@ -455,7 +463,7 @@ class Speaker(
                 Speech.miniMaxAudio(body) to "audio/mpeg"
             }
         }
-        if (bytes.size < 64) throw SpeechException("回来的声音是空的")
+        if (bytes.size < 64) throw SpeechException("回来的声音是空的", category = "empty_audio")
         return bytes to mime
     }
 
@@ -503,17 +511,25 @@ class Speaker(
             http.fetch(request) { r ->
                 val type = r.header("Content-Type")
                 if (!r.isSuccessful) {
-                    throw SpeechException(describe(r.code, r.body.string()), wrongEndpoint = noSuchPath(r.code))
+                    throw SpeechException(describe(r.code, r.body.string()), wrongEndpoint = noSuchPath(r.code), category = "http_${r.code}")
                 }
                 if (type != null && (type.startsWith("application/json") || type.startsWith("text/"))) {
                     // A page or an API's complaint where audio should be: whatever was asked
                     // for is not at this address.
-                    throw SpeechException("回来的不是声音：${r.body.string().take(120)}", wrongEndpoint = true)
+                    throw SpeechException("回来的不是声音：${r.body.string().take(120)}", wrongEndpoint = true, category = "not_audio")
                 }
                 r.body.bytes() to type
             }
         } catch (e: IOException) {
-            throw SpeechException("网络出错：${e.message ?: e.javaClass.simpleName}")
+            val reason = when {
+                e is java.net.SocketTimeoutException -> "network_timeout"
+                e.message == "Canceled" -> "network_cancelled"
+                e.message.orEmpty().contains("closed", ignoreCase = true) -> "network_closed"
+                e.message.orEmpty().contains("unexpected end", ignoreCase = true) -> "network_eof"
+                e.message.orEmpty().contains("reset", ignoreCase = true) -> "network_reset"
+                else -> "network_${e.javaClass.simpleName}"
+            }
+            throw SpeechException("网络出错：${e.message ?: e.javaClass.simpleName}", category = reason)
         }
 
     /** One request whose answer is JSON, as text; given up likewise. */

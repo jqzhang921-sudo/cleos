@@ -1,5 +1,9 @@
 package com.cleo.cleos.ui.chat
 
+import android.content.ClipData
+import androidx.compose.ui.platform.ClipEntry
+import androidx.compose.ui.platform.LocalClipboard
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,8 +19,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.cleo.cleos.ai.GroupMemoryRules
+import com.cleo.cleos.data.StickerText
 import com.cleo.cleos.data.db.*
 import com.cleo.cleos.glass.*
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun GroupMemoriesDialog(notes: List<GroupMemoryEntity>, sources: Map<Long, GroupMessageEntity>, busy: Boolean,
@@ -92,20 +98,25 @@ internal fun EditGroupMemoryDialog(note: GroupMemoryEntity?, source: GroupMessag
 }
 
 @Composable
-internal fun GroupMessageActionsDialog(row: GroupMessageEntity, canRemember: Boolean, onDismiss: () -> Unit,
-    onSelect: () -> Unit, onRemember: () -> Unit) {
-    val palette = LocalGlassPalette.current
-    Dialog(onDismissRequest = onDismiss) {
-        GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(20.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("这条群消息", color = palette.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-                Text(row.content, color = palette.contentSecondary, fontSize = 14.sp, maxLines = 3)
-                TextButton(onSelect, modifier = Modifier.fillMaxWidth()) { Text("选择文字", color = palette.content) }
-                TextButton(onRemember, enabled = canRemember, modifier = Modifier.fillMaxWidth()) { Text("记到群里", color = palette.accentContent) }
-                TextButton(onDismiss, modifier = Modifier.align(Alignment.End)) { Text("关闭", color = palette.content) }
-            }
+internal fun GroupMessageActionsMenu(row: GroupMessageEntity, expanded: Boolean, canRemember: Boolean, canDelete: Boolean, onDismiss: () -> Unit,
+    onSelect: (String) -> Unit, onRemember: () -> Unit, onDeleteSingle: () -> Unit, onDeleteRound: () -> Unit) {
+    val clipboard = LocalClipboard.current
+    val scope = rememberCoroutineScope()
+    val transcript = if (row.role == "user") row.content.removePrefix(GROUP_CALL_USER)
+        else groupCallWords(row.content)?.let { listOf(it.spoken, it.unfinished).filter(String::isNotBlank).joinToString("\n") } ?: row.content
+    val words = StickerText.plain(transcript)
+    val actions = buildList {
+        if (words.isNotBlank()) {
+            add(MessageMenuAction("复制") { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", words))) } })
+            add(MessageMenuAction("选择文字") { onSelect(words) })
+        }
+        if (canRemember) add(MessageMenuAction("记到群里", onRemember))
+        if (canDelete) {
+            if (row.role == "assistant") add(MessageMenuAction("删除", onDeleteSingle))
+            add(MessageMenuAction("删除这一轮", onDeleteRound))
         }
     }
+    if (actions.isNotEmpty()) MessageActionMenu(expanded, onDismiss, actions, reactions = null, onReact = {})
 }
 
 @Composable

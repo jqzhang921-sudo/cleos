@@ -34,8 +34,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupTurnEntity::class,
         GroupMessageEntity::class,
         GroupMemoryEntity::class,
+        IncomingCallEntity::class,
     ],
-    version = 36,
+    version = 43,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -95,9 +96,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 33, to = 34),
         AutoMigration(from = 34, to = 35),
         AutoMigration(from = 35, to = 36),
+        AutoMigration(from = 36, to = 37),
+        AutoMigration(from = 37, to = 38),
+        AutoMigration(from = 38, to = 39),
+        AutoMigration(from = 39, to = 40),
+        AutoMigration(from = 40, to = 41),
+        AutoMigration(from = 41, to = 42),
+        AutoMigration(from = 42, to = 43),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun incomingCalls(): IncomingCallDao
     abstract fun groups(): GroupDao
     abstract fun feed(): FeedDao
     abstract fun freeTopics(): FreeTopicDao

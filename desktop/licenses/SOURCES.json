@@ -1,0 +1,17 @@
+[
+  {
+    "file": "skiko-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/JetBrains/skiko/v0.150.2/LICENSE",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "file": "skiko-NOTICE.txt",
+    "url": "https://raw.githubusercontent.com/JetBrains/skiko/v0.150.2/NOTICE",
+    "sha256": "35dd077c24768b53625101cfcc0ad853ae7e2abc08bd2a111a0267760d1406d8"
+  },
+  {
+    "file": "skia-LICENSE.txt",
+    "url": "https://raw.githubusercontent.com/google/skia/main/LICENSE",
+    "sha256": "5f787c1dee3c56547f09ccc2906ab5f5293c4d8dd6c8654e573216c38e908dbd"
+  }
+]

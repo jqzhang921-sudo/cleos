@@ -51,7 +51,7 @@ class MiMoHttpTest {
         }
         val http = OkHttpClient.Builder().readTimeout(4, TimeUnit.SECONDS).build()
         try {
-            val client = ChatClient(http) { diagnostics += it }
+            val client = ChatClient(http, diagnostic = { diagnostics += it })
             val endpoint = ApiEndpoint("http://127.0.0.1:${server.localPort}/v1", "synthetic-key", "mimo-v2.6-flash")
             val result = GroupToolReply.reply(listOf(ApiMessage("assistant", "earlier", reasoning = "earlier reasoning"), ApiMessage("user", "weather")),
                 listOf(ToolSpecs.getWeather), thinking,

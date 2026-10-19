@@ -1,0 +1,33 @@
+[
+  {
+    "file": "journeyapps-zxing-COPYING.txt",
+    "source": "https://raw.githubusercontent.com/journeyapps/zxing-android-embedded/v4.3.0/COPYING",
+    "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+  },
+  {
+    "file": "zxing-core-NOTICE.txt",
+    "source": "https://raw.githubusercontent.com/zxing/zxing/zxing-3.5.3/NOTICE",
+    "sha256": "4db4b60aace29ec6c5c4f13ca9cac1930d3c0c54bcc67dceead0c10771120e66"
+  },
+  {
+    "file": "bouncycastle-1.86-LICENSE.md",
+    "source": "org.bouncycastle:bcpkix-jdk18on:1.86!/META-INF/LICENSE.md",
+    "artifactSha256": "8d8b41a4b149bdae8d331f059a578870954d1e3ff29f8269a9eb3ee19a7e4ef7",
+    "sha256": "0e01f1549c9022f406392ac2947d32223b7c2e977d21ea2f8c182fdeb4dae5fd"
+  },
+  {
+    "file": "zxing-core-LICENSE.txt",
+    "source": "https://raw.githubusercontent.com/zxing/zxing/zxing-3.5.3/LICENSE",
+    "sha256": "3f62881f0566227a24b12e5a754cc79f39aaa94883038e95c94812e1f50af42f"
+  },
+  {
+    "file": "core-3.5.3-sources.jar",
+    "source": "https://repo.maven.apache.org/maven2/com/google/zxing/core/3.5.3/core-3.5.3-sources.jar",
+    "sha256": "f983454400d73652ad5236413ba7eba48072e042982a84b10e1468506f4b28ae"
+  },
+  {
+    "file": "zxing-android-embedded-4.3.0-sources.jar",
+    "source": "https://repo.maven.apache.org/maven2/com/journeyapps/zxing-android-embedded/4.3.0/zxing-android-embedded-4.3.0-sources.jar",
+    "sha256": "44b968f9b3a4eab3a463c36eac7a80fc5457695f55fc37a95e4975b7da2c3b54"
+  }
+]

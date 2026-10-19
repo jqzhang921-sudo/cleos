@@ -16,3 +16,7 @@ build/
 
 *.apk
 *.aab
+
+# Local JVM crash diagnostics can include machine paths and process arguments.
+hs_err_pid*.log
+replay_pid*.log

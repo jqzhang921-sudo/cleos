@@ -4,6 +4,9 @@ import com.cleo.cleos.ai.GroupPhotoRules
 import com.cleo.cleos.ai.GroupChatRules
 import com.cleo.cleos.ai.GroupMemoryRules
 import com.cleo.cleos.ai.GroupToolRules
+import com.cleo.cleos.ai.GroupUploadRules
+import com.cleo.cleos.ai.GroupVoiceRules
+import com.cleo.cleos.ai.GroupSpeechRules
 import com.cleo.cleos.data.db.*
 import kotlinx.serialization.json.Json
 
@@ -31,19 +34,24 @@ object GroupBackupRules {
             val roster = membersByGroup[group.id].orEmpty()
             valid(roster.count { it.active } in 2..4 && roster.map { it.position }.sorted() == roster.indices.toList())
             valid(group.title.isNotBlank() && group.title.length <= 40 && group.draft.length <= GroupChatRules.MAX_TEXT && group.nextSpeaker >= 0)
+            valid(GroupUploadRules.valid(group.draftImages, group.id))
+            valid(GroupVoiceRules.validDraft(group.draftAudio, group.id))
+            valid(group.draftAudio == null || group.draftImages == null && group.draft.isBlank())
             val mentioned = ids(group.mentions)
             valid(mentioned.distinct().size == mentioned.size && mentioned.all { id -> roster.any { it.companionId == id && it.active } })
         }
         for (row in messages) {
             valid(row.groupId in groupIds && row.role in setOf("user", "assistant") && file(row.speakerAvatar))
             valid(row.content.length <= GroupChatRules.MAX_REPLY)
-            valid(GroupPhotoRules.valid(row.images))
-            if (row.role == "user") valid(row.images == null)
+            valid(if (row.role == "user") GroupUploadRules.valid(row.images, row.groupId) else GroupPhotoRules.valid(row.images))
+            valid(if (row.role == "user") GroupVoiceRules.validAudio(row.audio, row.groupId) &&
+                (row.audio == null || row.content.isNotBlank() && row.images == null) else GroupSpeechRules.validRow(row))
             valid(GroupToolRules.validate(row.toolTrace))
             if (row.role == "user") valid(GroupToolRules.decode(row.toolTrace).let { it.records.isEmpty() && it.notice.isEmpty() })
             val mentioned = ids(row.mentions)
             valid(mentioned.distinct().size == mentioned.size && mentioned.all { id -> membersByGroup[row.groupId].orEmpty().any { it.companionId == id } })
-            if (row.role == "user") valid(row.turnId == null && row.speakerId == null && row.status == "sent" && row.content.isNotBlank() && row.content.length <= GroupChatRules.MAX_TEXT)
+            if (row.role == "user") valid(row.turnId == null && row.speakerId == null && row.status == "sent" &&
+                (row.content.isNotBlank() || row.images != null) && row.content.length <= GroupChatRules.MAX_TEXT)
             else {
                 val turn = turnById[row.turnId]
                 valid(turn != null && turn.groupId == row.groupId && row.id > turn.userMessageId && row.speakerId in ids(turn.targets))
@@ -52,6 +60,12 @@ object GroupBackupRules {
                 valid(row.status != "sent" || row.content.isNotBlank() || !row.images.isNullOrBlank())
             }
         }
+        val uploads = groups.flatMap { MessageImages.decode(it.draftImages).map { p -> p.file } } +
+            messages.filter { it.role == "user" }.flatMap { MessageImages.decode(it.images).map { p -> p.file } }
+        valid(uploads.distinct().size == uploads.size)
+        val voices = groups.mapNotNull { GroupVoiceRules.draft(it.draftAudio, it.id)?.file } +
+            messages.mapNotNull { GroupVoiceRules.messageAudio(it)?.file }
+        valid(voices.distinct().size == voices.size)
         valid(messages.filter { it.role == "assistant" }.map { it.turnId to it.speakerId }.distinct().size == messages.count { it.role == "assistant" })
         for (turn in turns) {
             val anchor = messageById[turn.userMessageId]

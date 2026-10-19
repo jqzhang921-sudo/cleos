@@ -7,6 +7,11 @@ import org.junit.Test
 /** Whether a tool call's line in the chat says it didn't go through (ChatScreen draws a warning for those). */
 class ToolRunsTest {
     @Test
+    fun unknownToolIsAFailureButQuotedUserTextIsNot() {
+        assertTrue(ToolRuns.failed("想用的工具不存在：open"))
+        assertFalse(ToolRuns.failed("记了待办：想用的工具不存在：open"))
+    }
+    @Test
     fun aCallThatDidNotGoThroughSaysSoAtTheEndOfItsLine() {
         assertTrue(ToolRuns.failed("记待办没成：参数写错了"))
         assertTrue(ToolRuns.failed("拍一拍没成：设置里关着"))

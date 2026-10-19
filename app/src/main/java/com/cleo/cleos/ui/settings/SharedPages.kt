@@ -40,6 +40,7 @@ import com.cleo.cleos.ai.PhoneCalendar
 import com.cleo.cleos.ai.PhoneLocation
 import com.cleo.cleos.ai.PhoneMusic
 import com.cleo.cleos.ai.Speech
+import com.cleo.cleos.ai.TaVoices
 import com.cleo.cleos.ai.ToolGroup
 import com.cleo.cleos.ai.VoiceOption
 import com.cleo.cleos.ai.VoiceService
@@ -56,6 +57,8 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
     val palette = LocalGlassPalette.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val tas by vm.companions.collectAsStateWithLifecycle()
+    val effectiveVoice = tas.firstOrNull { it.id == vm.companionId }?.let { TaVoices.effective(settings, it) } ?: settings
     fun on(group: ToolGroup) = group in settings.tools
 
     var locationHint by remember { mutableStateOf<String?>(null) }
@@ -153,7 +156,7 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
             "TA 想用声音说的时候（道晚安、撒娇），发一条语音条，你能听，也看得到字。用什么声音，在「TA 的声音」里选。",
             on(ToolGroup.Speak),
         ) { vm.setTool(ToolGroup.Speak, it) }
-        if (on(ToolGroup.Speak) && !Speech.ready(settings)) {
+        if (on(ToolGroup.Speak) && !Speech.ready(effectiveVoice)) {
             Under {
                 Text("还没配好声音，TA 暂时发不了。", color = palette.error, fontSize = 12.sp)
                 Chip("去选声音", selected = false, onClick = onOpenVoice)
@@ -328,16 +331,18 @@ private fun Under(content: @Composable () -> Unit) {
     Column(Modifier.padding(bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
 }
 
-/** The voice every TA's voice messages are in, and how it is heard on headphones. */
+/** The shared service and default voice, plus the current TA's explicitly saved voice choice. */
 @Composable
 internal fun VoicePage(vm: SettingsViewModel) {
     val palette = LocalGlassPalette.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val hasSpeechKey by vm.hasSpeechKey.collectAsStateWithLifecycle()
+    val tas by vm.companions.collectAsStateWithLifecycle()
+    tas.firstOrNull { it.id == vm.companionId }?.let { TaVoiceSection(it, settings) }
 
-    Section("用哪个平台") {
+    Section("共用平台与默认音色") {
         Text(
-            "TA 发语音条时用的声音。选一个平台，填上它的 Key，挑一个音色就能用。",
+            "所有 TA 共用的平台、Key 和默认音色。没有单独设置音色的 TA 使用这里的选择。",
             color = palette.contentSecondary,
             fontSize = 12.sp,
             lineHeight = 18.sp,
@@ -366,7 +371,7 @@ internal fun VoicePage(vm: SettingsViewModel) {
     }
 
     // Setting up a voice doesn't let the TA use it: that is the switch on 「能做的事」.
-    if (ToolGroup.Speak !in settings.tools && Speech.ready(settings)) {
+    if (ToolGroup.Speak !in settings.tools && Speech.ready(tas.firstOrNull { it.id == vm.companionId }?.let { TaVoices.effective(settings, it) } ?: settings)) {
         Section(null) {
             Text(
                 "声音配好了，不过「能做的事」里的「发语音条」还关着，TA 现在还不会发。",

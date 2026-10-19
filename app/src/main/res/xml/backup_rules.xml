@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 10/11 use this rule; Android 12+ also has data_extraction_rules.xml. -->
+<full-backup-content>
+    <exclude domain="file" path="datastore/secrets.preferences_pb" />
+</full-backup-content>

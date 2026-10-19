@@ -23,6 +23,7 @@ class CallService : Service() {
         val container = (application as CleosApp).container
         if (intent?.action == ACTION_HANG_UP) {
             container.calls.hangUp()
+            container.groupCalls.hangUp()
             return START_NOT_STICKY
         }
         // Up before anything else: a service started this way that doesn't say so in time is an error.
@@ -33,13 +34,16 @@ class CallService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        if (container.calls.state.value == null) done()
+        val privateActive = container.calls.state.value?.phase?.let { it != com.cleo.cleos.ai.CallPhase.Ended } == true
+        val groupActive = container.groupCalls.state.value?.phase?.let { it != com.cleo.cleos.ai.CallPhase.Ended } == true
+        if (!privateActive && !groupActive) done()
         return START_NOT_STICKY
     }
 
     /** Android 15 caps how long some services may run; a call hangs up rather than being cut. */
     override fun onTimeout(startId: Int, fgsType: Int) {
         (application as CleosApp).container.calls.hangUp()
+        (application as CleosApp).container.groupCalls.hangUp()
         done()
     }
 
@@ -75,13 +79,15 @@ class CallService : Service() {
         private fun notification(context: Context): android.app.Notification {
             val container = (context.applicationContext as CleosApp).container
             val call = container.calls.state.value
+            val groupCall = container.groupCalls.state.value
             val hangUp = PendingIntent.getService(
                 context,
                 0,
                 Intent(context, CallService::class.java).setAction(ACTION_HANG_UP),
                 PendingIntent.FLAG_IMMUTABLE,
             )
-            return container.notifier.calling(call?.name?.ifEmpty { null } ?: "TA", call?.answeredAt, hangUp)
+            return container.notifier.calling(groupCall?.title ?: call?.name?.ifEmpty { null } ?: "TA",
+                groupCall?.answeredAt ?: call?.answeredAt, hangUp)
         }
     }
 }

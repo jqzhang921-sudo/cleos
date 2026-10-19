@@ -8,6 +8,28 @@ import org.junit.rules.TemporaryFolder
 class ToolDiagnosticStoreTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun groupCallFailurePinsTimingsWithoutSpeechContentOrSecrets() {
+        val store=ToolDiagnosticStore(temporary.newFolder(),"0.41.116")
+        store.record("event=group_call_stage route=group_call requestId=abc00001 member=1 stage=first_text result=ok elapsedMs=3200")
+        store.record("event=group_call_failure route=group_call requestId=abc00001 member=1 stage=synthesize result=failed elapsedMs=120 category=network " +
+            "transcript=private-words body=secret-response audioFile=private.wav apiKey=sk-secret")
+        store.record("event=group_call_stage route=group_call requestId=abc00001 member=1 stage=store result=ok elapsedMs=10")
+        val pinned=store.issue()
+        assertTrue(pinned.contains("stage=first_text result=ok elapsedMs=3200"))
+        assertTrue(pinned.contains("stage=synthesize result=failed elapsedMs=120 category=network"))
+        assertTrue(pinned.contains("stage=store result=ok elapsedMs=10"))
+        for(secret in listOf("private-words","secret-response","private.wav","sk-secret"))assertFalse(secret,pinned.contains(secret))
+        store.record("event=group_call_stage requestId=abc00002 stage=round result=ok elapsedMs=100")
+        assertEquals(pinned,store.issue())
+    }
+    @Test fun emptyTranscriptionAndUserCancellationDoNotAutoPinAServiceFailure() {
+        val store=ToolDiagnosticStore(temporary.newFolder(),"0.41.116")
+        store.record("event=group_call_input route=group_call requestId=abc00001 stage=transcribe result=failed category=empty_transcript elapsedMs=300 audioMs=900")
+        store.record("event=group_call_stage route=group_call requestId=abc00001 stage=model result=cancelled elapsedMs=50")
+        assertTrue(store.recent().contains("category=empty_transcript"));assertTrue(store.recent().contains("audioMs=900"))
+        assertEquals("",store.issue())
+    }
+
     @Test fun firstErrorAndItsRetrySurviveNormalRequestsAndRestart() {
         val dir = temporary.newFolder()
         val store = ToolDiagnosticStore(dir, "0.41.74", clock = { 1000L }, limit = 2048)

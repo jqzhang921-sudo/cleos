@@ -9,6 +9,10 @@ PAIRS = {
     "NOTICE": "app/src/main/assets/licenses/cleos-NOTICE.txt",
     "THIRD_PARTY_NOTICES.md": "app/src/main/assets/licenses/third-party-notices.txt",
     "docs/DEPENDENCY_LICENSES.md": "app/src/main/assets/licenses/dependency-licenses.txt",
+    "licenses/transfer/journeyapps-zxing-COPYING.txt": "app/src/main/assets/licenses/transfer/journeyapps-zxing-COPYING.txt",
+    "licenses/transfer/zxing-core-LICENSE.txt": "app/src/main/assets/licenses/transfer/zxing-core-LICENSE.txt",
+    "licenses/transfer/zxing-core-NOTICE.txt": "app/src/main/assets/licenses/transfer/zxing-core-NOTICE.txt",
+    "licenses/transfer/scanner-copyrights.txt": "app/src/main/assets/licenses/transfer/scanner-copyrights.txt",
 }
 
 def main():

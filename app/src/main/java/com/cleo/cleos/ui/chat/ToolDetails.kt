@@ -51,5 +51,6 @@ internal object ToolRuns {
      * A tool the person wouldn't let the TA use ("没让TA用XX") is neither: that was their
      * call, not something to draw a warning about.
      */
-    fun failed(note: String): Boolean = note.contains("没成：") || note.endsWith("出错了")
+    fun failed(note: String): Boolean = note.contains("没成：") || note.endsWith("出错了") ||
+        note.startsWith("想用的工具不存在：")
 }

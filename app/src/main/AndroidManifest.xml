@@ -2,13 +2,20 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Only the user-initiated desktop pairing scanner asks for the camera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <!-- Voice messages: asked for the first time the person holds the microphone button. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     <!-- get_location, only while a reply asks; asked for when the switch is turned on. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <!-- What a TA says on its own, and letters arriving: asked for the first time there is one coming. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Only used after opt-in to persistent call banners / a lock-screen incoming-call page. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- set_alarm / set_timer, handed to the phone's clock app; granted on install, nothing to ask. -->
     <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- The calendar tools; asked for when their switch is turned on. -->
@@ -24,12 +31,20 @@
         android:name=".CleosApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Cleos">
+
+        <receiver android:name=".IncomingCallReceiver" android:exported="false" />
+        <activity android:name=".ui.settings.TransferScannerActivity" android:exported="false"
+            android:screenOrientation="portrait" android:theme="@style/zxing_CaptureTheme" />
+        <activity android:name=".IncomingCallActivity" android:exported="false"
+            android:excludeFromRecents="true" android:launchMode="singleTop" />
 
         <activity
             android:name=".MainActivity"

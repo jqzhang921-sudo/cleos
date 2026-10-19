@@ -19,6 +19,37 @@ import com.cleo.cleos.ui.common.Avatar
 import com.cleo.cleos.ui.common.avatarLetter
 
 @Composable
+internal fun GroupCallDialog(members: List<GroupMemberEntity>, onDismiss: () -> Unit, onStart: (List<Long>) -> Unit) {
+    val palette = LocalGlassPalette.current
+    var selected by rememberSaveable { mutableStateOf(members.take(2).map { it.companionId }) }
+    Dialog(onDismissRequest = onDismiss) {
+        GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(22.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("一起通话", color = palette.content, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                Text("先选两位伙伴，各用自己的音色轮流接话。点一下可打断整轮；说过的话以文字留在本群。只参考本群记录与小本本，不带私人记忆。",
+                    color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 20.sp)
+                Text("沿用发语音的转写服务和 TA 的声音平台，会产生转写、模型与声音服务用量。当前版本需点按打断，不能在 TA 发言时直接插话。",
+                    color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 19.sp)
+                members.forEach { member ->
+                    val picked = member.companionId in selected
+                    Row(Modifier.fillMaxWidth().clickable {
+                        selected = if (picked) selected - member.companionId else if (selected.size < 2) selected + member.companionId else selected
+                    }.padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Avatar(member.avatar, member.emoji ?: avatarLetter(member.name, "TA"), 38.dp)
+                        Text(member.name, color = palette.content, modifier = Modifier.weight(1f))
+                        Checkbox(picked, null, enabled = picked || selected.size < 2)
+                    }
+                }
+                Row(Modifier.align(Alignment.End)) {
+                    TextButton(onDismiss) { Text("取消", color = palette.content) }
+                    TextButton({ onStart(selected) }, enabled = selected.size == 2) { Text("开始通话", color = palette.content) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 internal fun NewGroupDialog(tas: List<CompanionEntity>, busy: Boolean, problem: String?, onCancel: () -> Unit, onCreate: (String, List<Long>) -> Unit) {
     val palette = LocalGlassPalette.current
     var name by rememberSaveable { mutableStateOf("一起聊聊") }
@@ -60,10 +91,11 @@ internal fun NewGroupDialog(tas: List<CompanionEntity>, busy: Boolean, problem: 
 
 @Composable
 internal fun GroupMembersDialog(group: ChatGroupEntity, members: List<GroupMemberEntity>, active: Set<Long>,
-    selected: List<Long>?, onPick: ((List<Long>) -> Unit)?, onDismiss: () -> Unit, onRename: (String) -> Unit,
+    selected: List<Long>?, onPick: ((List<Long>) -> Unit)?, onDismiss: () -> Unit, onSave: (String, Boolean) -> Unit,
     canManage: Boolean = true, onManage: () -> Unit = {}) {
     val palette = LocalGlassPalette.current
     var name by rememberSaveable(group.id) { mutableStateOf(group.title) }
+    var interjections by rememberSaveable(group.id) { mutableStateOf(group.allowInterjections) }
     var picks by rememberSaveable(group.id) { mutableStateOf(selected.orEmpty()) }
     Dialog(onDismissRequest = onDismiss) {
         GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(20.dp)) {
@@ -83,14 +115,26 @@ internal fun GroupMembersDialog(group: ChatGroupEntity, members: List<GroupMembe
                         }
                     }
                 }
-                Text(if (onPick != null) "只请点名的 TA 回复；不选人时轮流请两位接话。" else "共同聊天与工具结果只留在本群。可查天气、读朋友圈、找公开图库照片并分享，跟随设置中的工具开关；私聊和私密日记各自保留。",
+                Text(if (onPick != null) "只请点名的 TA 回复；不选人时轮流请两位接话。" else "共同聊天与工具结果只留在本群。可查天气、读朋友圈、搜图发图、查看已同步的系统日历，以及按要求定闹钟或计时器，跟随设置中的工具开关；私聊和私密日记各自保留。",
                     color = palette.contentSecondary, fontSize = 12.sp)
+                if (onPick == null) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("顺势接话", color = palette.content, fontSize = 14.sp)
+                            Text("话题合适时，伙伴可邀请一位还没发言的人。每轮最多多一位，会增加模型用量；@ 点名时不插话。",
+                                color = palette.contentSecondary, fontSize = 12.sp)
+                        }
+                        Switch(interjections, { interjections = it }, enabled = canManage)
+                    }
+                    if (!canManage) Text("先停止这一轮，再调整群设置。", color = palette.contentSecondary, fontSize = 12.sp)
+                }
                 Row(Modifier.align(Alignment.End)) {
                     TextButton(onDismiss) { Text("取消", color = palette.content) }
                     if (onPick == null) TextButton(onManage, enabled = canManage) { Text("调整成员", color = palette.accentContent) }
-                    TextButton({ if (onPick != null) onPick(picks.filter { id -> id in active && members.any { it.companionId == id && it.active } }) else onRename(name) },
-                        enabled = onPick != null || name.isNotBlank()) {
-                        Text(if (onPick != null) "选好了" else "保存群名", color = palette.accentContent)
+                    TextButton({ if (onPick != null) onPick(picks.filter { id -> id in active && members.any { it.companionId == id && it.active } }) else onSave(name, interjections) },
+                        enabled = onPick != null || canManage && name.isNotBlank()) {
+                        Text(if (onPick != null) "选好了" else "保存", color = palette.accentContent)
                     }
                 }
             }

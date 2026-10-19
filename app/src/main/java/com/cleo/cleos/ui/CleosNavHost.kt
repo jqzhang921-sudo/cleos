@@ -3,9 +3,12 @@ package com.cleo.cleos.ui
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -16,7 +19,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.cleo.cleos.Opening
+import com.cleo.cleos.ai.CallPhase
 import com.cleo.cleos.ui.call.CallScreen
+import com.cleo.cleos.ui.call.GroupCallOngoing
 import com.cleo.cleos.ui.chat.ConversationsScreen
 import com.cleo.cleos.ui.common.appContainer
 import com.cleo.cleos.ui.chat.SearchScreen
@@ -119,15 +124,24 @@ fun CleosNavHost() {
     // A tapped notification: back to the main screen, whose chat tab shows the conversation
     // (MainScreen takes it from there), or on to the letter.
     val c = appContainer()
+    val call by c.calls.state.collectAsStateWithLifecycle()
+    val groupCall by c.groupCalls.state.collectAsStateWithLifecycle()
+    val minimizedSession by c.minimizedGroupCall.collectAsStateWithLifecycle()
+    val groupMinimized = groupCall != null && minimizedSession == groupCall?.session
     val opening by c.opening.collectAsStateWithLifecycle()
     LaunchedEffect(opening) {
         when (val o = opening) {
-            is Opening.Chat -> nav.popBackStack(MainRoute, inclusive = false)
+            is Opening.Chat -> {
+                c.minimizeGroupCall()
+                nav.popBackStack(MainRoute, inclusive = false)
+            }
             is Opening.Diary -> {
+                c.minimizeGroupCall()
                 nav.navigate(DiaryRoute(o.id))
                 c.opening.value = null
             }
             is Opening.Letter -> {
+                c.minimizeGroupCall()
                 nav.popBackStack(MainRoute, inclusive = false)
                 nav.navigate(LetterRoute(o.id))
                 c.opening.value = null
@@ -135,21 +149,25 @@ fun CleosNavHost() {
             null -> Unit
         }
     }
-    // A call on: its screen, whatever was open (a notification tapped meanwhile, the app opened again
-    // from the launcher). Over: back to where the person was.
-    val call by c.calls.state.collectAsStateWithLifecycle()
-    val calling = call != null
+    // A user hang-up leaves immediately; the application-owned job still finishes saving and
+    // releasing audio. Unexpected endings keep their existing short error/status display.
+    val calling = if (groupCall != null) !groupMinimized && groupCall?.hangUpRequested != true else call != null
     val entry by nav.currentBackStackEntryAsState()
     LaunchedEffect(calling, entry) {
         val here = entry ?: return@LaunchedEffect
         val onCall = here.destination.hasRoute<CallRoute>()
         if (calling && !onCall) {
+            if (groupCall != null) c.toolDiagnostics.record("event=group_call_ui route=group_call result=opening_page")
             nav.navigate(CallRoute) { launchSingleTop = true }
         } else if (!calling && onCall) {
+            if (groupCall != null) c.toolDiagnostics.record("event=group_call_ui route=group_call result=leaving_page")
             nav.popBackStack()
         }
     }
+    val showOngoing = groupMinimized && groupCall?.phase?.let { it != CallPhase.Ended } == true
+    Box(Modifier.fillMaxSize()) {
     NavHost(
+        modifier = Modifier.fillMaxSize(),
         navController = nav,
         startDestination = MainRoute,
         enterTransition = { fadeIn(tween(220)) },
@@ -213,7 +231,10 @@ fun CleosNavHost() {
             )
         }
         composable<ImageRoute> { entry -> ImageViewerScreen(entry.toRoute<ImageRoute>().file, onBack = nav::back) }
-        composable<CallRoute> { CallScreen() }
+        composable<CallRoute> { CallScreen(onMinimizeGroup = c::minimizeGroupCall) }
+    }
+    if (showOngoing) GroupCallOngoing(requireNotNull(groupCall), c::showCall)
+    com.cleo.cleos.ui.call.IncomingCallPrompt()
     }
 }
 

@@ -28,7 +28,7 @@ class GroupBackupTest {
             groups = listOf(group), groupMembers = members, groupTurns = listOf(turn), groupMessages = listOf(user, reply))
         val restored = Json.decodeFromString<BackupFile>(Json.encodeToString(backup))
         GroupBackupRules.validate(restored.groups, restored.groupMembers, restored.groupTurns, restored.groupMessages)
-        assertEquals(backup, restored); assertEquals(6, BackupFile.VERSION)
+        assertEquals(backup, restored); assertEquals(15, BackupFile.VERSION)
     }
     @Test fun invalidCrossGroupOrDuplicateReplyIsRejectedBeforeRestore() {
         for (bad in listOf(listOf(user, reply.copy(groupId = 99)), listOf(user, reply, reply.copy(id = 3)), listOf(user, reply.copy(speakerId = 99)))) {

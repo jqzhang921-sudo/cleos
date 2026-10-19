@@ -79,8 +79,10 @@ private val HangUpRed = Color(0xFFE5484D)
  * on speaker is looked at.
  */
 @Composable
-fun CallScreen() {
+fun CallScreen(onMinimizeGroup: () -> Unit) {
     val c = appContainer()
+    val groupCall by c.groupCalls.state.collectAsStateWithLifecycle()
+    if (groupCall != null) { GroupCallScreen(onMinimizeGroup); return }
     val call by c.calls.state.collectAsStateWithLifecycle()
     val st = call ?: return
     val level by c.calls.level.collectAsStateWithLifecycle()
