@@ -121,6 +121,13 @@ class GroupChatRepository(private val db: AppDatabase, private val settings: Set
         }
     }
 
+    /** No private-memory query at all until this member has an explicit, valid local grant. */
+    private suspend fun privateMemories(groupId: Long, target: Long): List<MemoryEntity> = db.withTransaction {
+        GroupPrivateMemories.load(groupId, target, dao.members(groupId), enabled = ToolGroup.Memory in settings.current().tools) {
+            owner, ids -> db.memories().selectedFor(owner, ids)
+        }
+    }
+
     internal suspend fun callRound(lease: CallLease, text: String, order: List<Long>): List<GroupMessageEntity> {
         requireCall(lease)
         GroupCallRules.selected(order, lease.members.map { it.companionId }.toSet())
@@ -159,7 +166,8 @@ class GroupChatRepository(private val db: AppDatabase, private val settings: Set
         val messages = GroupCallRules.request(lease.group, dao.members(slot.groupId), lease.members.map { it.companionId },
             target.copy(name = slot.speakerName), history, s.userName,
             GroupMemoryRules.context(slot.groupId, notes, history.lastOrNull { it.role == "user" }?.content.orEmpty(), sources), ZonedDateTime.now(),
-            stickers = StickerBook(db.stickers().all().filter { images.file(it.file).isFile }))
+            stickers = StickerBook(db.stickers().all().filter { images.file(it.file).isFile }),
+            privateMemories = privateMemories(slot.groupId, target.id))
         return client.stream(ApiEndpoint(model.baseUrl, key, model.model), messages, emptyList(), false)
     }
 
@@ -271,6 +279,23 @@ class GroupChatRepository(private val db: AppDatabase, private val settings: Set
                     saved = true
                 }
             } finally { if (!saved) images.delete(copies) }
+        }
+    }
+    suspend fun saveMemorySharing(groupId: Long, companionId: Long, enabled: Boolean,
+        grants: List<GroupMemoryGrant>, epoch: Long = generation.value) = withContext(Dispatchers.IO) {
+        ready.await()
+        gate.withLock {
+            check(!paused && epoch == generation.value) { "群聊数据已变化，请重新打开" }
+            check(jobs[groupId] == null) { "先停止回复或通话，再调整记忆共享" }
+            db.withTransaction {
+                check(dao.group(groupId) != null && db.companions().get(companionId) != null &&
+                    dao.members(groupId).any { it.companionId == companionId && it.active }) { "这位 TA 已不在本群" }
+                val encoded = if (!enabled) "[]" else {
+                    require(grants.isNotEmpty() && grants.size <= GroupPrivateMemories.MAX_SELECTED) { "请先勾选允许带进群的记忆" }
+                    GroupPrivateMemories.checked(companionId, grants, db.memories().selectedFor(companionId, grants.map { it.id }))
+                }
+                check(dao.memorySharing(groupId, companionId, enabled, encoded) == 1) { "群成员已变化，请重新打开" }
+            }
         }
     }
     suspend fun saveDraft(id: Long, text: String, mentions: List<Long>, epoch: Long = generation.value) { ready.await(); gate.withLock {
@@ -678,7 +703,8 @@ class GroupChatRepository(private val db: AppDatabase, private val settings: Set
                 GroupMemoryRules.context(slot.groupId, notes, query, sources), specs, available,
                 GroupInterjectionRules.isExtra(turn, anchor, slot),
                 stickers = StickerBook(db.stickers().all().filter { images.file(it.file).isFile }),
-                sendStickers = ToolGroup.Stickers in s.tools)
+                sendStickers = ToolGroup.Stickers in s.tools,
+                privateMemories = privateMemories(slot.groupId, target))
                 .map { m -> m.copy(images = m.images.map { requireNotNull(pixels[it]) }) }
             _progress.update { it + (slot.id to GroupReplyProgress(System.nanoTime())) }
             val text = GroupToolReply.reply(messages, specs, ta.deepThinking,

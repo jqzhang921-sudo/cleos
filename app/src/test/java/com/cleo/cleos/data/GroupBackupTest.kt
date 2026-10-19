@@ -6,6 +6,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GroupBackupTest {
+    @Test fun fullCleosBackupPreservesMemoriesButDoesNotRestoreGroupDisclosurePermission() {
+        val privateMemory = com.cleo.cleos.data.db.MemoryEntity(901, 10, "rapport", "合成记忆", "BACKUP_ONLY_PRIVATE",
+            createdAt = 1, updatedAt = 2)
+        val roster = members.map { if (it.companionId == 10L) it.copy(sharePrivateMemories = true,
+            privateMemoryGrants = com.cleo.cleos.ai.GroupPrivateMemories.encode(listOf(com.cleo.cleos.ai.GroupPrivateMemories.grant(privateMemory)))) else it }
+        val backup = BackupFile(BackupFile.FORMAT, BackupFile.VERSION, 0, settings, emptyList(), emptyList(), emptyList(), emptyList(),
+            companions = listOf(CompanionEntity(id = 10, name = "合成 TA", createdAt = 1,
+                apiBaseUrl = "https://example.invalid/v1", apiModel = "fixture-model")),
+            memories = listOf(privateMemory), groups = listOf(group), groupMembers = roster, groupTurns = listOf(turn), groupMessages = listOf(user, reply))
+        val codec = Json { encodeDefaults = true; ignoreUnknownKeys = true }
+        val raw = codec.encodeToString(BackupFile.serializer(), backup)
+        assertTrue(raw.contains("BACKUP_ONLY_PRIVATE"))
+        assertFalse(raw.contains("privateMemoryGrants")); assertFalse(raw.contains("sharePrivateMemories"))
+        val restored = codec.decodeFromString(BackupFile.serializer(), raw)
+        assertEquals(listOf(privateMemory), restored.memories)
+        assertTrue(restored.groupMembers.all { !it.sharePrivateMemories && it.privateMemoryGrants == "[]" })
+        GroupBackupRules.validate(restored.groups, restored.groupMembers, restored.groupTurns, restored.groupMessages)
+    }
     private val group = ChatGroupEntity(1, "一起聊", 0, 0, draft = "没发的话", mentions = "[10]")
     private val members = listOf(GroupMemberEntity(1, 10, 0, "甲", "message-test.jpg"), GroupMemberEntity(1, 20, 1, "乙"))
     private val user = GroupMessageEntity(1, 1, "user", "你好", 0)

@@ -16,9 +16,13 @@ object GroupMembershipRules {
         val known = current.map { it.companionId }.toSet()
         require(added.map { it.companionId }.toSet() == selected.filterNot { it in known }.toSet())
         require(added.map { it.companionId }.distinct().size == added.size)
-        val old = current.sortedBy { it.position }.map { it.copy(active = it.companionId in selected) }
+        val old = current.sortedBy { it.position }.map {
+            val active = it.companionId in selected
+            if (it.active && active) it else it.copy(active = active, sharePrivateMemories = false, privateMemoryGrants = "[]")
+        }
         val fresh = selected.filterNot { it in known }.mapIndexed { offset, id ->
-            added.first { it.companionId == id }.copy(position = old.size + offset, active = true)
+            added.first { it.companionId == id }.copy(position = old.size + offset, active = true,
+                sharePrivateMemories = false, privateMemoryGrants = "[]")
         }
         return old + fresh
     }

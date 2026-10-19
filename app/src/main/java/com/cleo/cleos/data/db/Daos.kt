@@ -389,6 +389,9 @@ interface DiaryDao {
 
 @Dao
 interface MemoryDao {
+    @Query("SELECT * FROM memories WHERE companionId = :companionId AND id IN (:ids) ORDER BY createdAt, id")
+    suspend fun selectedFor(companionId: Long, ids: List<Long>): List<MemoryEntity>
+
     @Query("SELECT * FROM memories WHERE companionId = :companionId ORDER BY createdAt, id")
     fun observeFor(companionId: Long): Flow<List<MemoryEntity>>
 

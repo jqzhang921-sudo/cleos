@@ -25,7 +25,12 @@ data class ChatGroupEntity(
     foreignKeys = [ForeignKey(entity = ChatGroupEntity::class, parentColumns = ["id"], childColumns = ["groupId"], onDelete = ForeignKey.CASCADE)])
 data class GroupMemberEntity(val groupId: Long, val companionId: Long, val position: Int,
     val name: String, val avatar: String? = null, val emoji: String? = null,
-    @ColumnInfo(defaultValue = "1") val active: Boolean = true)
+    @ColumnInfo(defaultValue = "1") val active: Boolean = true,
+    // Cleos backup/QR serialization deliberately excludes these disclosure permissions.
+    @kotlinx.serialization.Transient
+    @ColumnInfo(defaultValue = "0") val sharePrivateMemories: Boolean = false,
+    @kotlinx.serialization.Transient
+    @ColumnInfo(defaultValue = "'[]'") val privateMemoryGrants: String = "[]")
 
 @Serializable
 @Entity(tableName = "group_turns", indices = [Index("groupId")],
@@ -119,6 +124,8 @@ interface GroupDao {
     @Insert suspend fun insertGroup(group: ChatGroupEntity): Long
     @Insert suspend fun insertMembers(members: List<GroupMemberEntity>)
     @Upsert suspend fun saveMembers(members: List<GroupMemberEntity>)
+    @Query("UPDATE group_members SET sharePrivateMemories = :enabled, privateMemoryGrants = :grants WHERE groupId = :groupId AND companionId = :companionId AND active = 1")
+    suspend fun memorySharing(groupId: Long, companionId: Long, enabled: Boolean, grants: String): Int
     @Insert suspend fun insertTurn(turn: GroupTurnEntity): Long
     @Insert suspend fun insertMessage(message: GroupMessageEntity): Long
     @Query("UPDATE chat_groups SET title = :title WHERE id = :id") suspend fun rename(id: Long, title: String)

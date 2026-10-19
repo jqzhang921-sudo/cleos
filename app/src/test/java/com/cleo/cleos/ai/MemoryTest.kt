@@ -168,6 +168,7 @@ private class FakeMemories : MemoryDao {
     val rows = mutableListOf<MemoryEntity>()
     override fun observeFor(companionId: Long): Flow<List<MemoryEntity>> = flowOf(rows.filter { it.companionId == companionId })
     override suspend fun allFor(companionId: Long) = rows.filter { it.companionId == companionId }
+    override suspend fun selectedFor(companionId: Long, ids: List<Long>) = rows.filter { it.companionId == companionId && it.id in ids }
     override fun observe(id: Long): Flow<MemoryEntity?> = flowOf(rows.firstOrNull { it.id == id })
     override suspend fun get(id: Long) = rows.firstOrNull { it.id == id }
     override suspend fun insert(memory: MemoryEntity): Long {

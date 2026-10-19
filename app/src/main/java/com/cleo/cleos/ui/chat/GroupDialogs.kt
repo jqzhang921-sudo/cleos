@@ -26,7 +26,7 @@ internal fun GroupCallDialog(members: List<GroupMemberEntity>, onDismiss: () -> 
         GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(22.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("一起通话", color = palette.content, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-                Text("先选两位伙伴，各用自己的音色轮流接话。点一下可打断整轮；说过的话以文字留在本群。只参考本群记录与小本本，不带私人记忆。",
+                Text("先选两位伙伴，各用自己的音色轮流接话。点一下可打断整轮；说过的话以文字留在本群。参考本群记录、小本本，以及你在成员设置里允许这位 TA 带进本群的记忆。",
                     color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 20.sp)
                 Text("沿用发语音的转写服务和 TA 的声音平台，会产生转写、模型与声音服务用量。当前版本需点按打断，不能在 TA 发言时直接插话。",
                     color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 19.sp)
@@ -92,7 +92,7 @@ internal fun NewGroupDialog(tas: List<CompanionEntity>, busy: Boolean, problem: 
 @Composable
 internal fun GroupMembersDialog(group: ChatGroupEntity, members: List<GroupMemberEntity>, active: Set<Long>,
     selected: List<Long>?, onPick: ((List<Long>) -> Unit)?, onDismiss: () -> Unit, onSave: (String, Boolean) -> Unit,
-    canManage: Boolean = true, onManage: () -> Unit = {}) {
+    canManage: Boolean = true, onManage: () -> Unit = {}, onMemorySharing: ((GroupMemberEntity) -> Unit)? = null) {
     val palette = LocalGlassPalette.current
     var name by rememberSaveable(group.id) { mutableStateOf(group.title) }
     var interjections by rememberSaveable(group.id) { mutableStateOf(group.allowInterjections) }
@@ -109,9 +109,15 @@ internal fun GroupMembersDialog(group: ChatGroupEntity, members: List<GroupMembe
                             picks = if (member.companionId in picks) picks - member.companionId else picks + member.companionId
                         }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Avatar(member.avatar, member.emoji ?: avatarLetter(member.name, "TA"), 34.dp)
-                            Text(member.name + when { !member.active -> " · 已离群"; !available -> " · TA 已删除"; else -> "" },
-                                color = palette.content, modifier = Modifier.weight(1f))
+                            Column(Modifier.weight(1f)) {
+                                Text(member.name + when { !member.active -> " · 已离群"; !available -> " · TA 已删除"; else -> "" }, color = palette.content)
+                                if (onPick == null && available) Text(if (member.sharePrivateMemories) "已开启记忆共享" else "私人记忆未共享",
+                                    color = palette.contentSecondary, fontSize = 11.sp)
+                            }
                             if (onPick != null) Checkbox(member.companionId in picks, null, enabled = available)
+                            else if (available && onMemorySharing != null) TextButton({ onMemorySharing(member) }, enabled = canManage) {
+                                Text("记忆共享", color = palette.accentContent)
+                            }
                         }
                     }
                 }

@@ -64,6 +64,7 @@ import com.cleo.cleos.data.BubbleSpacing
 import com.cleo.cleos.data.StickerBook
 import com.cleo.cleos.data.StickerText
 import com.cleo.cleos.data.db.GroupMessageEntity
+import com.cleo.cleos.data.db.MemoryEntity
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.*
 import com.cleo.cleos.ui.settings.Chip
@@ -121,6 +122,8 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
     val context = LocalContext.current
     var editingMembers by remember { mutableStateOf(false) }
     var savingMembers by remember { mutableStateOf(false) }
+    var sharingMemberId by rememberSaveable(groupId, generation) { mutableStateOf<Long?>(null) }
+    var savingSharing by remember(groupId, generation) { mutableStateOf(false) }
     var problem by remember { mutableStateOf<String?>(null) }
     var selectedText by remember { mutableStateOf<String?>(null) }
     var deletion by remember(groupId, generation) { mutableStateOf<GroupMessageDeletion?>(null) }
@@ -449,7 +452,28 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
             if (picking) { value -> mentions = value; picking = false } else null,
             { picking = false; details = false }, { name, allowed -> act { c.groupChat.saveOptions(groupId, name, allowed, generation); details = false } },
             canManage = !busy && members.isNotEmpty() && active.isNotEmpty(),
-            onManage = { problem = null; details = false; editingMembers = true })
+            onManage = { problem = null; details = false; editingMembers = true },
+            onMemorySharing = { member -> problem = null; details = false; sharingMemberId = member.companionId })
+        sharingMemberId?.let { target ->
+            val member = members.firstOrNull { it.companionId == target && it.active && target in active }
+            if (member == null) {
+                LaunchedEffect(target) { sharingMemberId = null; problem = "这位 TA 已不在本群" }
+            } else key(groupId, generation, target) {
+                val privateNotes by produceState<List<MemoryEntity>?>(null, target) {
+                    c.db.memories().observeFor(target).collect { value = it }
+                }
+                GroupMemorySharingDialog(saved, member, privateNotes, savingSharing || busy, problem,
+                    memoryEnabled = com.cleo.cleos.ai.ToolGroup.Memory in settings.tools,
+                    onDismiss = { if (!savingSharing) { sharingMemberId = null; problem = null; details = true } },
+                    onSave = { enabled, grants -> act {
+                        savingSharing = true
+                        try {
+                            c.groupChat.saveMemorySharing(groupId, target, enabled, grants, generation)
+                            sharingMemberId = null; details = true
+                        } finally { savingSharing = false }
+                    } })
+            }
+        }
         if (editingMembers) EditGroupMembersDialog(saved, members, tas, savingMembers || busy, problem,
             onDismiss = { if (!savingMembers) { editingMembers = false; problem = null } },
             onSave = { value -> act {

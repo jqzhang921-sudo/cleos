@@ -42,9 +42,11 @@ object GroupCallRules {
         }
     }
     fun request(group: ChatGroupEntity, roster: List<GroupMemberEntity>, participants: List<Long>, ta: CompanionEntity,
-        history: List<GroupMessageEntity>, user: String, notes: String, now: ZonedDateTime, stickers: StickerBook = StickerBook.EMPTY): List<ApiMessage> {
+        history: List<GroupMessageEntity>, user: String, notes: String, now: ZonedDateTime, stickers: StickerBook = StickerBook.EMPTY,
+        privateMemories: List<MemoryEntity> = emptyList()): List<ApiMessage> {
         selected(participants, roster.filter { it.active }.map { it.companionId }.toSet())
-        val base = GroupChatRules.request(group, roster, ta, history, user, emptyList(), now, memoryContext = notes, stickers = stickers)
+        val base = GroupChatRules.request(group, roster, ta, history, user, emptyList(), now, memoryContext = notes,
+            stickers = stickers, privateMemories = privateMemories)
         val call = """
             现在是本群的语音通话。本次在场的 TA 编号只有 ${participants.joinToString()}，其他群成员没有加入本次电话。
             只说你自己的话，一两句自然接话即可，最多约 120 字，不报自己的名字，不写舞台动作，不输出多人脚本。

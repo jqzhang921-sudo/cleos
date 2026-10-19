@@ -36,7 +36,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupMemoryEntity::class,
         IncomingCallEntity::class,
     ],
-    version = 43,
+    version = 44,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -103,6 +103,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 40, to = 41),
         AutoMigration(from = 41, to = 42),
         AutoMigration(from = 42, to = 43),
+        // Per-member local permission to use explicitly selected private memory revisions.
+        AutoMigration(from = 43, to = 44),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
