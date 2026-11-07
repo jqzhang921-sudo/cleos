@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -82,6 +85,8 @@ fun GlassTabBar(
     val density = LocalDensity.current
     val haptics = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
+    val motionEnabled = com.cleo.cleos.ui.common.systemMotionEnabled()
+    val currentMotion by rememberUpdatedState(motionEnabled)
     val lensSource = rememberBackdrop()
 
     val held = remember { Animatable(0f) }
@@ -89,6 +94,7 @@ fun GlassTabBar(
     var stretch by remember { mutableFloatStateOf(0f) }
     var rowWidth by remember { mutableIntStateOf(0) }
     var dragging by remember { mutableStateOf(false) }
+    var dragVelocity by remember { mutableFloatStateOf(0f) }
 
     // Where the lens last came to rest. It stays behind as a lump the lens is still
     // joined to, so leaving a tab pulls a thread out of it; see `lensMotion.blob`.
@@ -102,24 +108,26 @@ fun GlassTabBar(
 
     fun itemWidth(): Float = if (rowWidth > 0) (rowWidth - 2 * insetPx) / count else 0f
 
-    LaunchedEffect(selectedIndex, rowWidth) {
+    // The only owner of settling, including releasing over the already-selected tab.
+    LaunchedEffect(selectedIndex, rowWidth, dragging, motionEnabled) {
         val iw = itemWidth()
         if (iw <= 0f || dragging) return@LaunchedEffect
         val target = selectedIndex * iw
-        if (lensX.value.isNaN()) {
+        if (lensX.value.isNaN() || !motionEnabled) {
             lensX.snapTo(target)
         } else {
-            lensX.animateTo(target, spring(dampingRatio = 0.7f, stiffness = 420f)) {
-                stretch = abs(velocity) * 0.012f
+            lensX.animateTo(target, spring(dampingRatio = 0.7f, stiffness = 420f), initialVelocity = dragVelocity) {
+                stretch = TabDragMotion.stretch(velocity, iw)
             }
             stretch = 0f
         }
         // Only once it has arrived: until then the thread has to trail from the tab it left.
         anchorIndex = selectedIndex
+        dragVelocity = 0f
     }
 
     // Which tab the lens is over right now; labels light up as it passes.
-    val hovered by remember {
+    val hovered by remember(count, insetPx) {
         derivedStateOf {
             val iw = if (rowWidth > 0) (rowWidth - 2 * insetPx) / count else 0f
             val x = lensX.value
@@ -135,8 +143,6 @@ fun GlassTabBar(
         }
     }
 
-    val lensStyle = lerp(palette.lens, palette.lensPressed, held.value.coerceIn(0f, 1f))
-
     Box(modifier.height(BarHeight + Overhang * 2)) {
         // A held lens at either end reaches a little past the bar, hence the overscan.
         Box(Modifier.fillMaxSize().backdropSource(lensSource, behind = backdrop, overscan = 20.dp)) {
@@ -147,43 +153,72 @@ fun GlassTabBar(
                     .height(BarHeight)
                     .liquidGlass(backdrop, palette.tabBar, GlassShape.Capsule)
                     .onSizeChanged { rowWidth = it.width }
-                    .pointerInput(count) {
+                    .pointerInput(count, rowWidth, insetPx) {
                         awaitEachGesture {
                             val down = awaitFirstDown()
-                            dragging = true
                             val iw = itemWidth()
                             if (iw <= 0f) return@awaitEachGesture
-                            var target = lensX.value
-                            fun follow(x: Float) {
-                                target = (x - insetPx - iw / 2f).coerceIn(0f, iw * (count - 1))
-                                scope.launch {
-                                    lensX.animateTo(target, spring(dampingRatio = 0.82f, stiffness = 900f)) {
-                                        stretch = abs(velocity) * 0.012f
-                                    }
-                                }
-                            }
+                            var target = TabDragMotion.target(down.position.x, insetPx, iw, count)
+                            val targets = Channel<Float>(Channel.CONFLATED)
+                            dragging = true
+                            dragVelocity = 0f
                             scope.launch { held.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f)) }
-                            follow(down.position.x)
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (!change.pressed) break
-                                follow(change.position.x)
-                                change.consume()
-                            }
-                            val index = ((target + iw / 2f) / iw).toInt().coerceIn(0, count - 1)
-                            dragging = false
-                            scope.launch { held.animateTo(0f, spring(dampingRatio = 0.5f, stiffness = 300f)) }
-                            scope.launch {
-                                lensX.animateTo(index * iw, spring(dampingRatio = 0.62f, stiffness = 380f)) {
-                                    stretch = abs(velocity) * 0.012f
+                            // One follower for this gesture. Touch samples only replace the latest
+                            // target; they never start/cancel an Animatable job for each sample.
+                            val follower = scope.launch {
+                                var frame = TabDragFrame(lensX.value.takeIf { it.isFinite() } ?: currentSelected * iw, 0f)
+                                var goal = target
+                                var previous = 0L
+                                while (isActive) {
+                                    if (TabDragMotion.atRest(frame, goal)) {
+                                        lensX.snapTo(goal)
+                                        stretch = 0f
+                                        dragVelocity = 0f
+                                        goal = targets.receive()
+                                        previous = 0L
+                                    }
+                                    targets.tryReceive().getOrNull()?.let { goal = it }
+                                    val now = withFrameNanos { it }
+                                    // Read the newest sample after waiting for the display frame.
+                                    targets.tryReceive().getOrNull()?.let { goal = it }
+                                    val dt = if (previous == 0L) 1f / 60f else (now - previous) / 1_000_000_000f
+                                    previous = now
+                                    frame = if (currentMotion) TabDragMotion.follow(frame, goal, iw * (count - 1), dt) else TabDragFrame(goal, 0f)
+                                    lensX.snapTo(frame.position)
+                                    dragVelocity = frame.velocity
+                                    stretch = TabDragMotion.stretch(frame.velocity, iw)
                                 }
-                                stretch = 0f
-                                anchorIndex = index
                             }
-                            if (index != currentSelected) {
-                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                currentOnSelect(index)
+                            var released = false
+                            try {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    if (change.isConsumed) break
+                                    if (!change.pressed) {
+                                        target = TabDragMotion.target(change.position.x, insetPx, iw, count)
+                                        released = true
+                                        break
+                                    }
+                                    val next = TabDragMotion.target(change.position.x, insetPx, iw, count)
+                                    if (next != target) {
+                                        target = next
+                                        targets.trySend(target)
+                                    }
+                                    change.consume()
+                                }
+                            } finally {
+                                follower.cancel()
+                                targets.close()
+                                dragging = false
+                                scope.launch { held.animateTo(0f, spring(dampingRatio = 0.5f, stiffness = 300f)) }
+                            }
+                            if (released) {
+                                val index = TabDragMotion.index(target, iw, count)
+                                if (index != currentSelected) {
+                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    currentOnSelect(index)
+                                }
                             }
                         }
                     }
@@ -210,40 +245,45 @@ fun GlassTabBar(
 
         // The lens. Its size and position are read in the layout phase, so dragging it
         // re-lays-out and redraws this one node without recomposing the bar.
-        Box(
-            Modifier
-                .offset {
-                    val iw = itemWidth()
-                    val h = held.value
-                    val baseH = (BarHeight - Inset * 2).toPx()
-                    val w = iw * (1f + 0.14f * h) + stretch
-                    val lh = baseH + 22.dp.toPx() * h - stretch * 0.3f
-                    val cx = insetPx + (if (lensX.value.isNaN()) currentSelected * iw else lensX.value) + iw / 2f
-                    val cy = (BarHeight + Overhang * 2).toPx() / 2f
-                    // Written here rather than from the gesture: this runs every frame the
-                    // lens moves, in the layout pass, so the thread is never a frame behind
-                    // the lens it hangs off. The glass reads it when it draws, just after.
-                    lensMotion.blob = trailingBlob(
-                        anchorCx = insetPx + anchorIndex * iw + iw / 2f,
-                        lensCx = cx,
-                        lensLeft = cx - w / 2f,
-                        lensHeight = lh,
-                        span = iw,
-                        restHeight = baseH,
-                    )
-                    IntOffset((cx - w / 2f).roundToInt(), (cy - lh / 2f).roundToInt())
-                }
-                .layout { measurable, _ ->
-                    val iw = itemWidth()
-                    val h = held.value
-                    val baseH = (BarHeight - Inset * 2).toPx()
-                    val w = (iw * (1f + 0.14f * h) + stretch).roundToInt().coerceAtLeast(0)
-                    val lh = (baseH + 22.dp.toPx() * h - stretch * 0.3f).roundToInt().coerceAtLeast(0)
-                    val placeable = measurable.measure(Constraints.fixed(w, lh))
-                    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
-                }
-                .liquidGlass(lensSource, lensStyle, GlassShape.Capsule, lensMotion),
-        )
+        @Composable
+        fun Lens() {
+            val lensStyle = lerp(palette.lens, palette.lensPressed, held.value.coerceIn(0f, 1f))
+            Box(
+                Modifier
+                    .offset {
+                        val iw = itemWidth()
+                        val h = held.value
+                        val baseH = (BarHeight - Inset * 2).toPx()
+                        val w = iw * (1f + 0.14f * h) + stretch
+                        val lh = baseH + 22.dp.toPx() * h - stretch * 0.3f
+                        val cx = insetPx + (if (lensX.value.isNaN()) currentSelected * iw else lensX.value) + iw / 2f
+                        val cy = (BarHeight + Overhang * 2).toPx() / 2f
+                        // Written here rather than from the gesture: this runs every frame the
+                        // lens moves, in the layout pass, so the thread is never a frame behind
+                        // the lens it hangs off. The glass reads it when it draws, just after.
+                        lensMotion.blob = trailingBlob(
+                            anchorCx = insetPx + anchorIndex * iw + iw / 2f,
+                            lensCx = cx,
+                            lensLeft = cx - w / 2f,
+                            lensHeight = lh,
+                            span = iw,
+                            restHeight = baseH,
+                        )
+                        IntOffset((cx - w / 2f).roundToInt(), (cy - lh / 2f).roundToInt())
+                    }
+                    .layout { measurable, _ ->
+                        val iw = itemWidth()
+                        val h = held.value
+                        val baseH = (BarHeight - Inset * 2).toPx()
+                        val w = (iw * (1f + 0.14f * h) + stretch).roundToInt().coerceAtLeast(0)
+                        val lh = (baseH + 22.dp.toPx() * h - stretch * 0.3f).roundToInt().coerceAtLeast(0)
+                        val placeable = measurable.measure(Constraints.fixed(w, lh))
+                        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+                    }
+                    .liquidGlass(lensSource, lensStyle, GlassShape.Capsule, lensMotion),
+            )
+        }
+        Lens()
     }
 }
 
