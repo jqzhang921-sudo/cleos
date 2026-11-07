@@ -145,6 +145,7 @@ class AppContainer(context: Context) {
             { action -> db.withTransaction { action() } }),
         photos = com.cleo.cleos.ai.PhotoBook(photoSource, diagnostic = { toolDiagnostics.record(it) }),
         requestCall = { conversation,ta,reason -> incomingCalls.request(conversation,ta,reason).id },
+        phoneStatus = com.cleo.cleos.ai.GuardedPhoneStatus(com.cleo.cleos.ai.PhoneStatusReader(context)) { settings.current().tools },
         worldRecall = { args, ta, publicOnly -> db.withTransaction {
             if (com.cleo.cleos.ai.ToolGroup.WorldRecall !in settings.current().tools)
                 throw com.cleo.cleos.ai.ToolFailure("回想世界已关闭，没有查询记录。", "设置里关着")

@@ -52,6 +52,35 @@ class ToolBoxTest {
         runBlocking { box.run(ToolCall("c", name, args), settings, companionId = companionId) }
 
     @Test
+    fun phoneToolsRequireSeparateConsentAndPrivateIdentityAndNeverAppearInGroup() = runBlocking {
+        var battery=0;var usage=0
+        val source=object: PhoneStatusSource {
+            override suspend fun battery():String { battery++;return "fixture battery" }
+            override suspend fun usage():String { usage++;return "fixture usage" }
+        }
+        val phoneBox=ToolBox(todos,diary,weather,phoneStatus=source)
+        val onlyBattery=AppSettings(tools=setOf(ToolGroup.PhoneBattery))
+        val onlyUsage=AppSettings(tools=setOf(ToolGroup.PhoneUsage))
+        val allPhone=AppSettings(tools=setOf(ToolGroup.PhoneBattery,ToolGroup.PhoneUsage))
+        assertEquals(listOf("get_phone_battery"),phoneBox.specs(onlyBattery.tools).map{it.name})
+        assertEquals(listOf("get_phone_usage"),phoneBox.specs(onlyUsage.tools).map{it.name})
+        assertTrue(GroupToolRules.offered(allPhone).isEmpty())
+        for (name in listOf("get_phone_battery","get_phone_usage")) {
+            val call=ToolCall("phone",name,"{}")
+            phoneBox.run(call,AppSettings(),1,2)
+            phoneBox.run(call,allPhone,-1,2)
+            phoneBox.run(call,allPhone,0,2)
+            phoneBox.run(call,allPhone,1,0)
+        }
+        phoneBox.run(ToolCall("p","get_phone_usage","{}"),onlyBattery,1,2)
+        phoneBox.run(ToolCall("p","get_phone_battery","{}"),onlyUsage,1,2)
+        assertEquals(0,battery);assertEquals(0,usage)
+        assertEquals("fixture battery",phoneBox.run(ToolCall("p","get_phone_battery","{}"),onlyBattery,1,2).result)
+        assertEquals("fixture usage",phoneBox.run(ToolCall("p","get_phone_usage","{}"),onlyUsage,1,2).result)
+        assertEquals(1,battery);assertEquals(1,usage)
+    }
+
+    @Test
     fun disabledPhotoToolsCannotSearchOrDownloadEvenWhenModelCallsThem() {
         var networkCalls = 0
         val photos = PhotoBook(object : PhotoSource {

@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Opt-in daily screen/unlock total. User grants Usage Access in Android settings. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <!-- Only the user-initiated desktop pairing scanner asks for the camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

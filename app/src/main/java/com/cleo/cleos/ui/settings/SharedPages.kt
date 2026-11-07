@@ -237,6 +237,8 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
         }
     }
 
+    PhoneStatusSection(vm, settings)
+
     ListCard("用手机") {
         ExplainedSwitch("查天气", "用 open-meteo 查，不需要 Key", null, on(ToolGroup.Weather)) { vm.setTool(ToolGroup.Weather, it) }
         if (on(ToolGroup.Weather)) {

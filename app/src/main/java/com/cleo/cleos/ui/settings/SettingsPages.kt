@@ -106,7 +106,7 @@ enum class SettingsPage(val title: String) {
 internal val ABILITIES = listOf(
     ToolGroup.Messages, ToolGroup.Speak, ToolGroup.Stickers, ToolGroup.Pat, ToolGroup.Feed, ToolGroup.FeedActions, ToolGroup.Photos,
     ToolGroup.Todos, ToolGroup.Memory, ToolGroup.WorldRecall, ToolGroup.Lore, ToolGroup.AiDiary, ToolGroup.Diary, ToolGroup.Secrets, ToolGroup.Letters,
-    ToolGroup.Weather, ToolGroup.Location, ToolGroup.Alarm, ToolGroup.Calendar, ToolGroup.Music, ToolGroup.Avatar,
+    ToolGroup.PhoneBattery, ToolGroup.PhoneUsage, ToolGroup.Weather, ToolGroup.Location, ToolGroup.Alarm, ToolGroup.Calendar, ToolGroup.Music, ToolGroup.Avatar,
 )
 
 /** The list of groups, each line saying how things stand, so most of the time nothing needs opening. */

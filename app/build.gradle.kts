@@ -26,7 +26,7 @@ android {
         applicationId = "com.cleo.cleos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 279
+        versionCode = 280
         versionName = "0.42.0"
     }
 

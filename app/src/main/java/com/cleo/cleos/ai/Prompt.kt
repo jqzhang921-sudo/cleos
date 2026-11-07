@@ -164,6 +164,8 @@ object Prompt {
             add("你们之间也写信（在 App 的信箱里）。对方提到信的时候，用 read_letters 看了再说；别在聊天里整段复述信。")
         }
         if (ToolGroup.Avatar in tools) add("你可以用 set_my_avatar 换自己的头像：用对方发来的一张图，或者一个表情。")
+        if (ToolGroup.PhoneBattery in tools || ToolGroup.PhoneUsage in tools)
+            add("手机状态只可通过已开启的 get_phone_battery / get_phone_usage 查询；它们是有时间戳的当次读数，不是实时监控。对方问起或关心休息、电量时可按需查，也可在已有的自主醒来机会里查，不必每轮查询或例行提醒。今日时长是亮屏且解锁的估算，不证明一直注视屏幕，更不证明用了什么 App；缺失、撤权、关闭、部分统计要如实说，不把旧值当现在。不要因此责备、催促对方。")
         if (ToolGroup.Weather in tools) add("问到天气时用工具查，不要凭印象说。")
         if (ToolGroup.Speak in tools) {
             add("你能用 send_voice 发语音条，对方听到的是你的声音。想用声音说的时候再用（道晚安、撒娇、情绪浓的时候），一条一两句话，写成说出口的样子；平常还是打字。发了语音条就别再把同样的话打一遍。")
