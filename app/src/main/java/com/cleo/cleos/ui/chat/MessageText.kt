@@ -19,6 +19,8 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withLink
@@ -58,7 +60,24 @@ internal fun PhotoAttribution(credit: PhotoCredit, modifier: Modifier = Modifier
 
 /** A tap opens only the URL span; the rest of the bubble retains its message menu. */
 @Composable
-internal fun MessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
+internal fun MessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier, narration: Boolean = false) {
+    val lines = remember(text, narration) { if (narration) MessageNarration.lines(text) else emptyList() }
+    if (lines.any { it.aside }) {
+        Column(modifier) {
+            lines.forEach { line ->
+                val asideStyle = if (line.aside) style.copy(
+                    fontFamily = FontFamily.Serif, fontStyle = FontStyle.Normal, fontWeight = FontWeight.Normal,
+                    fontSize = style.fontSize * .92f, lineHeight = style.lineHeight,
+                ) else style
+                LinkedMessageText(line.text, if (line.aside) color.copy(alpha = color.alpha * .76f) else color,
+                    asideStyle, if (line.aside) Modifier.padding(start = 8.dp, end = 4.dp, top = 3.dp, bottom = 3.dp) else Modifier)
+            }
+        }
+    } else LinkedMessageText(text, color, style, modifier)
+}
+
+@Composable
+private fun LinkedMessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val parts = remember(text) { ChatLinks.parts(text) }

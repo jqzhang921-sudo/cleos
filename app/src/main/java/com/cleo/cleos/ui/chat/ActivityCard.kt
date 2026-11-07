@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import com.cleo.cleos.glass.GlassShape
 import com.cleo.cleos.glass.GlassSurface
 import com.cleo.cleos.glass.LocalGlassPalette
+import com.cleo.cleos.ui.common.ThinkingHeartbeat
 
 /** One folded piece of glass for everything done on the way to a reply. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -40,6 +41,7 @@ import com.cleo.cleos.glass.LocalGlassPalette
 internal fun ActivityCard(
     events: List<ChatActivity>, live: Boolean, identity: Any, maxWidth: Dp,
     forceOpen: Boolean = false, onOpenCall: (Long) -> Unit, onLongClick: () -> Unit,
+    thinking: Boolean = false,
 ) {
     val palette = LocalGlassPalette.current
     val expanded = if (live) remember(identity) { mutableStateOf(false) }
@@ -60,10 +62,14 @@ internal fun ActivityCard(
         spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow), label = "activity-chevron")
     val scroll = rememberScrollState()
     GlassSurface(Modifier.widthIn(max = maxWidth), style = palette.card,
-        shape = GlassShape.Rounded(18.dp), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
+        shape = GlassShape.Rounded(16.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)) {
         Column(Modifier.animateContentSize(spring(dampingRatio = 0.88f, stiffness = Spring.StiffnessMediumLow))) {
             Row(
-                Modifier.widthIn(min = 32.dp).heightIn(min = 24.dp)
+                Modifier
+                    // Keep the folded pill compact, but make the whole expanded
+                    // header above the divider a target (including empty space).
+                    .then(if (open) Modifier.fillMaxWidth() else Modifier)
+                    .widthIn(min = 28.dp).heightIn(min = 22.dp)
                     .semantics {
                         contentDescription = description
                         stateDescription = if (open) "已展开" else "已收起"
@@ -75,29 +81,34 @@ internal fun ActivityCard(
             ) {
                 if (hasThought || live) {
                     if (interrupted) Icon(Icons.Outlined.Warning, contentDescription = null,
-                        tint = palette.error, modifier = Modifier.size(14.dp))
+                        tint = palette.error, modifier = Modifier.size(12.dp))
+                    else if (hasThought || thinking) ThinkingHeartbeat(live && thinking, Modifier.size(16.dp))
                     else ActivityDot(live)
-                    if (stack.shown.isNotEmpty()) Spacer(Modifier.width(8.dp))
+                    if (!interrupted && (hasThought || thinking)) {
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (live && thinking) "在想" else "想了想", color = palette.contentSecondary, fontSize = 13.sp)
+                    }
+                    if (stack.shown.isNotEmpty()) Spacer(Modifier.width(6.dp))
                 }
                 // Keep the original connected tool-icon strip while folding thoughts into the same panel.
                 stack.shown.forEachIndexed { i, (kind, bad) ->
-                    if (i > 0) Box(Modifier.padding(horizontal = 3.dp).width(8.dp).height(1.dp)
+                    if (i > 0) Box(Modifier.padding(horizontal = 2.dp).width(6.dp).height(1.dp)
                         .background(palette.contentSecondary.copy(alpha = 0.35f)))
                     Icon(if (bad) Icons.Outlined.Warning else kind.icon(), contentDescription = null,
-                        tint = if (bad) palette.error else palette.contentSecondary, modifier = Modifier.size(16.dp))
+                        tint = if (bad) palette.error else palette.contentSecondary, modifier = Modifier.size(14.dp))
                 }
                 if (stack.more > 0) {
                     Spacer(Modifier.width(6.dp))
-                    Text("+${stack.more}", color = palette.contentSecondary, fontSize = 12.sp)
+                    Text("+${stack.more}", color = palette.contentSecondary, fontSize = 11.sp)
                 }
                 // A failure beyond the displayed kinds must still be visible when folded.
                 if (stack.hiddenFailed) {
                     Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Outlined.Warning, contentDescription = null, tint = palette.error, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Outlined.Warning, contentDescription = null, tint = palette.error, modifier = Modifier.size(12.dp))
                 }
                 Spacer(Modifier.width(if (stack.shown.isEmpty()) 8.dp else 4.dp))
                 Icon(Icons.Rounded.ExpandMore, contentDescription = null, tint = palette.contentSecondary,
-                    modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = angle })
+                    modifier = Modifier.size(14.dp).graphicsLayer { rotationZ = angle })
             }
             if (open) {
                 Spacer(Modifier.height(4.dp))
@@ -146,5 +157,5 @@ private fun ActivityDot(running: Boolean) {
             infiniteRepeatable(tween(1000), RepeatMode.Reverse), label = "activity-breath")
         value
     } else 0.45f
-    Box(Modifier.size(5.dp).alpha(opacity).background(palette.contentSecondary, CircleShape))
+    Box(Modifier.size(4.dp).alpha(opacity).background(palette.contentSecondary, CircleShape))
 }

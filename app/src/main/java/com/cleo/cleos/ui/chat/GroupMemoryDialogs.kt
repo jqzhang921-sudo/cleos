@@ -99,16 +99,19 @@ internal fun EditGroupMemoryDialog(note: GroupMemoryEntity?, source: GroupMessag
 
 @Composable
 internal fun GroupMessageActionsMenu(row: GroupMessageEntity, expanded: Boolean, canRemember: Boolean, canDelete: Boolean, onDismiss: () -> Unit,
-    onSelect: (String) -> Unit, onRemember: () -> Unit, onDeleteSingle: () -> Unit, onDeleteRound: () -> Unit) {
+    onSelect: (String) -> Unit, onRemember: () -> Unit, onDeleteSingle: () -> Unit, onDeleteRound: () -> Unit,
+    onTranslate: (() -> Unit)? = null, voiceTextAction: MessageMenuAction? = null) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
     val transcript = if (row.role == "user") row.content.removePrefix(GROUP_CALL_USER)
         else groupCallWords(row.content)?.let { listOf(it.spoken, it.unfinished).filter(String::isNotBlank).joinToString("\n") } ?: row.content
     val words = StickerText.plain(transcript)
     val actions = buildList {
+        voiceTextAction?.let { add(it) }
         if (words.isNotBlank()) {
             add(MessageMenuAction("复制") { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", words))) } })
             add(MessageMenuAction("选择文字") { onSelect(words) })
+            onTranslate?.let { add(MessageMenuAction("翻译", it)) }
         }
         if (canRemember) add(MessageMenuAction("记到群里", onRemember))
         if (canDelete) {

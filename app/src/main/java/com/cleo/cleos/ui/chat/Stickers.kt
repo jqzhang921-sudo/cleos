@@ -126,6 +126,7 @@ fun StickerView(sticker: StickerEntity, onLongClick: () -> Unit) {
             onError = { failed = true },
             modifier = Modifier
                 .size(w, h)
+                .clip(RoundedCornerShape(12.dp))
                 .combinedClickable(interactionSource = null, indication = null, onClick = {}, onLongClick = onLongClick),
         )
     }
@@ -173,6 +174,7 @@ private fun MovingSticker(file: File, name: String, w: Dp, h: Dp, onLongClick: (
         contentScale = ContentScale.Fit,
         modifier = Modifier
             .size(w, h)
+            .clip(RoundedCornerShape(12.dp))
             .combinedClickable(interactionSource = null, indication = null, onClick = painter::play, onLongClick = onLongClick),
     )
 }

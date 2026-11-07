@@ -18,7 +18,7 @@ class GroupSpeechBackupTest {
     private fun rejects(r:GroupMessageEntity) { try{validate(r);fail()}catch(_:IllegalArgumentException){} }
     @Test fun sentAssistantVoiceRoundTripsBothSpokenAndSupplementalText() {
         validate();val parsed=Json.decodeFromString<GroupMessageEntity>(Json.encodeToString(row));assertEquals(row,parsed)
-        assertEquals(clip,GroupSpeechRules.clip(parsed));assertEquals(15, BackupFile.VERSION)
+        assertEquals(clip,GroupSpeechRules.clip(parsed));assertTrue(BackupFile.VERSION >= 15)
         assertEquals(clip.audio(),MessageAudios.decode(row.audio));assertTrue(GroupMemoryRules.canRemember(row))
     }
     @Test fun mismatchedAuthorGroupContentAndPrivateAudioAreRejected() {

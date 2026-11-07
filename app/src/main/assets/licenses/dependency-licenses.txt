@@ -137,6 +137,17 @@
 
 ## 许可原文与版权
 
+### 0.41.133 书房增量
+
+| 坐标 | 许可与来源 |
+|---|---|
+| com.tom-roush:pdfbox-android:2.0.27.0 | 主代码 Apache-2.0；另含字体等上游声明，完整 LICENSE / NOTICE 见 `licenses/pdfbox/`；https://github.com/TomRoush/PdfBox-Android/tree/v2.0.27.0 |
+| org.bouncycastle:bcprov-jdk15to18:1.86 | MIT；https://github.com/bcgit/bc-java/tree/r1rv86 |
+| org.bouncycastle:bcpkix-jdk15to18:1.86 | MIT；同上 |
+| org.bouncycastle:bcutil-jdk15to18:1.86 | MIT；同上 |
+
+以上是新增依赖，不属于前述 0.41.88 的历史清单；PDFBox POM 的旧 1.72 被显式依赖统一升级。上游许可原文随 assets/licenses/pdfbox 一并分发。
+
 - Apache-2.0 的标准原文见根目录 [LICENSE](../LICENSE)（安装包副本为 `assets/licenses/cleos-apache-2.0.txt`）。依赖自身的版权、专利、归属及适用 NOTICE 仍应保留，不能用 Cleos 署名替换。
 - DataStore 重打包的 Protocol Buffers 为 BSD-3-Clause；实际制品的许可原文见 [datastore-protobuf.txt](../app/src/main/assets/licenses/datastore-protobuf.txt)，制品原有 META-INF 许可也应保留。
 - `com.google.guava:listenablefuture:1.0` 的 Apache 许可从 `com.google.guava:guava-parent:26.0-android` 继承。

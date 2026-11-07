@@ -32,11 +32,18 @@ internal class StreamParser {
 
     fun diagnostic(): String = structure.diagnostic(calls.size)
 
+    /** What the service said this request cost, once it has said it; null if it never does. */
+    var usage: com.cleo.cleos.data.UsageStep? = null
+        private set
+
     fun feed(data: String): List<ChatEvent> {
         val obj = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull()
             ?: return emptyList<ChatEvent>().also { structure.invalidChunk() }
         structure.record(obj)
         obj["error"]?.let { throw ChatException("服务端报错：" + errorText(it)) }
+        // Token counts: usually one last chunk with empty choices (asked for by stream_options),
+        // though some services repeat a running total on every chunk. The last one wins.
+        com.cleo.cleos.data.MessageUsages.parse(obj["usage"])?.let { usage = it }
         // A relay that ignores stream:true sends the whole reply as one JSON, under "message".
         val choice = obj["choices"]?.jsonArray?.firstOrNull()?.jsonObject
         val delta = (choice?.get("delta") ?: choice?.get("message")) as? JsonObject

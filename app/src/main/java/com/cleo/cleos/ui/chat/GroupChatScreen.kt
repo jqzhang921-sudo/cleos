@@ -243,14 +243,15 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
             list.scrollToItem(0)
         }
     }
-    val messageMenu: @Composable (GroupMessageEntity, Boolean, () -> Unit) -> Unit = { row, expanded, dismiss ->
+    val messageMenu: @Composable (GroupMessageEntity, Boolean, TranslationUi?, MessageMenuAction?, () -> Unit) -> Unit = { row, expanded, translation, voiceTextAction, dismiss ->
         GroupMessageActionsMenu(row.copy(content = live[row.id] ?: row.content), expanded, !busy && GroupMemoryRules.canRemember(row),
             !busy && !transcribing && !recording.recording && !posting && !attaching && !deletingMessage, dismiss,
             onSelect = { selectedText = it }, onRemember = {
                 problem = null
                 editingMemoryId = notes.firstOrNull { it.sourceMessageId == row.id }?.id
                 memorySourceId = row.id; memoriesOpen = true; memoryEditor = true
-            }, onDeleteSingle = { prepareDeletion(row, false) }, onDeleteRound = { prepareDeletion(row, true) })
+            }, onDeleteSingle = { prepareDeletion(row, false) }, onDeleteRound = { prepareDeletion(row, true) },
+            onTranslate = translation?.let { { it.open.value = true } }, voiceTextAction = voiceTextAction)
     }
     GlassPage(overlay = { page ->
         GlassTopBar(group?.title ?: "群聊", page, subtitle = "${participating.size} 位 TA · 一起聊天",
@@ -359,7 +360,8 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
             LocalBubbleDecoration provides settings.bubbleDecoration, LocalMessageSpacing provides settings.messageSpacing,
             LocalStickers provides stickerBook) {
             LazyColumn(Modifier.fillMaxSize().imePadding(), state = list, reverseLayout = true,
-                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = top + 12.dp, bottom = bottom + 28.dp),
+                // composerHeight excludes its outer padding; keep expanded voice text above the glass.
+                contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = top + 12.dp, bottom = bottom + 36.dp),
                 verticalArrangement = Arrangement.spacedBy(BubbleSpacing.normalized(settings.messageSpacing).dp, Alignment.Bottom)) {
                 if (rows.isEmpty()) item {
                     GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(20.dp)) {
@@ -375,14 +377,17 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                     if (item is GroupChatItem.CallRound) {
                         GroupCallCard(item, generation, settings.userAvatar,
                             onExpanded = { scope.launch { list.animateScrollToItem(index) } },
-                            messageMenu = messageMenu)
+                            messageMenu = { row, expanded, dismiss -> messageMenu(row, expanded, null, null, dismiss) })
                         return@itemsIndexed
                     }
                     val row = (item as GroupChatItem.Message).message
                     var menuOpen by rememberSaveable(row.id) { mutableStateOf(false) }
                     val mine = row.role == "user"
+                    val translation = rememberTranslationUi(com.cleo.cleos.data.TranslationKey(true, row.id),
+                        com.cleo.cleos.data.MessageTranslationRules.stamp(row))
                     val text = live[row.id] ?: row.content
                     val audio = remember(row.audio, groupId, row.speakerId, row.role) { GroupVoiceRules.messageAudio(row) }
+                    var voiceExpanded by rememberSaveable(groupId, generation, row.id, settings.expandVoiceText) { mutableStateOf(settings.expandVoiceText) }
                     val speech = remember(row.audio, groupId, row.speakerId) { GroupSpeechRules.clip(row) }
                     val written = speech?.let { GroupSpeechRules.remaining(text, it.text) } ?: text
                     val waiting = GroupWaiting.stageText(progress[row.id]?.stage)
@@ -403,7 +408,7 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                             Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
                                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 val photos = remember(row.images) { MessageImages.decode(row.images) }
-                                if (audio != null) VoiceBubble(audio, mine, playback.file == audio.file, speech?.text ?: row.content, false, settings.expandVoiceText, row.id,
+                                if (audio != null) VoiceBubble(audio, mine, playback.file == audio.file, speech?.text ?: row.content, false, voiceExpanded,
                                     onClick = { playback.play(audio.file) }, onLongClick = { menuOpen = true })
                                 if ((audio == null || !mine) && (written.isNotBlank() || audio == null && (photos.isEmpty() || row.status in setOf("pending", "running")))) {
                                     val body = written.ifEmpty { when (row.status) {
@@ -422,7 +427,7 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                                             theme = if (mine) settings.myBubbleTheme else settings.taBubbleThemes[row.speakerId.toString()] ?: "glass",
                                             background = settings.bubbleBackgrounds[if (mine) settings.myBubbleTheme else settings.taBubbleThemes[row.speakerId.toString()] ?: "glass"],
                                             modifier = Modifier.widthIn(max = bubbleWidth).combinedClickable(onClick = {}, onLongClick = { menuOpen = true })) { ink ->
-                                            MessageText(piece.text, ink, TextStyle(fontSize = 16.sp, lineHeight = 23.sp))
+                                            MessageText(piece.text, ink, TextStyle(fontSize = 16.sp, lineHeight = 23.sp), narration = !mine)
                                         }
                                     } }
                                 }
@@ -434,11 +439,13 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                                 }
                                 if (toolTrace.notice.isNotEmpty()) Text(toolTrace.notice, color = palette.contentSecondary, fontSize = 12.sp)
                                 row.error?.let { Text(it, color = palette.error, fontSize = 12.sp) }
+                                MessageTranslation(translation)
                                 if (!busy && row.speakerId in availableMembers && GroupChatRules.retryable(row) && row.turnId == latestReplyTurn && row.id > latestUserId) {
                                     TextButton({ act { c.groupChat.retry(row.id) } }) { Text("请${row.speakerName}再试一次", color = palette.accentContent, fontSize = 12.sp) }
                                 }
                             }
-                            messageMenu(row, menuOpen) { menuOpen = false }
+                            messageMenu(row, menuOpen, translation,
+                                if (audio == null) null else MessageMenuAction(if (voiceExpanded) "收起文字" else "语音转文字") { voiceExpanded = !voiceExpanded }) { menuOpen = false }
                             }
                             if (mine && settings.chatAvatars) { Spacer(Modifier.width(8.dp)); Avatar(settings.userAvatar, avatarLetter(settings.userName, "我"), 34.dp) }
                         }

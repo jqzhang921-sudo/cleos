@@ -6,7 +6,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -16,7 +15,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,14 +38,13 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -204,6 +201,7 @@ fun GlassTabBar(
                             .semantics {
                                 role = Role.Tab
                                 selected = i == selectedIndex
+                                contentDescription = tab.label
                             },
                     )
                 }
@@ -292,23 +290,17 @@ internal fun trailingBlob(
 private fun TabLabel(tab: GlassTab, active: Boolean, modifier: Modifier = Modifier) {
     val palette = LocalGlassPalette.current
     val color = if (active) palette.accentContent else palette.content.copy(alpha = 0.86f)
-    Column(
+    // Selection changes only the tint/icon, never the content width or its centered position.
+    // Full tab names remain on the parent accessibility node.
+    Box(
         modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             if (active) tab.selectedIcon else tab.icon,
             contentDescription = null,
             tint = color,
             modifier = Modifier.size(24.dp),
-        )
-        Text(
-            tab.label,
-            color = color,
-            fontSize = 11.sp,
-            fontWeight = if (active) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.padding(top = 2.dp),
         )
     }
 }

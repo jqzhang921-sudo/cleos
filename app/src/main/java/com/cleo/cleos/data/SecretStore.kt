@@ -36,6 +36,9 @@ class SecretStore(private val context: Context) {
     private val legacyPref = stringPreferencesKey("api_key")
 
     private fun pref(baseUrl: String) = stringPreferencesKey("api_key:" + addressOf(baseUrl))
+    private fun revisionPref(baseUrl: String) = stringPreferencesKey("api_key_revision:" + addressOf(baseUrl))
+    /** A local revision also changes when a previous key is put back. It contains no key material. */
+    suspend fun revision(baseUrl: String): String = context.secretsStore.data.first()[revisionPref(baseUrl)].orEmpty()
 
     fun hasKey(baseUrl: String): Flow<Boolean> = context.secretsStore.data.map { !it[pref(baseUrl)].isNullOrEmpty() }
 
@@ -49,6 +52,8 @@ class SecretStore(private val context: Context) {
     suspend fun setKey(baseUrl: String, value: String?) {
         val trimmed = value?.trim().orEmpty()
         context.secretsStore.edit {
+            val old = it[pref(baseUrl)]?.let { cipher -> runCatching { decrypt(cipher) }.getOrNull() }.orEmpty()
+            if (old != trimmed) it[revisionPref(baseUrl)] = java.util.UUID.randomUUID().toString()
             if (trimmed.isEmpty()) it.remove(pref(baseUrl)) else it[pref(baseUrl)] = encrypt(trimmed)
         }
     }

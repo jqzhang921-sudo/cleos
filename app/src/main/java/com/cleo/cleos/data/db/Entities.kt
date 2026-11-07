@@ -34,6 +34,8 @@ data class CompanionEntity(
     @ColumnInfo(defaultValue = "0")
     val deepThinking: Boolean = false,
     @ColumnInfo(defaultValue = "3") val replyWaitSeconds: Int = 3,
+    /** Per-TA text organization only; never splits or rewrites stored messages. */
+    @ColumnInfo(defaultValue = "'natural'") val messageStyle: String = "natural",
     @ColumnInfo(defaultValue = "0") val followUpEnabled: Boolean = false,
     @ColumnInfo(defaultValue = "60") val followUpDelaySeconds: Int = 60,
     @ColumnInfo(defaultValue = "0") val freeTopicEnabled: Boolean = false,
@@ -354,6 +356,8 @@ data class MessageEntity(
     val diaryRequestId: Long? = null,
     /** Shared feed post snapshot (FeedShare as JSON). Content keeps its full readable model context. */
     val feedShare: String? = null,
+    /** "assistant": the tokens the whole reply cost (MessageUsage as JSON), on the last row it stored. Shown only; null when unreported. */
+    @ColumnInfo(defaultValue = "NULL") val usage: String? = null,
 )
 
 /**

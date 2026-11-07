@@ -31,6 +31,7 @@ fun GlassSearchField(
     placeholder: String,
     description: String,
     fieldModifier: Modifier = Modifier,
+    clearDescription: String = "清空",
 ) {
     val palette = LocalGlassPalette.current
     GlassSurface(
@@ -54,7 +55,7 @@ fun GlassSearchField(
             }
             if (value.isNotEmpty()) {
                 Box(Modifier.size(34.dp).clip(CircleShape).clickable { onValueChange("") }, contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Close, contentDescription = "清空", tint = palette.contentSecondary, modifier = Modifier.size(18.dp))
+                    Icon(Icons.Rounded.Close, contentDescription = clearDescription, tint = palette.contentSecondary, modifier = Modifier.size(18.dp))
                 }
             }
         }

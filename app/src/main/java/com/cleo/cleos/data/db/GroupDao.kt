@@ -119,6 +119,8 @@ interface GroupDao {
         UNION ALL SELECT id FROM favorites WHERE instr(parts, :name) > 0
         UNION ALL SELECT id FROM stickers WHERE file = :name
         UNION ALL SELECT id FROM companions WHERE avatar = :name OR userAvatar = :name
+        UNION ALL SELECT articleId FROM world_pictures WHERE file = :name
+        UNION ALL SELECT id FROM world_album_photos WHERE file = :name
     )""") suspend fun mediaReferenced(name: String): Boolean
     @Query("SELECT * FROM group_turns WHERE groupId = :id ORDER BY id DESC LIMIT 1") suspend fun latestTurn(id: Long): GroupTurnEntity?
     @Insert suspend fun insertGroup(group: ChatGroupEntity): Long

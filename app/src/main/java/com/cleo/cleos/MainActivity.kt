@@ -1,5 +1,6 @@
 package com.cleo.cleos
 
+import kotlinx.coroutines.launch
 import android.Manifest
 import android.content.Intent
 import android.os.Build
@@ -23,6 +24,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
+        // Deliver a new focus tap before the first graph is composed. In particular, do not
+        // build/prewarm the chat and world underneath a cold notification opening.
+        val focusTap = intent?.getBooleanExtra(com.cleo.cleos.focus.FocusAlerts.EXTRA_OPEN, false) == true
+        if (focusTap) follow(intent)
         setContent {
             // null until the settings file has been read once (a few milliseconds);
             // drawing before that would flash the default wallpaper and colours.
@@ -40,7 +45,7 @@ class MainActivity : ComponentActivity() {
             }
         }
         // Recreated (rotated, or brought back after the system let it go): the tap was already followed.
-        if (savedInstanceState == null) follow(intent)
+        if (savedInstanceState == null && !focusTap) follow(intent)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -57,6 +62,10 @@ class MainActivity : ComponentActivity() {
             intent?.getStringExtra(Notifier.EXTRA_INCOMING) != null -> container.incomingCalls.open(
                 requireNotNull(intent.getStringExtra(Notifier.EXTRA_INCOMING)),intent.getBooleanExtra(Notifier.EXTRA_ANSWER,false))
             intent?.getBooleanExtra(Notifier.EXTRA_CALL, false) == true -> container.showCall()
+            intent?.getBooleanExtra(com.cleo.cleos.focus.FocusAlerts.EXTRA_OPEN, false) == true -> {
+                intent.removeExtra(com.cleo.cleos.focus.FocusAlerts.EXTRA_OPEN)
+                container.opening.value = Opening.Focus()
+            }
             conversation > 0 -> container.openConversation(conversation)
             letter > 0 -> container.openLetter(letter)
         }
@@ -80,6 +89,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         container.letters.tick()
+        container.appScope.launch { container.focus.reconcile() }
     }
 }
 

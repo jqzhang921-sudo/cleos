@@ -6,6 +6,13 @@ import org.junit.Test
 
 class ToolSettingsTest {
     @Test
+    fun worldRecallIsOffForOldSettingsAndRoundTripsWithoutChangingMemoryOrPhotoPermissions() {
+        val previous = ToolGroup.entries.filter { it != ToolGroup.WorldRecall }.joinToString(",") { "${it.name}:on" }
+        assertEquals(ToolGroup.entries.toSet() - ToolGroup.WorldRecall, decodeTools(previous))
+        assertEquals(setOf(ToolGroup.WorldRecall), decodeTools(encodeTools(setOf(ToolGroup.WorldRecall))))
+        assertEquals(false, ToolGroup.WorldRecall in decodeTools("Todos,Weather"))
+    }
+    @Test
     fun feedReadingIsAvailableForExistingSettingsAndCanBeDisabledSeparately() {
         val previous = ToolGroup.entries.filter { it != ToolGroup.Feed }.joinToString(",") { "${it.name}:off" }
         assertEquals(setOf(ToolGroup.Feed), decodeTools(previous))

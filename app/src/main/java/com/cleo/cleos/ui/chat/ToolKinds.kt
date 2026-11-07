@@ -24,6 +24,7 @@ internal object ToolKinds {
         ToolSpecs.listSecrets.name to ToolKind.Secret,
         ToolSpecs.requestSecret.name to ToolKind.Secret,
         ToolSpecs.memory.name to ToolKind.Memory,
+        ToolSpecs.recallWorld.name to ToolKind.Memory,
         ToolSpecs.readLetters.name to ToolKind.Letter,
         ToolSpecs.setMyAvatar.name to ToolKind.Avatar,
         ToolSpecs.getWeather.name to ToolKind.Weather,

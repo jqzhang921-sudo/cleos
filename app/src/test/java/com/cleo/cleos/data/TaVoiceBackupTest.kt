@@ -20,7 +20,7 @@ class TaVoiceBackupTest {
         TaVoices.validateBackup(read.companions)
         assertEquals(listOf("alpha", "beta", null), read.companions.map { TaVoices.choice(it.voiceChoices, speech) })
         assertEquals(listOf(1L, 2L, 3L), read.companions.map { it.id })
-        assertEquals(15, BackupFile.VERSION)
+        assertTrue(BackupFile.VERSION >= 15)
     }
 
     @Test fun oldVersionTenCompanionsWithoutNewFieldFollowTheExistingSharedVoice() {

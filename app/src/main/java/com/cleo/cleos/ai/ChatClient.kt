@@ -234,6 +234,9 @@ class ChatClient(
      */
     private val refusesOff = ConcurrentHashMap.newKeySet<String>()
 
+    /** Endpoints that turned down stream_options (asking for token counts), in this run of the app. */
+    private val refusesUsage = ConcurrentHashMap.newKeySet<String>()
+
     /**
      * [thinking]: ask the model to think first (see [requestBody]). Without it, a model that thinks
      * unless told otherwise ([Thinking.canSwitchOff]) is told not to: the wait and the tokens are
@@ -245,6 +248,8 @@ class ChatClient(
         messages: List<ApiMessage>,
         tools: List<ToolSpec> = emptyList(),
         thinking: Boolean = false,
+        /** What the request cost, when the service reports it: called once, after the reply has been read. */
+        onUsage: (com.cleo.cleos.data.UsageStep) -> Unit = {},
     ): Flow<ChatEvent> = callbackFlow {
         val requestId = java.util.UUID.randomUUID().toString()
         fun trace(metadata: String) = diagnostic("requestId=$requestId $metadata")
@@ -256,6 +261,7 @@ class ChatClient(
                 to.model, messages, requestTools,
                 thinking = if (thinking) true else if (off && !always) false else null,
                 effort = if (off && always) Thinking.LITTLE else null,
+                includeUsage = key !in refusesUsage,
             )
             trace("route=${com.cleo.cleos.diagnostics.ToolDiagnosticStore.fingerprint(to.chatUrl)} " + ChatCompatibility.diagnostic(body))
             return http.newCall(
@@ -285,13 +291,25 @@ class ChatClient(
                         call = c
                         val answer = c.execute()
                         if (!answer.isSuccessful) {
+                            var refusedText = ""
                             val failure = answer.use {
                                 val body = it.body.string()
+                                refusedText = body
                                 val sent = requestBody(to.model, messages, requestTools,
                                     thinking = if (thinking) true else if (disableThinking && !always) false else null,
-                                    effort = if (disableThinking && always) Thinking.LITTLE else null)
+                                    effort = if (disableThinking && always) Thinking.LITTLE else null,
+                                    includeUsage = key !in refusesUsage)
                                 trace(ChatCompatibility.diagnostic(sent, it.code, body))
                                 httpFailure(it.code, body)
+                            }
+                            // A service that doesn't take stream_options: asked again without it,
+                            // and not told again this run. Its replies then show no token counts
+                            // unless it sends them unasked.
+                            if (key !in refusesUsage && failure.status in REFUSED &&
+                                refusedText.contains("stream_options", ignoreCase = true)) {
+                                refusesUsage += key
+                                trace("usageRetry=without_stream_options")
+                                continue
                             }
                             if (!schemaRetried && failure.status == 400 && failure.rejectedSchemaKeyword == ToolSchemaCompatibility.DEPENDENCIES) {
                                 val adapted = ToolSchemaCompatibility.adapt(requestTools)
@@ -335,6 +353,7 @@ class ChatClient(
                         }
                         if (!streamed) for (event in parser.wholeReply(stray.toString())) send(event)
                         for (event in parser.finish()) send(event)
+                        parser.usage?.let(onUsage)
                         val calls = parser.toolCalls()
                         trace("event=response status=${response.code} calls=${calls.size} streamed=$streamed names=${calls.take(40).joinToString(",") { com.cleo.cleos.diagnostics.ToolDiagnosticStore.label(it.name) }}")
                         calls.takeIf { it.isNotEmpty() }?.let { send(ChatEvent.ToolCalls(it)) }
@@ -596,10 +615,13 @@ internal fun requestBody(
     tools: List<ToolSpec>,
     thinking: Boolean? = null,
     effort: String? = null,
+    /** Ask for the token counts at the end of the stream (stream_options.include_usage). */
+    includeUsage: Boolean = false,
 ): JsonObject = buildJsonObject {
     val allReasoning = tools.isNotEmpty() && thinking != false && Thinking.keepsToolReasoning(model)
     put("model", model)
     put("stream", true)
+    if (includeUsage) putJsonObject("stream_options") { put("include_usage", true) }
     if (thinking != null) putJsonObject("thinking") { put("type", if (thinking) "enabled" else "disabled") }
     if (effort != null) put("reasoning_effort", effort)
     putJsonArray("messages") {

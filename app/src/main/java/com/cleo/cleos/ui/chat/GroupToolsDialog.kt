@@ -42,7 +42,11 @@ internal fun GroupToolsDialog(message: GroupMessageEntity, onDismiss: () -> Unit
                                 "rejected" -> "未执行"
                                 else -> "执行失败"
                             }
-                            val name = if (record.name == "invite_group_member") "请伙伴接话" else record.name
+                            val name = when (record.name) {
+                                "invite_group_member" -> "请伙伴接话"
+                                "recall_world" -> "回想世界"
+                                else -> record.name
+                            }
                             Text("$name · $state", color = palette.content, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                             Text("参数", color = palette.contentSecondary, fontSize = 12.sp)
                             SelectionContainer { Text(record.arguments, color = palette.content, fontSize = 13.sp) }

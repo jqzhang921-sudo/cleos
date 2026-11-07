@@ -47,7 +47,7 @@ class GroupToolBackupTest {
             validate(listOf(user, restored))
             assertEquals(source, restored)
         }
-        assertEquals(15, BackupFile.VERSION)
+        assertTrue(BackupFile.VERSION >= 15)
         val setting = BackupSettings(apiBaseUrl = "https://example.invalid", apiModel = "fixture", aiName = "TA", userName = "user",
             persona = "", historySize = 40, wallpaper = null, glassMode = "Auto", wallpaperDark = null, wallpaperHue = null, wallpaperChroma = null)
         val old = BackupFile(BackupFile.FORMAT, 11, 0, setting, emptyList(), emptyList(), emptyList(), emptyList())

@@ -66,6 +66,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     var companionCount by mutableIntStateOf(1)
         private set
     private var deleted = false
+    private var companionCreatedAt = 0L
 
     /** The TA's model, as edited. */
     val chat = EndpointFields(c, viewModelScope)
@@ -80,6 +81,12 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     var persona by mutableStateOf("")
         private set
     var replyWaitSeconds by mutableStateOf(3)
+    var messageStyle by mutableStateOf(com.cleo.cleos.data.MessageStyle.Natural.id)
+        private set
+    var messageStyleSaving by mutableStateOf(false)
+        private set
+    var messageStyleError by mutableStateOf<String?>(null)
+        private set
     var followUpEnabled by mutableStateOf(false)
     var followUpDelaySeconds by mutableStateOf(60)
     var freeTopicEnabled by mutableStateOf(false)
@@ -278,12 +285,16 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     /** Which TA the fields edit. Everything is set in one go, with nothing in between. */
     private fun load(ta: CompanionEntity) {
         companionId = ta.id
+        companionCreatedAt = ta.createdAt
         chat.load(ta.apiBaseUrl, ta.apiModel, ta.id)
         spokenOn = ta.spokenModelOn
         spoken.load(ta.spokenApiBaseUrl, ta.spokenApiModel, ta.id)
         aiName = ta.name
         persona = ta.persona
         replyWaitSeconds = com.cleo.cleos.ai.ReplyWaitRules.seconds(ta.replyWaitSeconds)
+        messageStyle = com.cleo.cleos.data.MessageStyle.of(ta.messageStyle).id
+        messageStyleSaving = false
+        messageStyleError = null
         followUpEnabled = ta.followUpEnabled
         followUpDelaySeconds = com.cleo.cleos.ai.FollowUpRules.seconds(ta.followUpDelaySeconds)
         freeTopicEnabled = ta.freeTopicEnabled
@@ -376,6 +387,15 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         val id = companionId
         viewModelScope.launch {
             c.chat.stopRepliesOf(id)
+            c.worldWritingScheduler.forget(id)
+            c.worldReading.forget(id)
+            c.worldOutsideScheduler.forget(id)
+            c.worldTopicScheduler.forget(id)
+            c.worldOutside.forget(id)
+            c.worldPictureScheduler.forget(id)
+            c.worldPictures.forget(id)
+            c.worldAlbumScheduler.forget(id)
+            c.worldAlbum.forget(id)
             c.companions.delete(id)
             then()
         }
@@ -557,6 +577,25 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     }
 
     /** Takes effect at once, like the tool switches. */
+    fun chooseMessageStyle(value: String) {
+        if (!loaded || deleted || messageStyleSaving || !com.cleo.cleos.data.MessageStyle.valid(value) || value == messageStyle) return
+        val id = companionId; val stamp = companionCreatedAt; val old = messageStyle
+        messageStyle = value; messageStyleSaving = true; messageStyleError = null
+        // The selection survives leaving this page; the captured identity cannot write to another TA.
+        c.appScope.launch {
+            try { c.companions.setMessageStyle(id, stamp, value) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) {
+                if (companionId == id && companionCreatedAt == stamp) {
+                    messageStyle = old
+                    messageStyleError = "没有保存消息发送偏好，请重新打开后重试"
+                }
+            } finally {
+                if (companionId == id && companionCreatedAt == stamp) messageStyleSaving = false
+            }
+        }
+    }
+
     fun setReplyWait(seconds: Int) {
         val value = com.cleo.cleos.ai.ReplyWaitRules.seconds(seconds)
         replyWaitSeconds = value
@@ -873,18 +912,18 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         c.incomingCalls.pause()
         c.groupChat.stopAll()
         try {
-            c.chat.stopAll(); c.feedVisits.stopAll()
+            c.translations.pause(); c.chat.stopAll(); c.feedVisits.stopAll(); c.worldWritingScheduler.stopAll(); c.worldReading.stopAll(); c.worldAlbumScheduler.stopAll(); c.worldPictureScheduler.stopAll(); c.worldOutsideScheduler.stopAll(); c.worldTopicScheduler.stopAll(); c.world.stopAll(); c.worldOutside.stopAll(); c.worldPictures.stopAll(); c.worldAlbum.stopAll()
             c.backup.restore(uri)
-        } finally { c.incomingCalls.resume(); c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
+        } finally { c.translations.resume(); c.incomingCalls.resume(); c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore(); c.worldWritingScheduler.restore(); c.worldReading.restore(); c.worldAlbumScheduler.restore(); c.worldPictureScheduler.restore(); c.worldOutside.resume(); c.worldPictures.resume(); c.worldAlbum.resume(); c.worldOutsideScheduler.restore(); c.worldTopicScheduler.restore() }
     }
 
     fun undoRestore() = runBackup("撤销了，回到恢复前：") {
         c.incomingCalls.pause()
         c.groupChat.stopAll()
         try {
-            c.chat.stopAll(); c.feedVisits.stopAll()
+            c.translations.pause(); c.chat.stopAll(); c.feedVisits.stopAll(); c.worldWritingScheduler.stopAll(); c.worldReading.stopAll(); c.worldAlbumScheduler.stopAll(); c.worldPictureScheduler.stopAll(); c.worldOutsideScheduler.stopAll(); c.worldTopicScheduler.stopAll(); c.world.stopAll(); c.worldOutside.stopAll(); c.worldPictures.stopAll(); c.worldAlbum.stopAll()
             c.backup.undoRestore()
-        } finally { c.incomingCalls.resume(); c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore() }
+        } finally { c.translations.resume(); c.incomingCalls.resume(); c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore(); c.worldWritingScheduler.restore(); c.worldReading.restore(); c.worldAlbumScheduler.restore(); c.worldPictureScheduler.restore(); c.worldOutside.resume(); c.worldPictures.resume(); c.worldAlbum.resume(); c.worldOutsideScheduler.restore(); c.worldTopicScheduler.restore() }
     }
 
     /** A memory file being read in, and the word on how it went. */

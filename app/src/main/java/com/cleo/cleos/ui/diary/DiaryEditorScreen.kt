@@ -91,8 +91,8 @@ private val ToolbarHeight = 52.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DiaryEditorScreen(id: Long, startSecret: Boolean = false, onBack: () -> Unit, onOpenImage: (String) -> Unit) {
-    val vm = appViewModel(key = "diary-$id") { DiaryEditorViewModel(it, id, startSecret) }
+fun DiaryEditorScreen(id: Long, startSecret: Boolean = false, initialDay: Long? = null, onBack: () -> Unit, onOpenImage: (String) -> Unit) {
+    val vm = appViewModel(key = "diary-$id") { DiaryEditorViewModel(it, id, startSecret, initialDay) }
     val c = appContainer()
     // A TA's entry is labelled with that TA; a secret is kept from every TA.
     val companions by remember { c.companions.all }.collectAsStateWithLifecycle(emptyList())

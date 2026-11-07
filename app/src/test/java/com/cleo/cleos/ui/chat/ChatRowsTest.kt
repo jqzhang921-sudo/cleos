@@ -13,6 +13,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatRowsTest {
+    @Test fun requestedThinkingWaitStaysAnUnstoredLiveIndicatorWithoutInventingThoughtContent() {
+        val waiting = StreamingReply(1, "", thinking = false, awaitingThinking = true)
+        val messages = listOf(user(1)); val before = messages.toList()
+        val rows = withLiveRows(emptyList(), messages, waiting, showThought = false)
+        assertTrue(rows.single() is ChatRow.Live)
+        assertTrue((rows.single() as ChatRow.Live).reply.awaitingThinking)
+        assertTrue(groups(rows).isEmpty()); assertEquals(before,messages); assertTrue(waiting.thought.isEmpty()); assertNull(waiting.thoughtMs)
+    }
+    @Test fun endedThinkingWaitDoesNotLeaveLoadingOrSyntheticThoughtRows() {
+        val rows = withLiveRows(emptyList(), emptyList(), StreamingReply(1, "", thinking = false, awaitingThinking = true, finished = true), showThought = true)
+        assertTrue(rows.isEmpty())
+    }
     private fun user(id: Long) = MessageEntity(id, 1, "user", "我的消息", id)
     private fun thought(id: Long, content: String = "") = MessageEntity(id, 1, "assistant", content, id,
         thought = MessageThoughts.encode(MessageThought("思考$id", 1000)),

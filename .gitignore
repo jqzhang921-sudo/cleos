@@ -20,3 +20,7 @@ build/
 # Local JVM crash diagnostics can include machine paths and process arguments.
 hs_err_pid*.log
 replay_pid*.log
+
+# Generated Python tooling cache.
+__pycache__/
+*.py[cod]

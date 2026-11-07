@@ -32,6 +32,14 @@ class ImageStore(context: Context) {
 
     fun file(name: String): File = File(dir, name)
 
+    /** Header check before a public world picture from a backup can enter the database. */
+    fun validWorldPicture(file: File, width: Int, height: Int, sha256: String): Boolean {
+        if (!file.isFile || file.length() !in 1..4_194_304) return false
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, bounds)
+        return width in 1..960 && height in 1..960 && bounds.outWidth == width && bounds.outHeight == height && bounds.outMimeType in setOf("image/jpeg", "image/png") && WorldPictureData.digest(file) == sha256
+    }
+
     /**
      * Copies [uri] into the store. ImageDecoder applies the EXIF rotation, so portrait
      * phone photos come out upright. Images with transparency stay PNG; everything else
@@ -43,7 +51,7 @@ class ImageStore(context: Context) {
     }
 
     /** A bounded inline image from an external service; the decoder checks the real file format. */
-    suspend fun import(bytes: ByteArray, mimeType: String, maxEdge: Int = 1536): StoredImage = withContext(Dispatchers.IO) {
+    suspend fun import(bytes: ByteArray, mimeType: String, maxEdge: Int = 1536, prefix: String = "mcp-"): StoredImage = withContext(Dispatchers.IO) {
         require(bytes.isNotEmpty() && bytes.size <= 2 * 1024 * 1024)
         val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(bytes))) { decoder, info, _ ->
             require(info.mimeType == mimeType && mimeType in setOf("image/png", "image/jpeg", "image/webp"))
@@ -54,7 +62,7 @@ class ImageStore(context: Context) {
             if (scale < 1f) decoder.setTargetSize((w * scale).roundToInt().coerceAtLeast(1), (h * scale).roundToInt().coerceAtLeast(1))
             decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
         }
-        try { StoredImage(write(bitmap, "mcp-"), bitmap.width, bitmap.height) } finally { bitmap.recycle() }
+        try { StoredImage(write(bitmap, prefix), bitmap.width, bitmap.height) } finally { bitmap.recycle() }
     }
 
     /**
@@ -66,6 +74,7 @@ class ImageStore(context: Context) {
         ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
             val w = info.size.width
             val h = info.size.height
+            require(w > 0 && h > 0 && w <= 20_000 && h <= 20_000 && w.toLong() * h <= 40_000_000) { "图片尺寸过大，请先缩小再选择" }
             val scale = min(1f, maxEdge / max(w, h).toFloat())
             if (scale < 1f) {
                 decoder.setTargetSize((w * scale).roundToInt().coerceAtLeast(1), (h * scale).roundToInt().coerceAtLeast(1))

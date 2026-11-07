@@ -58,6 +58,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.rounded.DynamicFeed
 import androidx.compose.material.icons.rounded.ArrowDownward
@@ -161,6 +162,7 @@ import com.cleo.cleos.data.MessageQuotes
 import com.cleo.cleos.data.FeedShare
 import com.cleo.cleos.data.FeedShares
 import com.cleo.cleos.data.MessageReactions
+import com.cleo.cleos.data.MessageUsages
 import com.cleo.cleos.data.Pats
 import com.cleo.cleos.data.StickerBook
 import com.cleo.cleos.data.StickerText
@@ -916,11 +918,12 @@ fun ChatTab(
                     when (row) {
                         is ChatRow.Stamp -> TimeStamp(row.at)
                         ChatRow.RecapMark -> RecapMark(state.aiName) { readingRecap = true }
-                        is ChatRow.Woke -> ToolNote("${state.aiName.ifBlank { "TA" }}自己想起来的", Icons.Rounded.Lightbulb)
+                        is ChatRow.Woke -> ProactiveNote(row.at, state.companionId, state.aiName)
                         is ChatRow.Live -> LiveBubble(row.reply, state.aiName, vm::answerAsk)
                         is ChatRow.Activity -> Box(Modifier.fillMaxWidth().padding(start = if (LocalFaces.current != null) AvatarSlot else 0.dp)) {
                             ActivityCard(
                                 events = row.events, live = row.live, identity = row.key, maxWidth = bubbleMaxWidth(),
+                                thinking = row.live && state.streaming?.thinking == true,
                                 forceOpen = flashed in row.ids && rows.none { it is ChatRow.Message && it.message.id == flashed },
                                 onOpenCall = { readingTool = it },
                                 onLongClick = { if (row.ids.isNotEmpty()) { selected = row.ids; selecting = true } },
@@ -994,6 +997,7 @@ fun ChatTab(
                                         reactionLetter = if (m.role == "user") state.aiAvatarEmoji ?: avatarLetter(state.aiName, "TA") else avatarLetter(state.userName, "我"),
                                         showFace = row.showFace,
                                         canRetry = row.isLast && !state.replying,
+                                        translationEnabled = !state.replying,
                                         onRetry = { vm.retry(m.id) },
                                         onDelete = { vm.delete(m.id) },
                                         onEdit = if (!state.replying && !editSaving && MessageEdits.eligible(m)) ({
@@ -1006,6 +1010,7 @@ fun ChatTab(
                                         playingFile = playing,
                                         onPlay = { play(it, theirs = m.role == "assistant") },
                                         onRetryVoice = { vm.retryVoice(m.id) },
+                                        onVoiceText = { vm.retryVoice(m.id, answerAfter = false) },
                                         quote = quote?.let { quoteLabel(it) },
                                         onOpenQuote = { quote?.let { jumpTo(it.id) } },
                                         onQuote = {
@@ -1183,7 +1188,7 @@ fun ChatTab(
 }
 
 @Composable
-private fun bubbleMaxWidth(): Dp {
+internal fun bubbleMaxWidth(): Dp {
     val width = LocalConfiguration.current.screenWidthDp
     // At most 70% of the screen: a bubble running nearly edge to edge reads like a page, not a
     // message. With avatars, also no wider than leaves an avatar's room on the far side.
@@ -1197,16 +1202,34 @@ private const val BUBBLE_SHARE = 0.7f
 /** Room inside a bubble around its words. */
 private val BubblePadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
 
+private val ProactiveCaptions = listOf("想你了", "在不在", "说句悄悄话", "路过一下", "想找你聊天", "想起你了", "来聊两句")
+
+/** Presentation only: a wake keeps its caption across recomposition and app restarts. */
+@Composable
+private fun ProactiveNote(at: Long, companionId: Long, name: String) {
+    val palette = LocalGlassPalette.current
+    val caption = remember(at, companionId) {
+        ProactiveCaptions[Math.floorMod((at xor (companionId * 31L)).hashCode(), ProactiveCaptions.size)]
+    }
+    val slot = if (LocalFaces.current != null) AvatarSlot else 0.dp
+    Row(Modifier.padding(start = slot, top = 2.dp, bottom = 2.dp)
+        .semantics(mergeDescendants = true) { contentDescription = "${name.ifBlank { "TA" }}主动发来的消息：$caption" },
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(Icons.Rounded.Lightbulb, null, tint = palette.accentContent, modifier = Modifier.size(13.dp))
+        Text(caption, color = palette.contentSecondary, fontSize = 11.sp, lineHeight = 16.sp)
+    }
+}
+
 @Composable
 private fun TimeStamp(at: Long) {
     val palette = LocalGlassPalette.current
-    Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 5.dp), contentAlignment = Alignment.Center) {
         GlassSurface(
             style = palette.bar,
             shape = GlassShape.Capsule,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+            contentPadding = PaddingValues(horizontal = 11.dp, vertical = 5.dp),
         ) {
-            Text(Dates.chatStamp(at), color = palette.contentSecondary, fontSize = 12.sp)
+            Text(Dates.chatStamp(at), color = palette.contentSecondary, fontSize = 11.sp, lineHeight = 14.sp)
         }
     }
 }
@@ -1270,6 +1293,7 @@ private fun MessageBubble(
     playingFile: String? = null,
     onPlay: (String) -> Unit = {},
     onRetryVoice: () -> Unit = {},
+    onVoiceText: () -> Unit = {},
     quote: String? = null,
     onOpenQuote: () -> Unit = {},
     onQuote: () -> Unit = {},
@@ -1279,11 +1303,15 @@ private fun MessageBubble(
     onFavorite: () -> Unit = {},
     onSelect: () -> Unit = {},
     onEdit: (() -> Unit)? = null,
+    translationEnabled: Boolean = true,
 ) {
     val palette = LocalGlassPalette.current
     val mine = message.role == "user"
+    val translation = rememberTranslationUi(com.cleo.cleos.data.TranslationKey(false, message.id),
+        com.cleo.cleos.data.MessageTranslationRules.stamp(message))
     val glow by animateColorAsState(if (highlighted) palette.accent.copy(alpha = 0.14f) else Color.Transparent, label = "found")
     val audio = remember(message.audio) { MessageAudios.decode(message.audio) }
+    var voiceExpanded by rememberSaveable(message.id, expandVoiceText) { mutableStateOf(expandVoiceText) }
     var menu by remember { mutableStateOf(false) }
     var selectingText by remember(message.id) { mutableStateOf(false) }
     val clipboard = LocalClipboard.current
@@ -1306,6 +1334,7 @@ private fun MessageBubble(
         }
     }.joinToString("\n") }
     val reactions = remember(message.reactions) { MessageReactions.decode(message.reactions) }
+    val usage = remember(message.usage) { if (message.role == "assistant") MessageUsages.decode(message.usage) else null }
 
     Row(
         Modifier.fillMaxWidth().background(glow, RoundedCornerShape(18.dp)),
@@ -1337,8 +1366,7 @@ private fun MessageBubble(
                             playing = playingFile == audio.file,
                             transcript = message.content,
                             transcribing = transcribing,
-                            defaultExpanded = expandVoiceText,
-                            messageId = message.id,
+                            expanded = voiceExpanded,
                             onClick = { onPlay(audio.file) },
                             onLongClick = { menu = true },
                         )
@@ -1363,6 +1391,7 @@ private fun MessageBubble(
                                         piece.text,
                                         color = bubbleInk,
                                         style = LocalChatType.current.body,
+                                        narration = message.role == "assistant",
                                     )
                                 }
                             }
@@ -1374,15 +1403,21 @@ private fun MessageBubble(
                     if (reactions.isNotEmpty()) ReactionChips(reactions, reactionAvatar, reactionLetter) { menu = true }
                 }
                 val actions = buildList {
+                    if (audio != null && (!transcribing || voiceExpanded)) {
+                        add(MessageMenuAction(if (voiceExpanded) "收起文字" else "语音转文字") {
+                            voiceExpanded = !voiceExpanded
+                            if (voiceExpanded && message.content.isBlank() && !transcribing) onVoiceText()
+                        })
+                    }
                     if (words.isNotBlank()) add(MessageMenuAction("复制") {
                         scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("message", words))) }
                     })
                     if (words.isNotBlank()) add(MessageMenuAction("选择文字") { selectingText = true })
+                    if (translationEnabled && translation != null) add(MessageMenuAction("翻译") { translation.open.value = true })
                     onEdit?.let { add(MessageMenuAction("编辑", it)) }
                     if (!mine && message.error == null && audio == null && words.isNotBlank())
                         add(MessageMenuAction(if (playingFile == readingMark(message.id)) "停止朗读" else "朗读") { onRead(words) })
                     if (message.error == null && MessageQuotes.of(message) != null) add(MessageMenuAction("引用", onQuote))
-                    if (audio != null && message.content.isBlank() && !transcribing) add(MessageMenuAction("重新转文字", onRetryVoice))
                     if (!mine && canRetry) add(MessageMenuAction("重新回答", onRetry))
                     if (FavoriteContent.eligible(message)) {
                         add(MessageMenuAction("收藏", onFavorite)); add(MessageMenuAction("多选", onSelect))
@@ -1393,6 +1428,8 @@ private fun MessageBubble(
                     if (!mine && message.error == null) reactions.map { it.emoji }.toSet() else null, onReact)
                 if (selectingText) SelectMessageTextDialog(words, LocalChatType.current.body) { selectingText = false }
             }
+            MessageTranslation(translation)
+            if (usage != null) TokenUsageLine(usage, message.id)
             val error = message.error
             if (error != null) {
                 // On its own capsule: this line sits between bubbles, i.e. straight on the
@@ -1458,47 +1495,41 @@ internal fun VoiceBubble(
     playing: Boolean,
     transcript: String,
     transcribing: Boolean,
-    defaultExpanded: Boolean,
-    messageId: Long,
+    expanded: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
     val palette = LocalGlassPalette.current
-    var expanded by rememberSaveable(messageId, defaultExpanded) { mutableStateOf(defaultExpanded) }
-    ChatBubbleSurface(
-        modifier = Modifier
-            .widthIn(max = bubbleMaxWidth())
-            .combinedClickable(interactionSource = null, indication = null, onClick = onClick, onLongClick = onLongClick),
-        mine = mine,
-    ) { ink ->
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (playing) Icons.Rounded.Stop else Icons.Rounded.PlayArrow,
-                    contentDescription = if (playing) "停下" else "播放语音",
-                    tint = ink,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(Voice.duration(audio.ms), color = ink, fontSize = 15.sp)
+    val maxWidth = bubbleMaxWidth()
+    val barWidth = minOf(maxWidth, (112f + 2f * (audio.ms.coerceIn(0, 60_000) / 1000f)).dp)
+    Column(Modifier.widthIn(max = maxWidth),
+        horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        ChatBubbleSurface(
+            modifier = Modifier.width(barWidth).combinedClickable(
+                interactionSource = null, indication = null,
+                onClickLabel = if (playing) "停止语音" else "播放语音",
+                onLongClickLabel = "语音操作", onClick = onClick, onLongClick = onLongClick),
+            mine = mine, horizontalPadding = 12, verticalPadding = 6,
+        ) { ink ->
+            Row(Modifier.fillMaxWidth().heightIn(min = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (mine) Text(Voice.duration(audio.ms), color = ink, fontSize = 14.sp)
+                if (mine) Spacer(Modifier.weight(1f))
+                Icon(if (playing) Icons.Rounded.Stop else Icons.AutoMirrored.Rounded.VolumeUp,
+                    contentDescription = if (playing) "停下" else "播放语音", tint = ink,
+                    modifier = Modifier.size(20.dp))
+                if (!mine) Spacer(Modifier.weight(1f))
+                if (!mine) Text(Voice.duration(audio.ms), color = ink, fontSize = 14.sp)
             }
-            when {
-                transcript.isNotBlank() -> {
-                    Row(
-                        Modifier.heightIn(min = 44.dp).combinedClickable(
-                            interactionSource = null, indication = null,
-                            onClick = { expanded = !expanded }, onLongClick = onLongClick,
-                        ),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(if (expanded) "收起文字" else "查看文字", color = ink.copy(alpha = 0.75f), fontSize = 13.sp)
-                        Icon(if (expanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-                            contentDescription = null, tint = ink.copy(alpha = 0.75f), modifier = Modifier.size(18.dp))
-                    }
-                    if (expanded) MessageText(transcript, color = ink.copy(alpha = 0.85f), style = LocalChatType.current.small)
-                }
-                transcribing -> Text("转文字中…", color = ink.copy(alpha = 0.7f), fontSize = 13.sp)
-            }
+        }
+        when {
+            transcribing -> Text("转文字中…", color = palette.contentSecondary, fontSize = 11.sp, lineHeight = 15.sp)
+            expanded && transcript.isNotBlank() -> ChatBubbleSurface(
+                modifier = Modifier.widthIn(max = maxWidth).combinedClickable(
+                    interactionSource = null, indication = null, onClick = {}, onLongClick = onLongClick),
+                mine = mine,
+            ) { ink -> MessageText(transcript, color = ink, style = LocalChatType.current.small) }
+            expanded -> Text("这段语音暂时没有文字", color = palette.contentSecondary, fontSize = 11.sp, lineHeight = 15.sp)
         }
     }
 }
@@ -1632,10 +1663,10 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
                             contentPadding = BubblePadding,
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                TypingDots()
-                                if (live.thinking) {
+                                if (live.thinking || live.awaitingThinking) com.cleo.cleos.ui.common.ThinkingHeartbeat(true, Modifier.size(18.dp)) else TypingDots()
+                                if (live.thinking || live.awaitingThinking) {
                                     Spacer(Modifier.width(8.dp))
-                                    Text("在想", color = palette.contentSecondary, fontSize = 13.sp)
+                                    Text(if (live.thinking) "在想" else "想一想", color = palette.contentSecondary, fontSize = 13.sp)
                                 }
                             }
                         }
@@ -1734,7 +1765,7 @@ private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, 
             modifier = Modifier.widthIn(max = bubbleMaxWidth()),
             style = palette.notice,
             shape = GlassShape.Rounded(14.dp),
-            contentPadding = PaddingValues(start = 10.dp, end = 12.dp, top = 6.dp, bottom = 6.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         ) {
             Row(
                 modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
@@ -1744,11 +1775,11 @@ private fun ToolNote(text: String, icon: ImageVector, running: Boolean = false, 
                     if (failed) Icons.Outlined.Warning else icon,
                     contentDescription = null,
                     tint = if (failed) palette.error else if (running) palette.contentSecondary else palette.accentContent,
-                    modifier = Modifier.size(14.dp),
+                    modifier = Modifier.size(12.dp),
                 )
-                Spacer(Modifier.width(6.dp))
-                Text(text, color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 18.sp)
-                if (onClick != null) Text("  ›", color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 18.sp)
+                Spacer(Modifier.width(4.dp))
+                Text(text, color = palette.contentSecondary, fontSize = 11.sp, lineHeight = 16.sp)
+                if (onClick != null) Text("  ›", color = palette.contentSecondary, fontSize = 11.sp, lineHeight = 16.sp)
             }
         }
     }

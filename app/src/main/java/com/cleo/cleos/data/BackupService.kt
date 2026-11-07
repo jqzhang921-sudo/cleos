@@ -112,6 +112,7 @@ data class BackupFile(
     val messages: List<MessageEntity>,
     val diary: List<DiaryEntryEntity>,
     val todos: List<TodoEntity>,
+    val focusSessions: List<com.cleo.cleos.focus.FocusSession> = emptyList(),
     /** Absent in backups from before there could be several TAs. */
     val companions: List<CompanionEntity> = emptyList(),
     /** Absent in backups from before there were letters. */
@@ -129,11 +130,25 @@ data class BackupFile(
     val groupTurns: List<com.cleo.cleos.data.db.GroupTurnEntity> = emptyList(),
     val groupMessages: List<com.cleo.cleos.data.db.GroupMessageEntity> = emptyList(),
     val groupMemories: List<com.cleo.cleos.data.db.GroupMemoryEntity> = emptyList(),
+    val worldArticles: List<com.cleo.cleos.data.db.WorldArticleEntity> = emptyList(),
+    val worldNotes: List<com.cleo.cleos.data.db.WorldNoteEntity> = emptyList(),
+    val worldWritings: List<com.cleo.cleos.data.db.WorldWritingEntity> = emptyList(),
+    val worldSerials: List<com.cleo.cleos.data.db.WorldSerialEntity> = emptyList(),
+    val worldSerialChapters: List<com.cleo.cleos.data.db.WorldSerialChapterEntity> = emptyList(),
+    val worldJourneyTopics: List<com.cleo.cleos.data.db.WorldJourneyTopicEntity> = emptyList(),
+    val worldJourneyItems: List<com.cleo.cleos.data.db.WorldJourneyItemEntity> = emptyList(),
+    val worldWishes: List<com.cleo.cleos.data.db.WorldWishEntity> = emptyList(),
+    val worldBookmarks: List<com.cleo.cleos.data.db.WorldBookmarkEntity> = emptyList(),
+    val worldShelf: List<com.cleo.cleos.data.db.WorldShelfEntity> = emptyList(),
+    val worldPictures: List<com.cleo.cleos.data.db.WorldPictureEntity> = emptyList(),
+    val worldPictureLooks: List<com.cleo.cleos.data.db.WorldPictureLookEntity> = emptyList(),
+    val worldAlbumPhotos: List<com.cleo.cleos.data.db.WorldAlbumPhotoEntity> = emptyList(),
+    val worldAlbumLooks: List<com.cleo.cleos.data.db.WorldAlbumLookEntity> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "cleos-backup"
         // Older readers must not re-activate former members or drop shared conversations.
-        const val VERSION = 15
+        const val VERSION = 29
     }
 }
 
@@ -155,6 +170,19 @@ data class BackupSummary(
     val groupMemories: Int = 0,
     val missingGroupDraftImages: Int = 0,
     val missingGroupDraftVoices: Int = 0,
+    val worldArticles: Int = 0,
+    val worldNotes: Int = 0,
+    val worldWritings: Int = 0,
+    val worldWishes: Int = 0,
+    val worldOutside: Int = 0,
+    val worldBookmarks: Int = 0,
+    val worldShelf: Int = 0,
+    val worldPictures: Int = 0,
+    val worldPictureLooks: Int = 0,
+    val worldAlbumPhotos: Int = 0,
+    val worldAlbumLooks: Int = 0,
+    val worldJourneyTopics: Int = 0,
+    val worldSerials: Int = 0,
 ) {
     override fun toString() =
         "$tas 个 TA、$conversations 段对话（$messages 条消息）、$diary 篇日记、$letters 封信、$todos 条待办、$images 张图" +
@@ -165,6 +193,19 @@ data class BackupSummary(
             (if (feedPosts > 0) "、$feedPosts 条动态" else "") +
             (if (groups > 0) "、$groups 个群聊（$groupMessages 条群消息）" else "") +
             (if (groupMemories > 0) "、$groupMemories 条群内记录" else "") +
+            (if (worldArticles > 0) "、$worldArticles 篇书房文章" else "") +
+            (if (worldOutside > 0) "、$worldOutside 条窗外摘要" else "") +
+            (if (worldNotes > 0) "、$worldNotes 条阅读笔记" else "") +
+            (if (worldWritings > 0) "、$worldWritings 篇自由随笔" else "") +
+            (if (worldSerials > 0) "、$worldSerials 本连载" else "") +
+            (if (worldJourneyTopics > 0) "、$worldJourneyTopics 份图文专题" else "") +
+            (if (worldWishes > 0) "、$worldWishes 条想读请求" else "") +
+            (if (worldBookmarks > 0) "、$worldBookmarks 枚书签" else "") +
+            (if (worldShelf > 0) "、$worldShelf 条读物整理信息" else "") +
+            (if (worldPictures > 0) "、$worldPictures 张窗外配图" else "") +
+            (if (worldAlbumPhotos > 0) "、$worldAlbumPhotos 张私人相册照片" else "") +
+            (if (worldAlbumLooks > 0) "、$worldAlbumLooks 条相册感想" else "") +
+            (if (worldPictureLooks > 0) "、$worldPictureLooks 条看图记录" else "") +
             (if (missingGroupDraftImages > 0) "；有 $missingGroupDraftImages 张未发送的群草稿图缺失，请重新选择" else "") +
             (if (missingGroupDraftVoices > 0) "；有 $missingGroupDraftVoices 段群语音草稿文件缺失，已有转写保留为文字草稿，没有转写的请重新录制" else "")
 }
@@ -204,7 +245,8 @@ class BackupService(
     val hasSnapshot: Boolean get() = snapshot.exists()
 
     suspend fun export(uri: Uri): BackupSummary = withContext(Dispatchers.IO) {
-        val out = resolver.openOutputStream(uri) ?: throw BackupException("打不开要保存的位置")
+        // Replacing a shorter archive must not leave the old ZIP directory at the end.
+        val out = resolver.openOutputStream(uri, "wt") ?: throw BackupException("打不开要保存的位置")
         out.use { write(it) }
     }
 
@@ -245,6 +287,7 @@ class BackupService(
     private suspend fun write(raw: OutputStream): BackupSummary {
         val s = settings.current()
         val companions = db.companions().all()
+        MessageStyle.validateBackup(companions)
         val lead = companions.firstOrNull()
         val data = db.withTransaction { BackupFile(
             format = BackupFile.FORMAT,
@@ -310,6 +353,10 @@ class BackupService(
             messages = db.messages().all(),
             diary = db.diary().all(),
             todos = db.todos().all(),
+            focusSessions = db.focus().all().map { com.cleo.cleos.focus.FocusTimer.forBackup(it,
+                android.os.SystemClock.elapsedRealtime(),
+                android.provider.Settings.Global.getInt(resolver, android.provider.Settings.Global.BOOT_COUNT, -1),
+                System.currentTimeMillis()) },
             companions = companions,
             letters = db.letters().all(),
             memories = db.memories().all(),
@@ -322,10 +369,27 @@ class BackupService(
             groupTurns = db.groups().allTurns(),
             groupMessages = db.groups().allMessages(),
             groupMemories = db.groups().allMemories(),
+            worldArticles = db.world().allArticles(),
+            worldNotes = db.world().allNotes(),
+            worldWritings = db.world().allWritings(),
+            worldSerials = db.worldSerials().all(), worldSerialChapters = db.worldSerials().allChapters(),
+            worldJourneyTopics = db.world().allJourneyTopics(), worldJourneyItems = db.world().allJourneyItems(),
+            worldWishes = db.world().allWishes(),
+            worldBookmarks = db.world().allBookmarks(),
+            worldShelf = db.world().allShelf(),
+            worldPictures = db.world().allPictures(),
+            worldPictureLooks = db.world().allPictureLooks(),
+            worldAlbumPhotos = db.worldAlbum().allPhotos(), worldAlbumLooks = db.worldAlbum().allLooks(),
         ) }
         val stickerFiles = data.stickers.map { it.file }.toSet()
+        if (data.worldPictures.any { !images.validWorldPicture(images.file(it.file), it.width, it.height, it.sha256) }) throw BackupException("窗外配图文件缺失或损坏，请移除无法显示的配图后再备份")
         val favoriteFiles = data.favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) }
-        val pictures = (favoriteFiles + data.diary.flatMap { e -> DiaryBlocks.images(DiaryBlocks.decode(e.blocks)).map { it.file } } +
+        WorldWritingData.validate(data.companions.map { it.id }.toSet(), data.worldWritings, data.worldNotes, data.worldPictureLooks, data.worldAlbumLooks)
+        WorldSerialData.validate(data.companions.map { it.id }.toSet(), data.worldSerials, data.worldSerialChapters, data.worldWritings)
+        WorldJourneyTopics.validate(data.companions.map { it.id }.toSet(), data.worldJourneyTopics, data.worldJourneyItems, data.worldArticles)
+        WorldAlbumData.validate(data.companions.map { it.id }.toSet(), data.worldAlbumPhotos, data.worldAlbumLooks, data.worldNotes, data.worldPictureLooks)
+        if (data.worldAlbumPhotos.any { !images.validWorldPicture(images.file(it.file), it.width, it.height, it.sha256) }) throw BackupException("相册照片文件缺失或损坏，请整理后再备份")
+        val pictures = (data.worldAlbumPhotos.map { it.file } + data.worldPictures.map { it.file } + favoriteFiles + data.diary.flatMap { e -> DiaryBlocks.images(DiaryBlocks.decode(e.blocks)).map { it.file } } +
             data.feedPosts.flatMap { MessageImages.decode(it.images).map { picture -> picture.file } } +
             data.messages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
             data.groupMessages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
@@ -363,6 +427,11 @@ class BackupService(
             written, voices, stickers, data.favorites.size, data.lore.size, data.feedPosts.size,
             groups = data.groups.size, groupMessages = data.groupMessages.count { it.content.isNotBlank() || it.images != null },
             groupMemories = data.groupMemories.size,
+            worldArticles = data.worldArticles.count { it.space == "study" }, worldNotes = data.worldNotes.size, worldWritings = data.worldWritings.size, worldSerials = data.worldSerials.size,
+            worldOutside = data.worldArticles.count { it.space == "outside" },
+            worldWishes = data.worldWishes.size,
+            worldJourneyTopics = data.worldJourneyTopics.size,
+            worldBookmarks = data.worldBookmarks.size, worldShelf = data.worldShelf.size, worldPictures = data.worldPictures.size, worldPictureLooks = data.worldPictureLooks.size, worldAlbumPhotos = data.worldAlbumPhotos.size, worldAlbumLooks = data.worldAlbumLooks.size,
         )
     }
 
@@ -394,9 +463,28 @@ class BackupService(
             if (d.version > BackupFile.VERSION) throw BackupException("这份备份来自更新版本的 Cleos，先更新 App 再恢复")
             try {
                 com.cleo.cleos.ai.TaVoices.validateBackup(d.companions)
+                MessageStyle.validateBackup(d.companions)
                 GroupBackupRules.validate(d.groups, d.groupMembers, d.groupTurns, d.groupMessages, d.groupMemories)
+                WorldWritingData.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldWritings, d.worldNotes, d.worldPictureLooks, d.worldAlbumLooks)
+                WorldSerialData.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldSerials, d.worldSerialChapters, d.worldWritings)
+                WorldJourneyTopics.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldJourneyTopics, d.worldJourneyItems, d.worldArticles)
+                WorldReading.validateBackup(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldArticles, d.worldNotes)
+                WorldWishes.validateBackup(d.worldWishes, d.worldArticles, d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet())
+                WorldShelfData.validateBackup(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldArticles, d.worldBookmarks, d.worldShelf)
+                WorldPictureData.validate(d.worldArticles, d.worldPictures)
+                WorldPictureData.validateLooks(d.worldPictures, d.worldPictureLooks, d.worldNotes)
+                WorldAlbumData.validate(d.companions.map { it.id }.toSet(), d.worldAlbumPhotos, d.worldAlbumLooks, d.worldNotes, d.worldPictureLooks)
+                require(d.worldAlbumPhotos.all { images.validWorldPicture(File(staging, it.file), it.width, it.height, it.sha256) }) { "相册照片缺失、损坏或尺寸不一致" }
+                require(d.worldAlbumPhotos.all { !images.file(it.file).exists() || WorldPictureData.digest(images.file(it.file)) == it.sha256 }) { "同名相册照片内容不一致，原资料保留" }
+                require(d.worldPictures.all { images.validWorldPicture(File(staging, it.file), it.width, it.height, it.sha256) }) { "备份缺少窗外配图文件，或图片尺寸及内容不一致" }
+                require(d.worldPictures.all { !images.file(it.file).exists() || WorldPictureData.digest(images.file(it.file)) == it.sha256 }) { "同名本地配图内容不一致，原资料保留" }
             }
             catch (e: IllegalArgumentException) { throw BackupException(e.message ?: "群聊备份不完整") }
+
+            try {
+                require(d.focusSessions.map { it.id }.distinct().size == d.focusSessions.size)
+                d.focusSessions.forEach(com.cleo.cleos.focus.FocusTimer::restored)
+            } catch (_: IllegalArgumentException) { throw BackupException("备份中的专注记录无效，原资料保留") }
 
             if (takeSnapshot) {
                 snapshot.parentFile?.mkdirs()
@@ -437,7 +525,25 @@ class BackupService(
             db.withTransaction {
                 // What TAs noted to come back to, and what came of it: not in backups, and about
                 // conversations that are about to go.
+                db.translations().clear()
                 db.favorites().clear()
+                db.world().clearSchedules()
+                db.world().clearOutsideSchedules()
+                db.world().clearTopicSchedules()
+                db.worldAlbum().clearSchedules()
+                db.world().clearPictureSchedules()
+                db.world().clearWritingSchedules()
+                db.worldSerials().clearAllChapters(); db.worldSerials().clear()
+                db.world().clearWritings()
+                db.world().clearStates()
+                db.world().clearNotes()
+                db.world().clearWishes()
+                db.world().clearArticles()
+                db.world().clearBookmarks()
+                db.world().clearShelf()
+                db.world().clearPictures()
+                db.world().clearPictureLooks()
+                db.worldAlbum().clearLooks(); db.worldAlbum().clearPhotos()
                 db.incomingCalls().clear()
                 db.groups().clear()
                 db.later().clear()
@@ -445,6 +551,7 @@ class BackupService(
                 db.messages().clear()
                 db.conversations().clear()
                 db.diary().clear()
+                db.focus().clear()
                 db.todos().clear()
                 db.letters().clear()
                 db.memories().clear()
@@ -461,6 +568,7 @@ class BackupService(
                 })
                 db.diary().insertAll(diary)
                 db.todos().insertAll(d.todos)
+                db.focus().insertAll(d.focusSessions.map(com.cleo.cleos.focus.FocusTimer::restored))
                 db.letters().insertAll(d.letters)
                 db.memories().insertAll(d.memories)
                 db.lore().insertAll(d.lore)
@@ -475,6 +583,17 @@ class BackupService(
                     com.cleo.cleos.ai.GroupPhotoRules.restored(GroupBackupRules.restored(it)) { name -> picture(name) != null }) { name -> picture(name) != null }
                     .copy(speakerAvatar = picture(it.speakerAvatar)) })
                 db.groups().restoreMemories(d.groupMemories)
+                db.world().restoreArticles(d.worldArticles)
+                db.world().restoreJourneyTopics(d.worldJourneyTopics); db.world().restoreJourneyItems(d.worldJourneyItems)
+                db.world().restoreNotes(d.worldNotes)
+                db.world().restoreWritings(d.worldWritings)
+                db.worldSerials().insertAll(d.worldSerials); db.worldSerials().insertChapters(d.worldSerialChapters)
+                db.world().restoreWishes(d.worldWishes)
+                db.world().restoreBookmarks(d.worldBookmarks)
+                db.world().restoreShelf(d.worldShelf)
+                db.world().restorePictures(d.worldPictures)
+                db.world().restorePictureLooks(d.worldPictureLooks)
+                db.worldAlbum().restorePhotos(d.worldAlbumPhotos); db.worldAlbum().restoreLooks(d.worldAlbumLooks)
             }
             // A backup from before each voice service had its own place says "api" for all of them.
             val (speechEngine, speechVoices) = Speech.migrate(bs.speechEngine, bs.speechBaseUrl, bs.speechVoice, bs.speechVoices)
@@ -538,6 +657,10 @@ class BackupService(
                 stickers = stickers.size, favorites = d.favorites.size, lore = d.lore.size, feedPosts = d.feedPosts.size,
                 groups = d.groups.size, groupMessages = d.groupMessages.count { it.content.isNotBlank() || it.images != null },
                 groupMemories = d.groupMemories.size,
+                worldArticles = d.worldArticles.count { it.space == "study" }, worldNotes = d.worldNotes.size, worldWritings = d.worldWritings.size, worldSerials = d.worldSerials.size,
+                worldOutside = d.worldArticles.count { it.space == "outside" },
+                worldWishes = d.worldWishes.size,
+                worldBookmarks = d.worldBookmarks.size, worldShelf = d.worldShelf.size, worldPictures = d.worldPictures.size, worldPictureLooks = d.worldPictureLooks.size, worldAlbumPhotos = d.worldAlbumPhotos.size, worldAlbumLooks = d.worldAlbumLooks.size,
                 missingGroupDraftImages = d.groups.sumOf { g -> MessageImages.decode(g.draftImages).count { picture(it.file) == null } },
                 missingGroupDraftVoices = d.groups.count { g -> com.cleo.cleos.ai.GroupVoiceRules.draft(g.draftAudio, g.id)?.let { picture(it.file) == null } == true },
             )

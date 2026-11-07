@@ -79,7 +79,7 @@ internal class ToolDiagnosticStore(
             "stage", "result", "elapsedMs", "audioMs", "member")
         private fun isIssue(line: String): Boolean =
             Regex("(?:^| )status=[45][0-9]{2}(?: |$)").containsMatchIn(line) ||
-                line.split(' ').any { it in setOf("event=mcp_list_failed", "event=stream_failure", "event=feature_fallback", "event=mcp_call_failed", "event=photo_search_failed", "event=photo_share_failed", "event=photo_test_failed", "event=group_call_failure") }
+                line.split(' ').any { it in setOf("event=mcp_list_failed", "event=stream_failure", "event=feature_fallback", "event=mcp_call_failed", "event=photo_search_failed", "event=photo_share_failed", "event=photo_test_failed", "event=group_call_failure", "event=world_reading_failure", "event=world_schedule_failure") }
         private fun requestId(line: String): String? = Regex("(?:^| )requestId=([A-Za-z0-9-]+)").findAll(line).lastOrNull()?.groupValues?.get(1)
 
         fun label(value: String): String = value.takeIf { it.length <= 100 && it.matches(Regex("[A-Za-z0-9_./\\[\\]-]+")) } ?: "[redacted]"

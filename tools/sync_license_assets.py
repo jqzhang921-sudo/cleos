@@ -5,6 +5,10 @@ import argparse
 
 ROOT = Path(__file__).resolve().parents[1]
 PAIRS = {
+    "licenses/lucide/LICENSE.txt": "app/src/main/assets/licenses/lucide-LICENSE.txt",
+    "licenses/pdfbox/pdfbox-android-LICENSE.txt": "app/src/main/assets/licenses/pdfbox/pdfbox-android-LICENSE.txt",
+    "licenses/pdfbox/pdfbox-android-NOTICE.txt": "app/src/main/assets/licenses/pdfbox/pdfbox-android-NOTICE.txt",
+    "licenses/pdfbox/bouncycastle-1.86-LICENSE.txt": "app/src/main/assets/licenses/pdfbox/bouncycastle-1.86-LICENSE.txt",
     "LICENSE": "app/src/main/assets/licenses/cleos-apache-2.0.txt",
     "NOTICE": "app/src/main/assets/licenses/cleos-NOTICE.txt",
     "THIRD_PARTY_NOTICES.md": "app/src/main/assets/licenses/third-party-notices.txt",

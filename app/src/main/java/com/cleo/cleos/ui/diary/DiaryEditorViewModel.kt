@@ -44,10 +44,10 @@ sealed interface EditorBlock {
  * nothing. A new entry is not written until it has some content; an entry emptied out
  * completely is removed when the editor closes.
  */
-class DiaryEditorViewModel(private val c: AppContainer, initialId: Long, startSecret: Boolean = false) : ViewModel() {
+class DiaryEditorViewModel(private val c: AppContainer, initialId: Long, startSecret: Boolean = false, initialDay: Long? = null) : ViewModel() {
     var entryId = initialId
         private set
-    var day by mutableStateOf(Dates.today())
+    var day by mutableStateOf(if (initialId == 0L && initialDay != null) LocalDate.ofEpochDay(initialDay) else Dates.today())
     var title by mutableStateOf(TextFieldValue(""))
 
     /** Locked: the model never reads it, and can only ask to be shown it once. */

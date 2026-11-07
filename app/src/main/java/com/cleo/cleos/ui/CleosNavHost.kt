@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -44,6 +47,9 @@ import kotlinx.serialization.Serializable
 object MainRoute
 
 @Serializable
+data class FocusRoute(val taskId: Long? = null)
+
+@Serializable
 object FeedRoute
 
 /** [page]: a SettingsPage's name to open straight on, null for the list of them. */
@@ -68,7 +74,7 @@ object SearchRoute
 
 /** id 0 means a new entry; [secret] says whether a new one starts locked. */
 @Serializable
-data class DiaryRoute(val id: Long, val secret: Boolean = false)
+data class DiaryRoute(val id: Long, val secret: Boolean = false, val initialDay: Long? = null)
 
 @Serializable
 data class ImageRoute(val file: String)
@@ -140,6 +146,10 @@ fun CleosNavHost() {
                 nav.navigate(DiaryRoute(o.id))
                 c.opening.value = null
             }
+            is Opening.Focus -> {
+                nav.navigate(FocusRoute(o.taskId)) { launchSingleTop = true }
+                c.opening.value = null
+            }
             is Opening.Letter -> {
                 c.minimizeGroupCall()
                 nav.popBackStack(MainRoute, inclusive = false)
@@ -175,18 +185,31 @@ fun CleosNavHost() {
         popEnterTransition = { fadeIn(tween(220)) },
         popExitTransition = { fadeOut(tween(180)) },
     ) {
+        composable<FocusRoute> { entry ->
+            com.cleo.cleos.ui.focus.FocusScreen(entry.toRoute<FocusRoute>().taskId, onBack = nav::back)
+        }
         composable<MainRoute> {
+            // A cold focus notification needs the main entry for Back, but not its expensive
+            // first composition and four-tab prewarm during the opening cross-fade.
+            // Existing main screens stay alive normally; returning here enables it immediately.
+            var deferMain by remember { mutableStateOf(opening is Opening.Focus) }
+            LaunchedEffect(opening, entry) {
+                if (nav.currentBackStackEntry?.destination?.hasRoute<MainRoute>() == true &&
+                    c.opening.value !is Opening.Focus) deferMain = false
+            }
+            if (!deferMain) {
             MainScreen(
                 onOpenSettings = { nav.go(SettingsRoute()) },
                 onOpenSettingsPage = { nav.go(SettingsRoute(it.name)) },
                 onOpenConversations = { nav.go(ConversationsRoute) },
                 onOpenFeed = { nav.go(FeedRoute) },
-                onOpenDiaryEntry = { id, secret -> nav.go(DiaryRoute(id, secret)) },
+                onOpenDiaryEntry = { id, secret, day -> nav.go(DiaryRoute(id, secret, day)) },
                 onOpenImage = { nav.go(ImageRoute(it)) },
                 onOpenLetters = { nav.go(LettersRoute) },
                 onOpenMemory = { nav.go(MemoryRoute) },
                 onOpenFavorites = { nav.go(FavoritesRoute) },
             )
+            }
         }
         composable<FeedRoute> { com.cleo.cleos.ui.feed.FeedScreen(onBack = nav::back, onOpenImage = { nav.go(ImageRoute(it)) }) }
         composable<LettersRoute> { LettersScreen(onBack = nav::back, onOpen = { nav.go(LetterRoute(it)) }) }
@@ -224,6 +247,7 @@ fun CleosNavHost() {
         composable<DiaryRoute> { entry ->
             val route = entry.toRoute<DiaryRoute>()
             DiaryEditorScreen(
+                initialDay = route.initialDay,
                 id = route.id,
                 startSecret = route.secret,
                 onBack = nav::back,

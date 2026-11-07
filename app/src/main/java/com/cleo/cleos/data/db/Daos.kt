@@ -208,6 +208,13 @@ interface MessageDao {
     @Query("UPDATE messages SET reactions = :reactions WHERE id = :id")
     suspend fun setReactions(id: Long, reactions: String?)
 
+    @Query("UPDATE messages SET usage = :usage WHERE id = :id")
+    suspend fun setUsage(id: Long, usage: String?)
+
+    /** The newest assistant row stored at or after [since]: where a reply's token usage goes. */
+    @Query("SELECT id FROM messages WHERE conversationId = :conversationId AND role = 'assistant' AND call IS NULL AND createdAt >= :since ORDER BY createdAt DESC, id DESC LIMIT 1")
+    suspend fun lastAssistantSince(conversationId: Long, since: Long): Long?
+
     /** A run of pats grown by one: its record, and the time it was last patted. */
     @Query("UPDATE messages SET content = :content, createdAt = :at WHERE id = :id")
     suspend fun setPat(id: Long, content: String, at: Long)

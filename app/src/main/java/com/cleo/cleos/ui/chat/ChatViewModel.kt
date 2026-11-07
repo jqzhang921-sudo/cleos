@@ -319,9 +319,9 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
         state.value.conversationId?.let { c.calls.start(it) }
     }
 
-    fun retryVoice(messageId: Long) {
+    fun retryVoice(messageId: Long, answerAfter: Boolean = true) {
         val id = state.value.conversationId ?: return
-        c.chat.retryVoice(id, messageId)
+        c.chat.retryVoice(id, messageId, answerAfter)
     }
 
     /** The person's answer to a card asking whether the TA may use an outside service's tool. */

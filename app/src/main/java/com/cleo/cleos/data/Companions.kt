@@ -89,7 +89,20 @@ class Companions(
     }
 
     suspend fun update(id: Long, transform: (CompanionEntity) -> CompanionEntity) {
-        lock.withLock { db.companions().get(id)?.let { db.companions().update(transform(it)) } }
+        lock.withLock { db.withTransaction { db.companions().get(id)?.let { old ->
+            val next = transform(old)
+            if (!WorldReading.sameContext(old, next)) { db.worldAlbum().deleteSchedule(id); db.world().deletePictureSchedule(id); db.world().deleteWritingSchedule(id) }
+            db.companions().update(next)
+        } } }
+    }
+
+    suspend fun setMessageStyle(id: Long, createdAt: Long, value: String) = lock.withLock {
+        require(MessageStyle.valid(value)) { "请选择有效的消息发送偏好" }
+        db.withTransaction {
+            val ta = db.companions().get(id)
+            check(ta != null && ta.createdAt == createdAt) { "这位 TA 的资料已变化，请重新打开后选择" }
+            db.companions().update(ta.copy(messageStyle = value))
+        }
     }
 
     suspend fun setVoiceChoice(id: Long, createdAt: Long, expected: String, scope: String, voice: String?): String = lock.withLock {
@@ -152,7 +165,7 @@ class Companions(
         if (list.size <= 1) return
         val conversations = db.conversations().idsFor(id)
         val favorites = db.favorites().forCompanion(id)
-        val keptFiles = favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) }
+        val keptFiles = favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) } + db.world().pictures(id).map { it.file } + db.worldAlbum().photos(id).map { it.file }
         val pictures = conversations.flatMap { db.messages().imagesIn(it) }.flatMap { MessageImages.decode(it) }.map { it.file }
         db.withTransaction {
             conversations.forEach { db.conversations().delete(it) }

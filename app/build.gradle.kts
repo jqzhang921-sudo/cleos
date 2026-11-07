@@ -26,8 +26,8 @@ android {
         applicationId = "com.cleo.cleos"
         minSdk = 29
         targetSdk = 36
-        versionCode = 205
-        versionName = "0.41.128"
+        versionCode = 279
+        versionName = "0.42.0"
     }
 
     signingConfigs {
@@ -73,6 +73,11 @@ room {
 
 dependencies {
     implementation(project(":transfer"))
+    implementation("com.tom-roush:pdfbox-android:2.0.27.0")
+    // PDFBox's published POM pins 1.72; align its crypto dependencies with the maintained release.
+    implementation("org.bouncycastle:bcprov-jdk15to18:1.86")
+    implementation("org.bouncycastle:bcpkix-jdk15to18:1.86")
+    implementation("org.bouncycastle:bcutil-jdk15to18:1.86")
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation(libs.androidx.core.ktx)

@@ -9,6 +9,8 @@
     <!-- Voice messages: asked for the first time the person holds the microphone button. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <!-- get_location, only while a reply asks; asked for when the switch is turned on. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -40,6 +42,14 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Cleos">
 
+        <receiver android:name=".focus.FocusReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
         <receiver android:name=".IncomingCallReceiver" android:exported="false" />
         <activity android:name=".ui.settings.TransferScannerActivity" android:exported="false"
             android:screenOrientation="portrait" android:theme="@style/zxing_CaptureTheme" />

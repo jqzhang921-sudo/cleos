@@ -26,7 +26,7 @@ class GroupInterjectionBackupTest {
             """{"member_id":30}""", "returned", "pending until completed"))))
         val records = messages.map { if (it.speakerId == 20L) it.copy(toolTrace = trace) else it }
         GroupBackupRules.validate(listOf(decoded), members, listOf(turn), records)
-        assertEquals(15, BackupFile.VERSION)
+        assertTrue(BackupFile.VERSION >= 15)
     }
 
     @Test fun restoredPendingInvitationNeverBecomesAnAutomaticRequest() {

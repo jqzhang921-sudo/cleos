@@ -23,7 +23,17 @@
 - 转换工具：`tools/convert_hrir.py`；详细来源及修改说明见 [HRIR README](app/src/main/assets/hrir/README.txt)。
 - CC BY 4.0 允许商业使用，分发时保留作者、来源、许可链接及修改说明。语音算法的 MIT 与测量数据的 CC BY 是两项不同的授权。
 
+### Lucide 底部导航图标（ISC）
+
+- 来源：[lucide-icons/lucide](https://github.com/lucide-icons/lucide)，固定上游提交 `a630cec77eac6568b989e87e4947a8bfe45caacd`。
+- 版权：Copyright (c) 2026 Lucide Icons and Contributors；所用 `message-circle`、`notebook`、`globe`、`house` 按上游 ISC 许可提供。
+- 改动：把这四个 SVG 转为本地 Compose ImageVector，保留 24×24 坐标、2 单位线宽、圆形端点和圆角连接。圆形和圆角矩形改用等价直线/圆弧路径，路径数值分隔作 Android 解析兼容处理。未选中时使用上游线框；选中态由 Cleos 基于相同轮廓改绘为实心，通过透明切口保留记事本封边、小屋门洞与地球经纬线。这些实心变体不是 Lucide 官方提供的实心套件，改绘信息保留在来源记录中。
+- 上游 SVG、完整原始许可和来源哈希保留在 [licenses/lucide](licenses/lucide/)；完整许可也随 APK 提供，可在许可全文中查看。上游许可全文包含其列出的 Feather 派生图标的 MIT 声明，本次四个图标不在该列表中。
+- 图标打包在本地，不增加图标库依赖或运行时下载。
+
 ### 通过包管理器引入的依赖
+
+0.41.133 的书房 PDF 文字提取使用 [PdfBox-Android 2.0.27.0](https://github.com/TomRoush/PdfBox-Android/tree/v2.0.27.0)，主代码 Apache-2.0，包含上游 PDFBox / FontBox 及 Adobe 字体资源等各自声明。完整上游 [LICENSE](licenses/pdfbox/pdfbox-android-LICENSE.txt) 与 [NOTICE](licenses/pdfbox/pdfbox-android-NOTICE.txt) 原样保留在源码及安装包。传递的 Bouncy Castle 三个模块统一使用 1.86（MIT，Copyright (c) 2000-2026 The Legion of the Bouncy Castle Inc.），[许可原文](licenses/pdfbox/bouncycastle-1.86-LICENSE.txt) 一并提供。EPUB / TXT 的本地解析不引入其他阅读库。本功能不附送第三方书籍。
 
 版本和许可见 [依赖清单](docs/DEPENDENCY_LICENSES.md)。0.41.88 的 release compile/package 审计快照并集为 116 个 Maven 坐标：115 个声明 Apache-2.0，1 个声明 BSD-3-Clause。这是历史构建元数据清单，不等于当前版本或 R8 后 APK 中实际保留的类库数量。
 

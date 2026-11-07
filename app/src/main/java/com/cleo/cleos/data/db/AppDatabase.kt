@@ -18,6 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MessageEntity::class,
         DiaryEntryEntity::class,
         TodoEntity::class,
+        com.cleo.cleos.focus.FocusSession::class,
         LetterEntity::class,
         MemoryEntity::class,
         LaterEntity::class,
@@ -35,8 +36,30 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         GroupMessageEntity::class,
         GroupMemoryEntity::class,
         IncomingCallEntity::class,
+        WorldArticleEntity::class,
+        WorldNoteEntity::class,
+        WorldReadingStateEntity::class,
+        WorldScheduleEntity::class,
+        WorldOutsideScheduleEntity::class,
+        WorldTopicScheduleEntity::class,
+        WorldBookmarkEntity::class,
+        WorldShelfEntity::class,
+        WorldPictureEntity::class,
+        WorldPictureLookEntity::class,
+        WorldAlbumPhotoEntity::class,
+        WorldAlbumLookEntity::class,
+        WorldAlbumScheduleEntity::class,
+        WorldPictureScheduleEntity::class,
+        WorldWishEntity::class,
+        MessageTranslationEntity::class,
+        WorldWritingEntity::class,
+        WorldSerialEntity::class,
+        WorldSerialChapterEntity::class,
+        WorldWritingScheduleEntity::class,
+        WorldJourneyTopicEntity::class,
+        WorldJourneyItemEntity::class,
     ],
-    version = 44,
+    version = 66,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -105,9 +128,49 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 42, to = 43),
         // Per-member local permission to use explicitly selected private memory revisions.
         AutoMigration(from = 43, to = 44),
+        AutoMigration(from = 44, to = 45),
+        AutoMigration(from = 45, to = 46, spec = AppDatabase.WorldRetryBudget::class),
+        AutoMigration(from = 46, to = 47),
+        AutoMigration(from = 47, to = 48),
+        AutoMigration(from = 48, to = 49),
+        AutoMigration(from = 49, to = 50),
+        AutoMigration(from = 50, to = 51),
+        AutoMigration(from = 51, to = 52),
+        AutoMigration(from = 52, to = 53),
+        AutoMigration(from = 53, to = 54),
+        AutoMigration(from = 54, to = 55),
+        AutoMigration(from = 55, to = 56),
+        AutoMigration(from = 56, to = 57),
+        AutoMigration(from = 57, to = 58),
+        AutoMigration(from = 58, to = 59),
+        // Text-message preference defaults to natural; no historical message is rewritten.
+        AutoMigration(from = 59, to = 60),
+        AutoMigration(from = 60, to = 61),
+        AutoMigration(from = 61, to = 62),
+        // Token usage of each reply, shown under its last bubble (a nullable column).
+        AutoMigration(from = 62, to = 63),
+        AutoMigration(from = 63, to = 64),
+        AutoMigration(from = 64, to = 65),
+        // User-arranged serial metadata; creative prose stays untouched.
+        AutoMigration(from = 65, to = 66),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
+    abstract fun translations(): MessageTranslationDao
+    /** Old failed attempts were charged without retaining enough detail to split them from valid ones.
+     * Give affected shelves a fresh budget once on upgrade; books, positions and notes are untouched. */
+    class WorldRetryBudget : AutoMigrationSpec {
+        override fun onPostMigrate(db: SupportSQLiteDatabase) {
+            db.execSQL("""UPDATE world_reading_state SET attempts = 0, token = NULL, failureCode = 'legacy',
+                status = '旧版异常占用的阅读次数已重新计算，可以重试'
+                WHERE token IS NOT NULL OR status IN (
+                '这次阅读没有完成，进度未更新。可检查网络或模型后再试',
+                '阅读已停止，未完成的片段没有计入进度', '上次阅读中断，进度没有向前移动')""")
+        }
+    }
+    abstract fun worldSerials(): WorldSerialDao
+    abstract fun world(): WorldDao
+    abstract fun worldAlbum(): WorldAlbumDao
     abstract fun incomingCalls(): IncomingCallDao
     abstract fun groups(): GroupDao
     abstract fun feed(): FeedDao
@@ -117,6 +180,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun conversations(): ConversationDao
     abstract fun messages(): MessageDao
     abstract fun diary(): DiaryDao
+    abstract fun focus(): com.cleo.cleos.focus.FocusDao
     abstract fun todos(): TodoDao
     abstract fun letters(): LetterDao
     abstract fun memories(): MemoryDao

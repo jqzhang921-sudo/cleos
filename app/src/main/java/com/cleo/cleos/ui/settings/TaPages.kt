@@ -254,6 +254,7 @@ private fun ConnectionFields(fields: EndpointFields) {
 /** How the TA goes about answering: thinking first, and coming to find the person on their own. */
 @Composable
 internal fun BehaviorPage(vm: SettingsViewModel) {
+    MessageStyleSection(vm)
     Section("等我说完再回复") {
         Text("最后一条消息后，停顿多久再开始回复", color = LocalGlassPalette.current.contentSecondary, fontSize = 14.sp)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

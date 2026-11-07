@@ -41,6 +41,7 @@ fun TodoEditDialog(
     onDismiss: () -> Unit,
     onSave: (TodoEntity) -> Unit,
     onDelete: () -> Unit,
+    onFocus: (TodoEntity) -> Unit,
 ) {
     var title by remember { mutableStateOf(todo.title) }
     var note by remember { mutableStateOf(todo.note) }
@@ -67,6 +68,7 @@ fun TodoEditDialog(
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                TextButton(enabled = title.isNotBlank(), onClick = { onFocus(todo.copy(title = title.trim(), note = note.trim(), dueDay = due?.toEpochDay())) }) { Text("为这件事专注") }
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Event, contentDescription = null, modifier = Modifier.size(18.dp))

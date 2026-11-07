@@ -132,7 +132,7 @@ internal fun ChatPage(vm: SettingsViewModel) {
     // Moved here from the home page, where they sat among the TA's things.
     ListCard("头像") {
         ExplainedSwitch("聊天里显示头像", "消息旁边放上各自的头像", null, settings.chatAvatars) { vm.setChatAvatars(it) }
-        ExplainedSwitch("默认展开语音文字", "关闭时显示紧凑语音条，点“查看文字”展开；展开或收起都不影响播放", null, settings.expandVoiceText, vm::setExpandVoiceText)
+        ExplainedSwitch("默认展开语音文字", "关闭时显示紧凑语音条，长按选择“语音转文字”展开；展开或收起都不影响播放", null, settings.expandVoiceText, vm::setExpandVoiceText)
         if (settings.chatAvatars) {
             RowDivider(inset = 0.dp)
             ExplainedSwitch(
@@ -297,7 +297,7 @@ internal fun DataPage(vm: SettingsViewModel) {
 
     Section("备份") {
         Text(
-            "把每个 TA、聊天、日记、信、记忆、收藏、待办、表情包、图片和语音打包成一个文件。换手机、重装之前先导出一份。API Key 不会导出。",
+            "把每个 TA、聊天、日记、信、记忆、收藏、待办、专注记录、表情包、图片和语音打包成一个文件。换手机、重装之前先导出一份。API Key 不会导出。未结束的专注会保存为中断记录。",
             color = palette.contentSecondary,
             fontSize = 12.sp,
             lineHeight = 18.sp,

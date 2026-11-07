@@ -1,0 +1,9 @@
+{
+  "pdfbox": "https://github.com/TomRoush/PdfBox-Android/tree/v2.0.27.0",
+  "bouncycastle": "https://raw.githubusercontent.com/bcgit/bc-java/r1rv86/LICENSE.html",
+  "sha256": {
+    "bouncycastle-1.86-LICENSE.txt": "afaf5bd0b0d869dc86b71711e1b775b204948634c9710a35a9a70d1613a2ab14",
+    "pdfbox-android-LICENSE.txt": "8ceed6051cbd7f6d5d56bad8ca5e73f0414fb13cbe0c4170f7c4c9beaa1a7679",
+    "pdfbox-android-NOTICE.txt": "8191c60848b9e5666a1ee50a65a7f6eab7339dc1ea20b52092f3eac5ef10d0cd"
+  }
+}

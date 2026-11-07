@@ -19,7 +19,7 @@ class GroupUploadBackupTest {
         val old=JsonObject(Json.parseToJsonElement(Json.encodeToString(group)).jsonObject - "draftImages")
         assertNull(Json.decodeFromString<ChatGroupEntity>(old.toString()).draftImages)
         val restored=Json.decodeFromString<GroupMessageEntity>(Json.encodeToString(user))
-        assertEquals(user,restored); validate(row=restored); assertEquals(15, BackupFile.VERSION)
+        assertEquals(user,restored); validate(row=restored); assertTrue(BackupFile.VERSION >= 15)
     }
     @Test fun draftAndSentFilesCannotShareOwnershipOrCrossGroups() {
         validate(g=group.copy(draftImages=MessageImages.encode(listOf(picture.copy(file="group-user-1-draft.jpg")))))

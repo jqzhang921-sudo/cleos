@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cleo.cleos.glass.Backdrop
@@ -76,6 +77,7 @@ fun GlassTopBar(
     /** Makes the title a button; [titleMenu] is drawn next to it, e.g. a menu it opens. */
     onTitleClick: (() -> Unit)? = null,
     titleMenu: @Composable () -> Unit = {},
+    barHeight: Dp = TopBarHeight,
 ) {
     val palette = LocalGlassPalette.current
     CompositionLocalProvider(LocalGlassChrome provides palette.topBar) {
@@ -83,7 +85,7 @@ fun GlassTopBar(
         modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .height(TopBarHeight)
+            .height(barHeight)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

@@ -241,6 +241,13 @@ class SettingsRepository(private val context: Context) {
         val nightGreeted = longPreferencesKey("night_greeted")
     }
 
+    // Device-local presentation only; changing this never rewrites todo records.
+    private val todoCalendarKey = booleanPreferencesKey("todo_calendar_view")
+    val todoCalendar: Flow<Boolean> = context.settingsStore.data.map { it[todoCalendarKey] ?: false }
+    suspend fun setTodoCalendar(enabled: Boolean) {
+        context.settingsStore.edit { it[todoCalendarKey] = enabled }
+    }
+
     val settings: Flow<AppSettings> = context.settingsStore.data.map { it.toSettings() }
 
     suspend fun current(): AppSettings = settings.first()

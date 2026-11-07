@@ -35,6 +35,7 @@ import com.cleo.cleos.data.MessageImages
 import com.cleo.cleos.data.db.GroupMessageEntity
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.Avatar
+import com.cleo.cleos.ui.common.ThinkingHeartbeat
 import com.cleo.cleos.ui.common.avatarLetter
 
 /**
@@ -139,6 +140,10 @@ internal fun GroupWaitingStrip(rows: List<GroupMessageEntity>, progress: Map<Lon
                 state.lead.take(3).forEach { WaitingAvatar(it, pulsing = state.active.isNotEmpty()) }
             }
             Spacer(Modifier.width(8.dp))
+            if (state.active.firstOrNull()?.let { progress[it.id]?.stage } == GroupReplyStage.THINKING) {
+                ThinkingHeartbeat(true, Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+            }
             Crossfade(label, Modifier.weight(1f, fill = false), animationSpec = tween(160), label = "group-waiting") { text ->
                 Text(text, color = palette.content, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }

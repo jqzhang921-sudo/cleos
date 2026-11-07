@@ -30,7 +30,7 @@ class GroupCallBackupTest {
         assertEquals(original,read);assertEquals(9,read.groupMessages.size)
         assertEquals(listOf(11L,22,22,11,11,22),read.groupMessages.filter { it.role=="assistant" }.map { it.speakerId })
         assertEquals("原来的草稿",read.groups.single().draft);assertTrue(read.groupMessages.all { it.audio==null })
-        assertEquals(15,read.version)
+        assertEquals(BackupFile.VERSION,read.version)
     }
     @Test fun restoredUnfinishedCallKeepsPlayedWordsAndDoesNotRemainRunning() {
         val original=payload();val read=original.copy(groupTurns=original.groupTurns.map(GroupBackupRules::restored),

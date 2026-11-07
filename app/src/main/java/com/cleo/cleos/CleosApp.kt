@@ -66,6 +66,7 @@ sealed interface Opening {
 
     data class Diary(val id: Long) : Opening
     data class Letter(val id: Long) : Opening
+    data class Focus(val taskId: Long? = null) : Opening
 }
 
 /** Hand-made dependency wiring; the app is small enough not to need a DI framework. */
@@ -84,6 +85,7 @@ class AppContainer(context: Context) {
     )
 
     val db: AppDatabase = Room.databaseBuilder(context, AppDatabase::class.java, "cleos.db").build()
+    val focus = com.cleo.cleos.focus.FocusRepository(context, db)
     val settings = SettingsRepository(context)
     val secrets = SecretStore(context)
     val httpPermissions = com.cleo.cleos.data.HttpPermissions(secrets)
@@ -107,6 +109,8 @@ class AppContainer(context: Context) {
     val chatClient = ChatClient(http, diagnostic = { toolDiagnostics.record(it) }, prepare = { request, url ->
         com.cleo.cleos.network.EndpointTransport.prepare(request, url, httpPermissions.allowed(url))
     })
+    val focusCompanion by lazy { com.cleo.cleos.focus.FocusCompanion(db, secrets::key, secrets::revision,
+        com.cleo.cleos.ai.FocusCompanionReader(chatClient), appScope) }
     val feedNews = com.cleo.cleos.ai.FeedNews(http.newBuilder().callTimeout(18, TimeUnit.SECONDS).readTimeout(15, TimeUnit.SECONDS).build())
     val photoSource = com.cleo.cleos.ai.PhotoLibraries(
         com.cleo.cleos.ai.OpenversePhotos(http, version) { toolDiagnostics.record(it) },
@@ -141,6 +145,11 @@ class AppContainer(context: Context) {
             { action -> db.withTransaction { action() } }),
         photos = com.cleo.cleos.ai.PhotoBook(photoSource, diagnostic = { toolDiagnostics.record(it) }),
         requestCall = { conversation,ta,reason -> incomingCalls.request(conversation,ta,reason).id },
+        worldRecall = { args, ta, publicOnly -> db.withTransaction {
+            if (com.cleo.cleos.ai.ToolGroup.WorldRecall !in settings.current().tools)
+                throw com.cleo.cleos.ai.ToolFailure("回想世界已关闭，没有查询记录。", "设置里关着")
+            com.cleo.cleos.ai.WorldRecall(db.world()).read(args, ta, publicOnly)
+        } },
     )
     val recaps = Recaps(db, settings, secrets, chatClient, appScope)
     val mcp = McpHub(
@@ -152,6 +161,8 @@ class AppContainer(context: Context) {
         permitted = { server -> com.cleo.cleos.network.EndpointTransport.httpOrigin(server.url) == null || httpPermissions.allowed(server.url, server.id) },
     )
     val transcriber = Transcriber(http, secrets)
+    val translations by lazy { com.cleo.cleos.data.MessageTranslations(db, secrets::key, secrets::revision,
+        com.cleo.cleos.ai.MessageTranslator(chatClient), appScope, privateBusy = { chat.busy(it) || chat.isTyping(it) }) }
     val speaker = Speaker(images, http, secrets)
 
     /** The TA's voice messages beside the ear, on headphones. */
@@ -187,6 +198,42 @@ class AppContainer(context: Context) {
         diagnostic={toolDiagnostics.record(it)})
     val groupCalls = com.cleo.cleos.ai.GroupCalls(context, db, groupChat, chat, settings, secrets, transcriber, speaker, appScope,
         diagnostic = { toolDiagnostics.record(it) })
+    val world: com.cleo.cleos.data.WorldLibrary by lazy {
+        com.cleo.cleos.data.WorldLibrary(db, secrets, com.cleo.cleos.ai.WorldReader(chatClient, diagnostic = { toolDiagnostics.record(it) }), appScope, occupied = { id ->
+            calls.state.value?.phase?.let { it != com.cleo.cleos.ai.CallPhase.Ended } == true ||
+                groupCalls.state.value?.phase?.let { it != com.cleo.cleos.ai.CallPhase.Ended } == true ||
+                groupChat.busyMember(id) || db.conversations().idsFor(id).any { chat.busy(it) || chat.isTyping(it) }
+        }, diagnostic = { toolDiagnostics.record(it) },
+            beforeArticleDelete = { ta, article -> worldPictures.beforeArticleDelete(ta, article) },
+            readingMemories = { id -> if (com.cleo.cleos.ai.ToolGroup.Memory in settings.current().tools) db.memories().allFor(id) else emptyList() },
+            beforeOutsideDelete = { ta, articles -> worldPictures.stopArticles(ta, articles) },
+            discardFile = { companions.discardAvatar(it) }, picturePixels = { picture ->
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    if (images.validWorldPicture(images.file(picture.file), picture.width, picture.height, picture.sha256)) images.dataUrl(picture.file, 960) else null
+                }
+            }, albumPixels = { photo ->
+                kotlinx.coroutines.withContext(Dispatchers.IO) {
+                    if (images.validWorldPicture(images.file(photo.file), photo.width, photo.height, photo.sha256)) images.dataUrl(photo.file, 960) else null
+                }
+            })
+    }
+    val worldWritingScheduler by lazy {
+        com.cleo.cleos.data.WorldWritingScheduler(context, db, secrets, world, appScope, diagnostic = { toolDiagnostics.record(it) })
+    }
+    val worldReading by lazy {
+        com.cleo.cleos.data.WorldReadingScheduler(context, db, world, appScope, diagnostic = { toolDiagnostics.record(it) })
+    }
+    val worldOutside by lazy { com.cleo.cleos.data.WorldOutsideLibrary(db, com.cleo.cleos.data.WorldOutside(), appScope) }
+    val worldPictures: com.cleo.cleos.data.WorldPictures by lazy { com.cleo.cleos.data.WorldPictures(db, images, appScope, discard = { companions.discardAvatar(it) }, beforeRemove = { ta, article -> world.stopPicture(ta, article) }) }
+    val worldAlbum by lazy { com.cleo.cleos.data.WorldAlbum(db, images, beforeChange = { ta, photo -> world.stopAlbum(ta, photo) }, discard = { companions.discardAvatar(it) }) }
+    val worldPictureScheduler by lazy { com.cleo.cleos.data.WorldPictureScheduler(context, db, secrets, world, worldPictures, appScope, diagnostic = { toolDiagnostics.record(it) }) }
+    val worldAlbumScheduler by lazy { com.cleo.cleos.data.WorldAlbumScheduler(context, db, secrets, world, appScope, diagnostic = { toolDiagnostics.record(it) }) }
+    val worldOutsideScheduler by lazy {
+        com.cleo.cleos.data.WorldOutsideScheduler(context, db, world, worldOutside, appScope, diagnostic = { toolDiagnostics.record(it) })
+    }
+    val worldTopicScheduler by lazy {
+        com.cleo.cleos.data.WorldTopicScheduler(context, db, world, worldOutside, appScope, diagnostic = { toolDiagnostics.record(it) })
+    }
     val incomingCalls = com.cleo.cleos.ai.IncomingCalls(context,db,settings,secrets,chat,notifier,appScope,
         visible={visible},start={ invitation ->
             settings.setCurrentCompanion(invitation.companionId)
@@ -262,10 +309,13 @@ class AppContainer(context: Context) {
     }
 
     init {
+        // Also removes a stale timer notification immediately after a backup replaces the DB.
+        appScope.launch { focus.active.collect { focus.reconcile() } }
         // The first TA is made from the old settings before anything asks who is being talked to.
         appScope.launch {
             wakeActivities.recover()
             companions.ensure()
+            world.initialize()
             favorites.prune()
             // What a TA brought from another app used to sit in their persona; it moves into their memory, once.
             PersonaMemory.migrate(db, System.currentTimeMillis())
@@ -278,6 +328,12 @@ class AppContainer(context: Context) {
         followUps.restore()
         freeTopics.restore()
         feedVisits.restore()
+        worldWritingScheduler.restore()
+        worldReading.restore()
+        worldAlbumScheduler.restore()
+        worldPictureScheduler.restore()
+        worldOutsideScheduler.restore()
+        worldTopicScheduler.restore()
         // A reply under way is what keeps the app running in the background (ReplyKeeper), and this
         // is where that is decided: it goes up the moment one starts — the person is in front then,
         // and the system lets a service start — rather than when they leave, which is the moment

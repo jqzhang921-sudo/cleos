@@ -105,7 +105,7 @@ enum class SettingsPage(val title: String) {
 /** The switches on the abilities page, for the count on the list. */
 internal val ABILITIES = listOf(
     ToolGroup.Messages, ToolGroup.Speak, ToolGroup.Stickers, ToolGroup.Pat, ToolGroup.Feed, ToolGroup.FeedActions, ToolGroup.Photos,
-    ToolGroup.Todos, ToolGroup.Memory, ToolGroup.Lore, ToolGroup.AiDiary, ToolGroup.Diary, ToolGroup.Secrets, ToolGroup.Letters,
+    ToolGroup.Todos, ToolGroup.Memory, ToolGroup.WorldRecall, ToolGroup.Lore, ToolGroup.AiDiary, ToolGroup.Diary, ToolGroup.Secrets, ToolGroup.Letters,
     ToolGroup.Weather, ToolGroup.Location, ToolGroup.Alarm, ToolGroup.Calendar, ToolGroup.Music, ToolGroup.Avatar,
 )
 
@@ -160,7 +160,7 @@ internal fun SettingsDirectory(vm: SettingsViewModel, onOpenLore: (Long) -> Unit
             else -> Entry(Icons.Rounded.Memory, "模型", model) { onOpen(SettingsPage.Model) }
         }
         RowDivider()
-        Entry(Icons.Rounded.Forum, "说话方式", "主动找你 ${onOff(vm.proactive)} · 深度思考 ${onOff(vm.deepThinking)}") {
+        Entry(Icons.Rounded.Forum, "说话方式", "${com.cleo.cleos.data.MessageStyle.of(vm.messageStyle).title} · 主动找你 ${onOff(vm.proactive)} · 深度思考 ${onOff(vm.deepThinking)}") {
             onOpen(SettingsPage.Behavior)
         }
     }

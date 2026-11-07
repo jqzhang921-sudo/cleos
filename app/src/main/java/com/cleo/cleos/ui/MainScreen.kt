@@ -17,15 +17,6 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material.icons.rounded.AutoStories
-import androidx.compose.material.icons.rounded.ChatBubble
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.rounded.TaskAlt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
@@ -60,10 +51,11 @@ import com.cleo.cleos.glass.backdropSource
 import com.cleo.cleos.glass.rememberBackdrop
 import com.cleo.cleos.ui.chat.ChatTab
 import com.cleo.cleos.ui.common.appContainer
-import com.cleo.cleos.ui.diary.DiaryTab
+import com.cleo.cleos.ui.records.RecordsTab
 import com.cleo.cleos.ui.home.HomeTab
+import com.cleo.cleos.ui.icons.LucideTabIcons
 import com.cleo.cleos.ui.settings.SettingsPage
-import com.cleo.cleos.ui.todo.TodoTab
+import com.cleo.cleos.ui.world.WorldTab
 
 /**
  * Space the floating tab bar takes above the navigation bar (its 14dp overhang, the 64dp
@@ -87,7 +79,7 @@ fun MainScreen(
     onOpenSettingsPage: (SettingsPage) -> Unit,
     onOpenConversations: () -> Unit,
     onOpenFeed: () -> Unit,
-    onOpenDiaryEntry: (id: Long, secret: Boolean) -> Unit,
+    onOpenDiaryEntry: (id: Long, secret: Boolean, day: Long?) -> Unit,
     onOpenImage: (String) -> Unit,
     onOpenLetters: () -> Unit,
     onOpenMemory: () -> Unit,
@@ -152,10 +144,10 @@ fun MainScreen(
     val bottomInset = navBottom + TabBarReserve
     val tabs = remember {
         listOf(
-            GlassTab("聊天", Icons.Outlined.ChatBubbleOutline, Icons.Rounded.ChatBubble),
-            GlassTab("日记", Icons.Outlined.AutoStories, Icons.Rounded.AutoStories),
-            GlassTab("待办", Icons.Outlined.TaskAlt, Icons.Rounded.TaskAlt),
-            GlassTab("主页", Icons.Outlined.Home, Icons.Rounded.Home),
+            GlassTab("聊天", LucideTabIcons.MessageCircle, LucideTabIcons.MessageCircleFilled),
+            GlassTab("记录", LucideTabIcons.Notebook, LucideTabIcons.NotebookFilled),
+            GlassTab("世界", LucideTabIcons.Globe, LucideTabIcons.GlobeFilled),
+            GlassTab("主页", LucideTabIcons.House, LucideTabIcons.HouseFilled),
         )
     }
 
@@ -197,8 +189,8 @@ fun MainScreen(
                     holder.SaveableStateProvider(index) {
                         when (index) {
                             0 -> ChatTab(bottomInset, onOpenSettings, onOpenSettingsPage, onOpenConversations, onOpenFeed, onOpenImage)
-                            1 -> DiaryTab(bottomInset, onOpenDiaryEntry)
-                            2 -> TodoTab(bottomInset)
+                            1 -> RecordsTab(bottomInset, onOpenDiaryEntry)
+                            2 -> WorldTab(bottomInset)
                             else -> HomeTab(bottomInset, onOpenSettings, onOpenLetters, onOpenMemory, onOpenFavorites)
                         }
                     }

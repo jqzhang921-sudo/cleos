@@ -1,6 +1,7 @@
 package com.cleo.cleos.ai
 
 import com.cleo.cleos.data.AppSettings
+import kotlinx.serialization.json.jsonArray
 import com.cleo.cleos.data.CallRecord
 import com.cleo.cleos.data.CallRecords
 import com.cleo.cleos.data.Companions
@@ -75,6 +76,8 @@ data class StreamingReply(
     val thoughtMs: Long? = null,
     /** The final request failure, during hand-over to its stored error row. */
     val error: String? = null,
+    /** Waiting presentation for a requested thinking mode; not evidence of received reasoning or its duration. */
+    val awaitingThinking: Boolean = false,
 )
 
 /**
@@ -357,6 +360,16 @@ class ChatRepository(
         }
     }
 
+    private suspend fun studyMemory(s: AppSettings, ta: CompanionEntity): String {
+        if (ToolGroup.WorldRecall !in s.tools) return ""
+        return db.withTransaction {
+            if (db.companions().get(ta.id)?.createdAt != ta.createdAt) ""
+            else com.cleo.cleos.data.WorldStudyMemory.load(db.world(), ta.id).takeIf {
+                it["books"]!!.jsonArray.isNotEmpty() || it["wishes"]!!.jsonArray.isNotEmpty()
+            }?.toString().orEmpty()
+        }
+    }
+
     /** The collection, read once for a request, and whether the TA may send from it (its switch). */
     private suspend fun stickersFor(s: AppSettings): Pair<StickerBook, Boolean> =
         StickerBook(db.stickers().all().filter { images.file(it.file).isFile }) to (ToolGroup.Stickers in s.tools)
@@ -384,11 +397,13 @@ class ChatRepository(
     }
 
     /** A voice message that couldn't be turned into text, tried again; answered if it can be now. */
-    fun retryVoice(conversationId: Long, messageId: Long) {
+    fun retryVoice(conversationId: Long, messageId: Long, answerAfter: Boolean = true) {
         scope.launch {
-            val clip = db.messages().get(messageId)?.let { MessageAudios.decode(it.audio) } ?: return@launch
+            val clip = db.messages().get(messageId)?.takeIf { it.conversationId == conversationId }
+                ?.let { MessageAudios.decode(it.audio) } ?: return@launch
             db.messages().setError(messageId, null)
-            if (holding(conversationId) { transcribe(messageId, clip) }) answerSoon(conversationId)
+            // Opening an old voice's text is not a request for another model reply.
+            if (holding(conversationId) { transcribe(messageId, clip) } && answerAfter) answerSoon(conversationId)
         }
     }
 
@@ -763,12 +778,13 @@ class ChatRepository(
         var groups = if (greeting) emptySet() else groupsFor(s, ta) intersect CALL_TOOLS
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
         val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
+        val study = studyMemory(s, ta)
         // The person's stickers in what came before, told in words: none are sent on the phone.
         val stickers = StickerBook(db.stickers().all())
         val calls = callsOutside(history)
         fun build() = Prompt.messages(
             s, ta, history, ZonedDateTime.now(), groups, false, memories, conversation.recap, stickers = stickers, call = callId, calls = calls,
-            lore = lore,
+            lore = lore, studyMemory = study,
             preserveReasoning = Thinking.keepsToolReasoning(use.model),
         ).let { if (instruction != null) Prompt.withWake(it, instruction) else it }
         var messages = build()
@@ -1045,10 +1061,12 @@ class ChatRepository(
         var thinking = ta.deepThinking && endpointKey !in refusesThinking
         val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
         val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
+        val study = studyMemory(s, ta)
         val (stickers, sendStickers) = stickersFor(s)
         val calls = callsOutside(history)
         fun build() = Prompt.withWake(
             Prompt.messages(s, ta, history, now, groups, false, memories, conversation.recap, stickers = stickers, sendStickers = sendStickers, calls = calls, lore = lore,
+                studyMemory = study,
                 preserveReasoning = Thinking.keepsToolReasoning(endpoint.model)),
             instruction + if(incomingAllowed) "\n你也可以自主选择用 request_call 邀请一次语音通话。只有确实想通过声音聊时才邀请，成功后直接结束本次回复，等待对方决定。" else "",
         )
@@ -1152,7 +1170,7 @@ class ChatRepository(
         // The dots at once. Getting ready can take a while (an outside service slow to list its
         // tools, one that is down until it times out), and the chat should show meanwhile that
         // a reply is coming, with stop.
-        show(StreamingReply(conversationId, "", thinking = false))
+        show(StreamingReply(conversationId, "", thinking = false, awaitingThinking = ta.deepThinking))
         try {
             val endpoint = ApiEndpoint(use.baseUrl, key, use.model)
             val endpointKey = endpoint.chatUrl + "|" + endpoint.model
@@ -1168,6 +1186,7 @@ class ChatRepository(
             var thinking = ta.deepThinking && endpointKey !in refusesThinking
             // What the TA remembers, read once for this reply.
             val memories = if (ToolGroup.Memory in s.tools) db.memories().allFor(ta.id) else emptyList()
+            val study = studyMemory(s, ta)
             // What the world book of this TA says, read in the same breath; it is only a list of
             // names until the TA looks one up.
             val lore = if (ToolGroup.Lore in s.tools) db.lore().allFor(ta.id) else emptyList()
@@ -1181,9 +1200,10 @@ class ChatRepository(
             val calls = callsOutside(history)
             fun build() = Prompt.messages(
                 s, ta, history, now, groups, withImages, memories, recap, outside, due.map { it.what }, heard, stickers, sendStickers, calls = calls,
-                lore = lore,
+                lore = lore, studyMemory = study,
                 preserveReasoning = Thinking.keepsToolReasoning(endpoint.model),
                 incomingCalls = incomingAllowed,
+                textReply = history.lastOrNull { it.role == "user" }?.audio == null,
             )
             var messages = prepare(build())
             var rounds = 0
@@ -1196,10 +1216,14 @@ class ChatRepository(
                 db.messages().repliedSince(conversationId, startedAt).takeIf { it.isNotEmpty() }?.let { replied(ta, conversationId, it) }
             }
             val imageBudget = McpImages.Budget()
+            // Every request this reply makes adds its cost; the total goes under its last bubble.
+            val usage = java.util.concurrent.atomic.AtomicReference(com.cleo.cleos.data.MessageUsage(model = endpoint.model))
+            try {
             while (true) {
                 val mayRefuse = rounds == 0 && (groups.isNotEmpty() || outside.isNotEmpty() || withImages || thinking)
                 val specs = tools.specs(groups,incomingAllowed) + outside.map { it.spec }
                 when (val step = step(conversationId, endpoint, messages, specs, mayRefuse, thinking, showThought = ta.deepThinking,
+                    onUsage = { u -> usage.updateAndGet { it + u } },
                     literalAllowed = literalAllowed)) {
                     is Step.Ended -> {
                         if (step.ok) done()
@@ -1261,6 +1285,9 @@ class ChatRepository(
                     }
                 }
             }
+            } finally {
+                withContext(NonCancellable) { attachUsage(conversationId, startedAt, usage.get()) }
+            }
         } catch (e: Throwable) {
             // Stopped (or failed) while getting ready or while a tool ran: no stream is open to
             // clear the live row on its way out.
@@ -1270,6 +1297,18 @@ class ChatRepository(
     }
 
     private enum class Left { Thinking, Images, Tools }
+
+    /**
+     * Puts what a reply cost on the last bubble it stored (since [since]). Nothing when the service
+     * reported no counts, or the reply stored nothing (stopped before a word). Never fails a reply.
+     */
+    private suspend fun attachUsage(conversationId: Long, since: Long, usage: com.cleo.cleos.data.MessageUsage) {
+        if (usage.steps.isEmpty()) return
+        runCatching {
+            val id = db.messages().lastAssistantSince(conversationId, since) ?: return
+            db.messages().setUsage(id, com.cleo.cleos.data.MessageUsages.encode(usage))
+        }
+    }
 
     private class LeftOut(val what: Left, val at: Long)
 
@@ -1334,6 +1373,8 @@ class ChatRepository(
         background: BackgroundRequest? = null,
         allowed: suspend () -> Boolean = { true },
         onRetry: suspend (Long) -> Unit = {},
+        /** What each request of this step cost, when the service says (MessageUsage). */
+        onUsage: (com.cleo.cleos.data.UsageStep) -> Unit = {},
     ): Step {
         val startedAt = System.currentTimeMillis()
         val text = StringBuilder()
@@ -1360,13 +1401,13 @@ class ChatRepository(
         fun live(reply: StreamingReply) {
             if (!wake) show(reply)
         }
-        live(StreamingReply(conversationId, "", thinking = false))
+        live(StreamingReply(conversationId, "", thinking = false, awaitingThinking = thinking))
         try {
             val events = if (background != null) background.stream(
-                { client.stream(endpoint, messages, specs, thinking) }, allowed = allowed, onRequest = onRequest, onRetry = onRetry)
+                { client.stream(endpoint, messages, specs, thinking, onUsage) }, allowed = allowed, onRequest = onRequest, onRetry = onRetry)
             else {
                 onRequest()
-                client.stream(endpoint, messages, specs, thinking)
+                client.stream(endpoint, messages, specs, thinking, onUsage)
             }
             events.collect { event ->
                 when (event) {
@@ -1778,7 +1819,7 @@ class ChatRepository(
          */
         private val CALL_TOOLS = setOf(
             ToolGroup.Todos, ToolGroup.Diary, ToolGroup.AiDiary, ToolGroup.Memory, ToolGroup.Letters, ToolGroup.Weather,
-            ToolGroup.Location, ToolGroup.Later, ToolGroup.Alarm, ToolGroup.Calendar,
+            ToolGroup.Location, ToolGroup.Later, ToolGroup.Alarm, ToolGroup.Calendar, ToolGroup.WorldRecall,
         )
         private const val TOOLS_REFUSED = "接口拒绝了本次工具请求，已改成文字回复。本次没有执行闹钟、待办或外部服务；下一次回复会重新尝试带上已开启的工具。"
         private const val IMAGES_REFUSED = "这个模型看不了图片，这次只发了文字。想让 TA 看图，换一个能看图的模型。"

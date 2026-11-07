@@ -1,0 +1,89 @@
+{
+  "upstream": "lucide-icons/lucide",
+  "commit": "a630cec77eac6568b989e87e4947a8bfe45caacd",
+  "licenseSha256": "b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57",
+  "conversion": "SVG paths to native Compose ImageVector; SVG circles use equivalent arcs and rounded rectangles use lines/arcs; 24x24 viewport, round caps/joins, 2-unit outline preserved.",
+  "icons": [
+    {
+      "icon": "message-circle",
+      "url": "https://raw.githubusercontent.com/lucide-icons/lucide/a630cec77eac6568b989e87e4947a8bfe45caacd/icons/message-circle.svg",
+      "svgSha256": "146f39740fe50844394d56ae1f8821937655bcfff3842bf6fe8ffc0bcd324076",
+      "canonicalPaths": [
+        "M 2.992 16.342 a 2 2 0 0 1 .094 1.167 l -1.065 3.29 a 1 1 0 0 0 1.236 1.168 l 3.413 -.998 a 2 2 0 0 1 1.099 .092 10 10 0 1 0 -4.777 -4.719"
+      ]
+    },
+    {
+      "icon": "notebook",
+      "url": "https://raw.githubusercontent.com/lucide-icons/lucide/a630cec77eac6568b989e87e4947a8bfe45caacd/icons/notebook.svg",
+      "svgSha256": "03c9f3fa8ead15c1f64c7dd4269d4c0376d1e88f7c534acbbb716f2995942821",
+      "canonicalPaths": [
+        "M2 6h4",
+        "M2 10h4",
+        "M2 14h4",
+        "M2 18h4",
+        "M 6 2 H 18 A 2 2 0 0 1 20 4 V 20 A 2 2 0 0 1 18 22 H 6 A 2 2 0 0 1 4 20 V 4 A 2 2 0 0 1 6 2 Z",
+        "M16 2v20"
+      ]
+    },
+    {
+      "icon": "globe",
+      "url": "https://raw.githubusercontent.com/lucide-icons/lucide/a630cec77eac6568b989e87e4947a8bfe45caacd/icons/globe.svg",
+      "svgSha256": "82c6b8fa0b8e8d775ec9becd86f74a4e50bff7bee4c81f7362de45348504f14d",
+      "canonicalPaths": [
+        "M 22 12 A 10 10 0 1 0 2 12 A 10 10 0 1 0 22 12 Z",
+        "M 12 2 a 14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0 -20",
+        "M 2 12 h 20"
+      ]
+    },
+    {
+      "icon": "house",
+      "url": "https://raw.githubusercontent.com/lucide-icons/lucide/a630cec77eac6568b989e87e4947a8bfe45caacd/icons/house.svg",
+      "svgSha256": "28216c479005731ef5e382e7d8627eda2b129b019eb1f3d9de9f5915576d448e",
+      "canonicalPaths": [
+        "M 15 21 v -8 a 1 1 0 0 0 -1 -1 h -4 a 1 1 0 0 0 -1 1 v 8",
+        "M 3 10 a 2 2 0 0 1 .709 -1.528 l 7 -6 a 2 2 0 0 1 2.582 0 l 7 6 A 2 2 0 0 1 21 10 v 9 a 2 2 0 0 1 -2 2 H 5 a 2 2 0 0 1 -2 -2 z"
+      ]
+    }
+  ],
+  "filledAdaptation": {
+    "author": "Cleos",
+    "description": "Selected variants use the same upstream silhouettes and 2-unit borders with solid fill. Transparent nonoverlapping cutouts preserve the notebook band, house door and globe grid. 24x24 viewport and outer borders retained. Not official Lucide filled icons.",
+    "variants": {
+      "MessageCircleFilled": {
+        "silhouette": "M 2.992 16.342 a 2 2 0 0 1 .094 1.167 l -1.065 3.29 a 1 1 0 0 0 1.236 1.168 l 3.413 -.998 a 2 2 0 0 1 1.099 .092 10 10 0 1 0 -4.777 -4.719 Z",
+        "holes": [],
+        "extra": []
+      },
+      "NotebookFilled": {
+        "silhouette": "M 6 2 H 18 A 2 2 0 0 1 20 4 V 20 A 2 2 0 0 1 18 22 H 6 A 2 2 0 0 1 4 20 V 4 A 2 2 0 0 1 6 2 Z",
+        "holes": [
+          "M 15.25 4 V 20 H 16.75 V 4 Z"
+        ],
+        "extra": [
+          "M2 6h4",
+          "M2 10h4",
+          "M2 14h4",
+          "M2 18h4"
+        ]
+      },
+      "GlobeFilled": {
+        "silhouette": "M 22 12 A 10 10 0 1 0 2 12 A 10 10 0 1 0 22 12 Z",
+        "holes": [
+          "M 0 11.25 V 12.75 H 24 V 11.25 Z",
+          "M 9.51684 4 A 15.25 15.25 0 0 0 7.26845 11.25 L 8.77047 11.25 A 13.75 13.75 0 0 1 11.31687 4 Z",
+          "M 7.26845 12.75 A 15.25 15.25 0 0 0 9.51684 20 L 11.31687 20 A 13.75 13.75 0 0 1 8.77047 12.75 Z",
+          "M 12.68313 4 A 13.75 13.75 0 0 1 15.22953 11.25 L 16.73155 11.25 A 15.25 15.25 0 0 0 14.48316 4 Z",
+          "M 15.22953 12.75 A 13.75 13.75 0 0 1 12.68313 20 L 14.48316 20 A 15.25 15.25 0 0 0 16.73155 12.75 Z"
+        ],
+        "extra": []
+      },
+      "HouseFilled": {
+        "silhouette": "M 3 10 a 2 2 0 0 1 .709 -1.528 l 7 -6 a 2 2 0 0 1 2.582 0 l 7 6 A 2 2 0 0 1 21 10 v 9 a 2 2 0 0 1 -2 2 H 5 a 2 2 0 0 1 -2 -2 z",
+        "holes": [
+          "M 9.5 24 H 14.5 V 13.5 Q 14.5 12.5 13.5 12.5 H 10.5 Q 9.5 12.5 9.5 13.5 Z"
+        ],
+        "extra": []
+      }
+    }
+  }
+}

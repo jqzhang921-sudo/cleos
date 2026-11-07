@@ -18,6 +18,15 @@ Original contribution: 59b47cd5dfc0868eaea6c783e092a01b5056f417.
 This contribution was submitted under the project Apache-2.0 terms.
 
 Third-party attribution
+Lucide tab icons: Copyright (c) 2026 Lucide Icons and Contributors.
+ISC License. Source: https://github.com/lucide-icons/lucide
+The message-circle, notebook, globe and house SVGs are adapted to
+native Compose vectors. Original SVGs and the full upstream license
+are preserved in licenses/lucide/; the full license is also shipped in
+app/src/main/assets/licenses/lucide-LICENSE.txt.
+The selected solid-fill variants are Cleos adaptations of the same
+silhouettes with transparent detail cutouts, not official Lucide fills.
+
 binaural-voice: Copyright (c) 2026 Saekisui. MIT License.
 Source: https://github.com/Saekisui/binaural-voice
 Cleos ports voice movement behavior to its Kotlin/Android binaural

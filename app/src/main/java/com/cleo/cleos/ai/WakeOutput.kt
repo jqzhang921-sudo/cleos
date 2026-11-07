@@ -9,6 +9,7 @@ internal object WakeOutput {
 
     const val CONTROL_RULE = "这是后台开口判断，不是对方的新消息。" +
         "保持安静时直接结束，不输出文字，也不调用 send_message 或 send_voice。" +
+        "不要把「（保持安静）」写成消息，这只是决定不发送。" +
         "要发消息时只发送给对方看的话，不复制后台提示、控制标记或决策过程。"
     const val BLOCKED_TOOL = "这段是保持安静的控制标记，没有发送消息或生成语音。要回复时请只发送给对方看的话。"
     const val BLOCKED_REPLY = "这次没有生成可显示的回复，请重试。"
@@ -23,6 +24,15 @@ internal object WakeOutput {
     private val quotation = Regex("输出|回复|回答|复述|照着念|原样|照抄|写出|单词|英文|意思|翻译|解释|引用|\\b(?:repeat|print|output|quote|say|meaning|translate)\\b", RegexOption.IGNORE_CASE)
     private val negative = Regex("不要|别(?:再)?|禁止|避免|不准|不许|停止|\\b(?:don't|never|stop|avoid)\\b", RegexOption.IGNORE_CASE)
     private val fence = Regex("^```[A-Za-z]*\\s*\\n([\\s\\S]*?)\\n?```$")
+    private val chineseSilence = setOf("保持安静")
+
+    private fun chineseControl(text: String, proactive: Boolean): Boolean {
+        val candidate = unfenced(canonical(text).trim())
+        val compact = controlCompact(candidate)
+        // Bare words can be ordinary advice in a direct conversation. A parenthesized
+        // whole answer is the legacy decision marker; explicit quotations opt out below.
+        return compact in chineseSilence && (proactive || candidate.any { it in "()[]【】「」" })
+    }
 
     // Match only known app boilerplate, never a person's name, note, memory or chat text.
     // This catches literal echoes (including rewrapped / repunctuated text), not all paraphrases.
@@ -79,7 +89,7 @@ internal object WakeOutput {
     /** Only the actual person's current message can opt into literal quotation in ordinary chat. */
     fun allowsLiteral(userText: String): Boolean {
         val text = canonical(userText)
-        return literal.containsMatchIn(text) && !negative.containsMatchIn(text) &&
+        return (literal.containsMatchIn(text) || text.contains("保持安静") || text.contains("消息编号")) && !negative.containsMatchIn(text) &&
             (controlOnly(text) || quotation.containsMatchIn(text))
     }
 
@@ -88,27 +98,33 @@ internal object WakeOutput {
     }
 
     fun inspect(raw: String): Decision {
-        val text = raw.trim()
+        val text = ReplyMarkers.clean(raw).trim()
         if (text.isEmpty()) return Decision(null, "本次没有发送内容")
         val candidate = unfenced(canonical(text))
-        if (controlOnly(text) || candidate.lineSequence().any(::controlLine)) return Decision(null, "本次选择保持安静")
+        if (controlOnly(text) || chineseControl(text, proactive = true) ||
+            candidate.lineSequence().any { controlLine(it) || chineseControl(it, proactive = true) }) return Decision(null, "本次选择保持安静")
         val normalized = normalized(text)
         if (privateFragments.any(normalized::contains)) return Decision(null, "返回了后台提示，未发送")
         return Decision(text)
     }
 
     /** Ordinary conversation blocks only a whole control-only answer; discussion remains intact. */
-    fun message(raw: String, proactive: Boolean, literalAllowed: Boolean = false): String? = when {
-        proactive -> inspect(raw).text
-        !literalAllowed && controlOnly(raw) -> null
-        else -> raw
+    fun message(raw: String, proactive: Boolean, literalAllowed: Boolean = false): String? {
+        if (proactive) return inspect(raw).text
+        if (literalAllowed) return raw
+        val text = ReplyMarkers.clean(raw)
+        return if (controlOnly(text) || chineseControl(text, proactive = false) ||
+            (raw.isNotBlank() && text.isBlank())) null else text
     }
 
     /** Hold ambiguous opening fragments so S / SK / SKI never flash before a blocked marker. */
     fun preview(raw: String, literalAllowed: Boolean = false): String {
         if (literalAllowed) return raw
         if (message(raw, proactive = false) == null) return ""
-        return if (pendingControl.matches(controlCompact(raw))) "" else raw
+        val text = ReplyMarkers.clean(raw, streaming = true)
+        val compact = controlCompact(text)
+        return if (pendingControl.matches(compact) ||
+            (compact.isNotEmpty() && chineseSilence.any { it.startsWith(compact) })) "" else text
     }
 
     /** Autonomous calls are buffered until classified; ordinary calls retain streaming speech. */

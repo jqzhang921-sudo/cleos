@@ -146,7 +146,7 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
         ExplainedSwitch(
             "分条消息与表情回应",
             "分开发消息，也能给你的消息贴表情",
-            "TA 可以分成几条消息说，也能偶尔给你的消息贴表情，或者只用一个表情回应。关掉后这两项能力都停用。",
+            "TA 可以分成几条消息说，也能偶尔给你的消息贴表情，或者只用一个表情回应。喜欢分条还是长文，可在每位 TA 的「说话方式」里选择。关掉后分条发送和表情回应都停用，普通文字仍可正常回复。",
             on(ToolGroup.Messages),
         ) { vm.setTool(ToolGroup.Messages, it) }
         RowDivider(inset = 0.dp)
@@ -181,12 +181,19 @@ internal fun AbilitiesPage(vm: SettingsViewModel, onOpenVoice: () -> Unit) {
     }
 
     ListCard("记东西") {
+        ExplainedSwitch(
+            "回想世界",
+            "接上书架近况，按需回想读过、看过、写过的内容",
+            "默认关闭。开启后，私聊和电话会带上当前 TA 的少量书架近况与想读理由，也可按需查阅读进度、笔记、少量摘录、公开看图记录和自己的随想、草稿与虚构故事片段。群聊只查自己的公开窗外。资料发送给当前 TA 的模型；不读取其他 TA、私人相册或整本书，不联网，不改进度。关闭后停止加入新的书架近况和查询，已进入对话的内容仍会保留。",
+            on(ToolGroup.WorldRecall),
+        ) { vm.setTool(ToolGroup.WorldRecall, it) }
+        RowDivider(inset = 0.dp)
         ExplainedSwitch("待办", "帮你记下、查看、改日期、打勾", null, on(ToolGroup.Todos)) { vm.setTool(ToolGroup.Todos, it) }
         RowDivider(inset = 0.dp)
         ExplainedSwitch(
             "记忆",
             "记下关于你和它自己的事，下次还知道",
-            "TA 会自己记下关于你的事和它自己的事，下次还知道。在主页「记忆」里能看、能改、能钉住。",
+            "TA 会自己记下关于你的事和它自己的事，下次还知道。在主页「记忆」里能看、能改、能钉住。开启后，书房阅读也会带上这位 TA 的少量相关读书偏好与记忆摘要，不携带整段聊天或记忆详情。",
             on(ToolGroup.Memory),
         ) { vm.setTool(ToolGroup.Memory, it) }
         RowDivider(inset = 0.dp)

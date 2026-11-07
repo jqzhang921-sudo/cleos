@@ -2,6 +2,7 @@ package com.cleo.cleos.ui.diary
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,12 +13,19 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -26,7 +34,13 @@ import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import com.cleo.cleos.ui.records.LocalRecordCalendar
+import com.cleo.cleos.ui.records.RecordViewButton
+import com.cleo.cleos.ui.records.RecordsCalendar
+import com.cleo.cleos.ui.records.RecordDateScope
+import com.cleo.cleos.ui.records.RecordViewContent
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +52,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -46,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.cleo.cleos.data.DiaryBlocks
+import com.cleo.cleos.data.db.CompanionEntity
 import com.cleo.cleos.data.db.DiaryEntryEntity
 import com.cleo.cleos.glass.GlassIconButton
 import com.cleo.cleos.glass.GlassShape
@@ -54,7 +70,7 @@ import com.cleo.cleos.glass.LocalGlassPalette
 import com.cleo.cleos.ui.common.Dates
 import com.cleo.cleos.ui.common.GlassPage
 import com.cleo.cleos.ui.common.GlassTopBar
-import com.cleo.cleos.ui.common.TopBarHeight
+import com.cleo.cleos.ui.records.recordTopBarHeight
 import com.cleo.cleos.ui.common.appContainer
 import com.cleo.cleos.ui.common.fadeUnderTopBar
 import kotlinx.coroutines.Dispatchers
@@ -98,34 +114,74 @@ private enum class DiaryFilter(val label: String, val empty: String, val hint: S
 }
 
 @Composable
-fun DiaryTab(bottomInset: Dp, onOpenEntry: (id: Long, secret: Boolean) -> Unit) {
+fun DiaryTab(
+    bottomInset: Dp,
+    onOpenEntry: (id: Long, secret: Boolean, day: Long?) -> Unit,
+    sectionHeader: @Composable () -> Unit = {},
+) {
+    val control = LocalRecordCalendar.current
+    val selectedDay = control.dates.dayEpoch
     val c = appContainer()
     val palette = LocalGlassPalette.current
     var filter by rememberSaveable { mutableStateOf(DiaryFilter.All) }
-    val rows by remember(filter) {
+    var writerId by rememberSaveable { mutableStateOf(0L) }
+    val queryKey = listOf(filter.name, writerId.toString(), selectedDay.toString())
+    val result by remember(filter, writerId, selectedDay) {
         c.db.diary().observeAll()
-            .map { entries -> toRows(entries.filter(filter::accepts)) { c.images.file(it) } }
+            .map { entries ->
+                val eligible = entries.filter { filter.accepts(it) && (writerId == 0L || it.companionId == writerId) }
+                val rows = toRows(eligible.filter {
+                    selectedDay == com.cleo.cleos.ui.todo.TodoCalendarModel.ALL || it.day == selectedDay
+                }) { c.images.file(it) }
+                Triple(queryKey, eligible.groupingBy { it.day }.eachCount(), rows)
+            }
             .flowOn(Dispatchers.Default)
     }.collectAsStateWithLifecycle(null)
+    val current = result?.takeIf { it.first == queryKey }
+    val rows = current?.third
+    val counts = current?.second.orEmpty()
+    val listState = rememberLazyListState()
+    val calendarState = rememberLazyListState()
+    val viewportKey = "$selectedDay:$filter:$writerId"
+    var previousViewportKey by rememberSaveable { mutableStateOf(viewportKey) }
+    LaunchedEffect(viewportKey) {
+        if (previousViewportKey != viewportKey) {
+            listState.scrollToItem(0)
+            calendarState.scrollToItem(0)
+            previousViewportKey = viewportKey
+        }
+    }
     // Which TA wrote which entry, by name: the book holds every TA's pages.
-    val names by remember { c.companions.all.map { list -> list.associate { it.id to it.name.trim().ifEmpty { "TA" } } } }
-        .collectAsStateWithLifecycle(emptyMap())
+    val companions by remember { c.companions.all }.collectAsStateWithLifecycle(null)
+    val names = companions.orEmpty().associate { it.id to it.name.trim().ifEmpty { "TA" } }
+    LaunchedEffect(companions, writerId, filter) {
+        // Older versions could save the removed, all-TA filter. Keep a visible selection.
+        if ((filter == DiaryFilter.Theirs && writerId == 0L) ||
+            (companions != null && writerId != 0L && writerId !in names)
+        ) {
+            writerId = 0L
+            filter = DiaryFilter.All
+        }
+    }
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topBarHeight = recordTopBarHeight()
     val count = rows?.count { it is DiaryRow.Entry } ?: 0
 
     GlassPage(
         overlay = { page ->
             GlassTopBar(
+                barHeight = topBarHeight,
                 title = "日记",
                 subtitle = if (count > 0) "$count 篇" else null,
                 backdrop = page,
+                trailing = { RecordViewButton(page) },
             )
             // Writing from the secrets page starts locked: that page is where secrets are kept.
             val secret = filter == DiaryFilter.Secrets
             GlassIconButton(
                 if (secret) Icons.Rounded.Lock else Icons.Rounded.EditNote,
                 if (secret) "写小秘密" else "写日记",
-                { onOpenEntry(0L, secret) },
+                { onOpenEntry(0L, secret, control.dates.day?.toEpochDay()) },
                 page,
                 style = palette.accentSurface,
                 tint = Color.White,
@@ -136,39 +192,63 @@ fun DiaryTab(bottomInset: Dp, onOpenEntry: (id: Long, secret: Boolean) -> Unit) 
             )
         },
     ) {
-        val list = rows
-        if (list != null && list.isEmpty()) {
-            GlassSurface(
-                modifier = Modifier.align(Alignment.Center),
-                style = palette.notice,
-                shape = GlassShape.Rounded(22.dp),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(filter.empty, color = palette.content, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                    Spacer(Modifier.size(6.dp))
-                    Text(filter.hint, color = palette.contentSecondary, fontSize = 14.sp)
+        Column(Modifier.fillMaxSize().padding(top = statusTop + topBarHeight + 6.dp)) {
+            Column(Modifier.padding(horizontal = 14.dp)) {
+                sectionHeader()
+                Spacer(Modifier.height(10.dp))
+                FilterBar(filter, writerId, companions.orEmpty()) { next, writer ->
+                    filter = next
+                    writerId = writer
                 }
+                Spacer(Modifier.height(6.dp))
             }
-        }
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .fadeUnderTopBar(statusTop + TopBarHeight, bottom = bottomInset - 10.dp),
-            contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = statusTop + TopBarHeight + 6.dp, bottom = bottomInset + 80.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            item(key = "filter") { FilterBar(filter) { filter = it } }
-            items(list.orEmpty(), key = {
-                when (it) {
-                    is DiaryRow.Month -> "m${it.month}"
-                    is DiaryRow.Entry -> it.card.id
+            RecordViewContent(control.calendar == true, Modifier.weight(1f)) { calendar ->
+                val list = rows
+                if (list != null && list.isEmpty() && !calendar && control.dates.day == null) {
+                    GlassSurface(
+                        modifier = Modifier.align(Alignment.Center),
+                        style = palette.notice,
+                        shape = GlassShape.Rounded(22.dp),
+                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                if (writerId != 0L) "${names[writerId] ?: "TA"}还没写过日记" else filter.empty,
+                                color = palette.content, fontSize = 17.sp, fontWeight = FontWeight.Medium,
+                            )
+                            Spacer(Modifier.size(6.dp))
+                            Text(filter.hint, color = palette.contentSecondary, fontSize = 14.sp)
+                        }
+                    }
                 }
-            }) { row ->
-                when (row) {
-                    is DiaryRow.Month -> MonthHeader(row.month)
-                    is DiaryRow.Entry -> DiaryCardView(row.card, row.card.byTa?.let { names[it] ?: "TA" }) {
-                        onOpenEntry(row.card.id, false)
+                LazyColumn(
+                    state = if (calendar) calendarState else listState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .fadeUnderTopBar(0.dp, bottom = bottomInset - 10.dp),
+                    contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = 6.dp, bottom = bottomInset + 80.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    if (calendar) item(key = "calendar") { RecordsCalendar(diaryCounts = counts) }
+                    item(key = "dateScope") { RecordDateScope() }
+                    if (list != null && list.isEmpty() && (calendar || control.dates.day != null)) {
+                        item(key = "dateEmpty") {
+                            Text(if (control.dates.day != null) "这天没有日记" else filter.empty,
+                                color = palette.contentSecondary, modifier = Modifier.padding(16.dp))
+                        }
+                    }
+                    items(list.orEmpty(), key = {
+                        when (it) {
+                            is DiaryRow.Month -> "m${it.month}"
+                            is DiaryRow.Entry -> it.card.id
+                        }
+                    }) { row ->
+                        when (row) {
+                            is DiaryRow.Month -> MonthHeader(row.month)
+                            is DiaryRow.Entry -> DiaryCardView(row.card, row.card.byTa?.let { names[it] ?: "TA" }) {
+                                onOpenEntry(row.card.id, false, null)
+                            }
+                        }
                     }
                 }
             }
@@ -214,31 +294,46 @@ private fun MonthHeader(month: YearMonth) {
     }
 }
 
-/** On glass, like every other line of text on this page; the chosen one is an accent pill. */
+/** A separate, horizontally scrollable row, below the diary / todo sections. */
 @Composable
-private fun FilterBar(selected: DiaryFilter, onSelect: (DiaryFilter) -> Unit) {
-    val palette = LocalGlassPalette.current
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        GlassSurface(style = palette.bar, shape = GlassShape.Capsule, contentPadding = PaddingValues(4.dp)) {
-            Row {
-                DiaryFilter.entries.forEach { f ->
-                    val on = f == selected
-                    Box(
-                        Modifier
-                            .background(if (on) palette.accent else Color.Transparent, CircleShape)
-                            .clickable(interactionSource = null, indication = null) { onSelect(f) }
-                            .padding(horizontal = 14.dp, vertical = 7.dp),
-                    ) {
-                        Text(
-                            f.label,
-                            color = if (on) Color.White else palette.content,
-                            fontSize = 14.sp,
-                            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    }
-                }
-            }
+private fun FilterBar(
+    selected: DiaryFilter,
+    writerId: Long,
+    companions: List<CompanionEntity>,
+    onSelect: (DiaryFilter, Long) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).selectableGroup(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        DiaryFilter.entries.take(2).forEach { filter ->
+            WriterChip(filter.label, writerId == 0L && selected == filter) { onSelect(filter, 0L) }
         }
+        companions.forEach { ta ->
+            WriterChip(ta.name.trim().ifEmpty { "TA" }, writerId == ta.id) { onSelect(DiaryFilter.Theirs, ta.id) }
+        }
+        WriterChip(DiaryFilter.Secrets.label, writerId == 0L && selected == DiaryFilter.Secrets) {
+            onSelect(DiaryFilter.Secrets, 0L)
+        }
+    }
+}
+
+@Composable
+private fun WriterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val palette = LocalGlassPalette.current
+    Box(
+        Modifier.clip(CircleShape)
+            .background(palette.content.copy(alpha = if (selected) .14f else .06f))
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+            .heightIn(min = 44.dp).widthIn(max = 170.dp)
+            .padding(horizontal = 16.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label, color = if (selected) palette.content else palette.contentSecondary,
+            fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
