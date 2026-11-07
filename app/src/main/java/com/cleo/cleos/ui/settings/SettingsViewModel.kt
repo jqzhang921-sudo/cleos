@@ -898,6 +898,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(showThought = on) } }
     }
 
+    fun setShowTokenUsage(on: Boolean) {
+        viewModelScope.launch { c.settings.update { it.copy(showTokenUsage = on) } }
+    }
+
     var backupBusy by mutableStateOf(false)
         private set
     var backupMessage by mutableStateOf<String?>(null)

@@ -119,6 +119,15 @@ internal fun ChatPage(vm: SettingsViewModel) {
 
     Section("消息间距") { MessageSpacingControls(settings.messageSpacing, vm::setMessageSpacing) }
 
+    ListCard("用量显示") {
+        ExplainedSwitch(
+            "显示 Token 与缓存用量",
+            "在 TA 的回复下显示用量，点开查看明细",
+            "默认关闭，所有 TA 共用。开启后显示接口返回的 Token、缓存命中和思考用量；没有返回的数据不显示。关闭只隐藏用量行和明细，不影响接口计费，不删除已经记录的用量；重新开启后也能查看旧消息的用量。",
+            settings.showTokenUsage,
+        ) { vm.setShowTokenUsage(it) }
+    }
+
     ListCard("思考卡片") {
         ExplainedSwitch(
             "显示思考卡片",

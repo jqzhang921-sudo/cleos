@@ -1007,6 +1007,7 @@ fun ChatTab(
                                         onOpenImage = onOpenImage,
                                         transcribing = m.id in state.transcribing,
                                         expandVoiceText = appSettings.expandVoiceText,
+                                        showTokenUsage = appSettings.showTokenUsage,
                                         playingFile = playing,
                                         onPlay = { play(it, theirs = m.role == "assistant") },
                                         onRetryVoice = { vm.retryVoice(m.id) },
@@ -1304,6 +1305,7 @@ private fun MessageBubble(
     onSelect: () -> Unit = {},
     onEdit: (() -> Unit)? = null,
     translationEnabled: Boolean = true,
+    showTokenUsage: Boolean = false,
 ) {
     val palette = LocalGlassPalette.current
     val mine = message.role == "user"
@@ -1334,7 +1336,9 @@ private fun MessageBubble(
         }
     }.joinToString("\n") }
     val reactions = remember(message.reactions) { MessageReactions.decode(message.reactions) }
-    val usage = remember(message.usage) { if (message.role == "assistant") MessageUsages.decode(message.usage) else null }
+    val usage = remember(message.usage, showTokenUsage) {
+        if (showTokenUsage && message.role == "assistant") MessageUsages.decode(message.usage) else null
+    }
 
     Row(
         Modifier.fillMaxWidth().background(glow, RoundedCornerShape(18.dp)),

@@ -98,6 +98,7 @@ data class BackupSettings(
     val earVoice: Boolean = true,
     val expandVoiceText: Boolean = false,
     val showThought: Boolean = true,
+    val showTokenUsage: Boolean = false,
 )
 
 /** The backup format: one zip, `backup.json` plus the pictures under `images/`. */
@@ -347,6 +348,7 @@ class BackupService(
                 earVoice = s.earVoice,
                 expandVoiceText = s.expandVoiceText,
                 showThought = s.showThought,
+                showTokenUsage = s.showTokenUsage,
                 knownSince = lead?.knownSince,
             ),
             conversations = db.conversations().all(),
@@ -645,6 +647,7 @@ class BackupService(
                     earVoice = bs.earVoice,
                     expandVoiceText = bs.expandVoiceText,
                     showThought = bs.showThought,
+                    showTokenUsage = bs.showTokenUsage,
                 )
             }
             settings.setCurrentCompanion(companions.first().id)
