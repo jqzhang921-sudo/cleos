@@ -48,8 +48,33 @@ internal fun FreeTopicSection(vm: SettingsViewModel) {
         ExplainedSwitch("想找你聊", "不必先约好，TA 也可以自己想聊什么",
             "默认关闭。开启后，TA 会偶尔看看最近的聊天和记忆，自行决定聊什么，也可以保持安静。与原来的提醒和「还有句话」分别设置。", vm.freeTopicEnabled) { vm.setFreeTopic(it) }
         if (vm.freeTopicEnabled) {
+            Text("想找你聊的频率", color = LocalGlassPalette.current.content, fontSize = 14.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FreeTopicRules.LEVELS.forEach { level ->
+                    Chip(level.label, selected = vm.freeTopicLevel == level.id) { vm.chooseFreeTopicLevel(level.id) }
+                }
+            }
+            val level = FreeTopicRules.level(vm.freeTopicLevel)
+            Text("TA 可在 ${FreeTopicRules.intervalText(level)}范围内决定下次何时再看看；没有安排时按这个范围自动等待。这是考虑主动联系你的机会，不保证每次发消息；开启主动来电后，也可能选择来电。每天最多 ${level.dailyMax} 次考虑机会，每次会请求模型，用工具时可能请求多轮；选择安静也会消耗 token。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
+            ExplainedSwitch("想找你聊免打扰", "这段时间不主动开启新话题",
+                "只影响想找你聊，原来约好的提醒和「还有句话」仍按各自设置。起止时间相同表示全天免打扰。", vm.freeTopicQuietOn) { vm.setFreeTopicQuiet(it) }
+            if (vm.freeTopicQuietOn) {
+                Row {
+                    listOf(true, false).forEach { start ->
+                        val value = if (start) vm.freeTopicQuietStart else vm.freeTopicQuietEnd
+                        TextButton(onClick = {
+                            TimePickerDialog(context, { _, hour, minute -> vm.setFreeTopicTime(start, hour * 60 + minute) }, value / 60, value % 60, true).show()
+                        }) { Text((if (start) "开始 " else "结束 ") + FreeTopicRules.time(value)) }
+                    }
+                }
+            }
+            Text("首次聊天后生效。开始输入会取消旧安排，聊完重新安排，至少留 15 分钟空闲；连续两轮主动消息没收到回复就先停下来。后台执行时间会受手机省电影响，开启和改档后会重新等待下一次机会。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
+        }
+    }
+    if (vm.freeTopicEnabled) {
+        Section("主动来电") {
             ExplainedSwitch("TA 主动来电", "TA 也可以选择打电话给你",
-                "默认关闭。开启后，TA 可在想找你聊的机会里邀请语音通话，也能在单聊中应你的邀请打来；你接听后才开麦，无需重启 App。沿用下面的免打扰；每位 TA 可单独设置下方的来电间隔和次数，未接或拒绝也遵守间隔、计入次数，不会连续重拨。请先配好转写、通话模型和 TA 的声音。",vm.incomingCallsEnabled) { vm.setIncomingCalls(it) }
+                "默认关闭。开启后，TA 可在想找你聊的机会里邀请语音通话，也能在单聊中应你的邀请打来；你接听后才开麦，无需重启 App。沿用上面「想找你聊」的免打扰；每位 TA 可单独设置下方的来电间隔和次数，未接或拒绝也遵守间隔、计入次数，不会连续重拨。请先配好转写、通话模型和 TA 的声音。",vm.incomingCallsEnabled) { vm.setIncomingCalls(it) }
             if (vm.incomingCallsEnabled) {
                 ExplainedSwitch("持续横幅与锁屏来电页", "来电提醒多停留一会儿（所有 TA 共用）", null, settings.persistentIncomingAlerts) { on ->
                     c.appScope.launch { c.settings.update { it.copy(persistentIncomingAlerts=on) } }
@@ -77,26 +102,6 @@ internal fun FreeTopicSection(vm: SettingsViewModel) {
                 Text("只影响这位 TA 的主动来电，不限制接通后的通话时长。最短间隔 30 分钟；未接或拒绝也计入次数，关闭再开启不会清除记录。TA 仍会自行决定是否来电。",
                     color = color, fontSize = 12.sp, lineHeight = 18.sp)
             }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FreeTopicRules.LEVELS.forEach { level ->
-                    Chip(level.label, selected = vm.freeTopicLevel == level.id) { vm.chooseFreeTopicLevel(level.id) }
-                }
-            }
-            val level = FreeTopicRules.level(vm.freeTopicLevel)
-            Text("TA 可在 ${FreeTopicRules.intervalText(level)}范围内决定下次何时再看看；没有安排时按这个范围自动等待。每天最多 ${level.dailyMax} 次考虑机会，每次会请求模型，用工具时可能请求多轮；选择安静也会消耗 token。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
-            ExplainedSwitch("想找你聊免打扰", "这段时间不主动开启新话题",
-                "只影响想找你聊，原来约好的提醒和「还有句话」仍按各自设置。起止时间相同表示全天免打扰。", vm.freeTopicQuietOn) { vm.setFreeTopicQuiet(it) }
-            if (vm.freeTopicQuietOn) {
-                Row {
-                    listOf(true, false).forEach { start ->
-                        val value = if (start) vm.freeTopicQuietStart else vm.freeTopicQuietEnd
-                        TextButton(onClick = {
-                            TimePickerDialog(context, { _, hour, minute -> vm.setFreeTopicTime(start, hour * 60 + minute) }, value / 60, value % 60, true).show()
-                        }) { Text((if (start) "开始 " else "结束 ") + FreeTopicRules.time(value)) }
-                    }
-                }
-            }
-            Text("首次聊天后生效。开始输入会取消旧安排，聊完重新安排，至少留 15 分钟空闲；连续两轮主动消息没收到回复就先停下来。后台执行时间会受手机省电影响，开启和改档后会重新等待下一次机会。", color = color, fontSize = 12.sp, lineHeight = 18.sp)
         }
     }
 }
