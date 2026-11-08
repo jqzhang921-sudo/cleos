@@ -81,13 +81,7 @@ internal fun FreeTopicSection(vm: SettingsViewModel) {
                 }
                 Text("开启后，使用手机时请求持续来电横幅，锁屏时可显示来电页；接听后才打开话筒。需要手机允许通知及横幅，实际停留由系统决定。来电最多等候 60 秒。",
                     color=color,fontSize=12.sp,lineHeight=18.sp)
-                if(settings.persistentIncomingAlerts) {
-                    TextButton(onClick={
-                        runCatching { context.startActivity(Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                            .putExtra(Settings.EXTRA_APP_PACKAGE,context.packageName)
-                            .putExtra(Settings.EXTRA_CHANNEL_ID,com.cleo.cleos.Notifier.CHANNEL_INCOMING)) }
-                    }) { Text("来电通知设置") }
-                }
+                IncomingRingtoneSetting()
                 if(settings.persistentIncomingAlerts && Build.VERSION.SDK_INT>=34 && !fullScreenAllowed) {
                     TextButton(onClick={
                         runCatching { context.startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,Uri.parse("package:${context.packageName}"))) }

@@ -8,9 +8,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,26 +58,15 @@ class IncomingCallActivity : ComponentActivity() {
                         horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
                         offer?.let { item ->
                             Text("语音来电",color=palette.contentSecondary,fontSize=18.sp)
-                            Spacer(Modifier.height(28.dp))
-                            Avatar(item.ta.avatar,item.ta.avatarEmoji ?: avatarLetter(item.ta.name,"TA"),112.dp)
                             Spacer(Modifier.height(20.dp))
-                            Text(item.ta.name.ifBlank{"TA"},color=palette.content,fontSize=28.sp)
-                            Text("想和你语音通话",color=palette.contentSecondary,fontSize=16.sp)
-                            // Do not expose a private invitation reason on the lock screen.
-                            Spacer(Modifier.height(44.dp))
-                            Row(horizontalArrangement=Arrangement.spacedBy(72.dp)) {
-                                Column(horizontalAlignment=Alignment.CenterHorizontally) {
-                                    GlassIconButton(Icons.Rounded.CallEnd,"拒绝来电",{decline(id)},LocalWallpaperBackdrop.current,
-                                        tint=palette.error,enabled=!answering,size=68.dp)
-                                    Text("拒绝",color=palette.contentSecondary)
-                                }
-                                Column(horizontalAlignment=Alignment.CenterHorizontally) {
-                                    GlassIconButton(Icons.Rounded.Call,"接听来电",{answer(id)},LocalWallpaperBackdrop.current,
-                                        enabled=!answering,size=68.dp)
-                                    Text(if(answering) "正在接通…" else "接听",color=palette.contentSecondary)
-                                }
-                            }
-                            Spacer(Modifier.height(24.dp))
+                            com.cleo.cleos.ui.call.IncomingCallBanner(
+                                ta = item.ta,
+                                answering = answering,
+                                enabled = true,
+                                onDecline = { decline(id) },
+                                onAnswer = { answer(id) },
+                            )
+                            Spacer(Modifier.height(20.dp))
                             Text(unlockProblem ?: "接听后才打开话筒；手机已锁定时需要先解锁",color=palette.contentSecondary,fontSize=12.sp)
                         }
                     }

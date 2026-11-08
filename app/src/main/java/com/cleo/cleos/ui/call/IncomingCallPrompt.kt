@@ -5,28 +5,30 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import com.cleo.cleos.ai.IncomingCallOffer
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.*
 import kotlinx.coroutines.launch
 
-/** Answering is an explicit foreground action. Merely rendering this card never starts audio. */
+/** Answering is explicit. Rendering the banner never opens the microphone or starts call audio. */
 @Composable
 internal fun IncomingCallPrompt() {
     val c=appContainer()
@@ -55,6 +57,7 @@ internal fun IncomingCallPrompt() {
     }
     fun prepare(id: String) {
         if(answering || permissionFor!=null || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        c.notifier.cancelIncoming()
         if(ContextCompat.checkSelfPermission(context,Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) answer(id)
         else { permissionFor=id; permission.launch(Manifest.permission.RECORD_AUDIO) }
     }
@@ -65,32 +68,31 @@ internal fun IncomingCallPrompt() {
             c.incomingCalls.answerRequested.value=null; prepare(id)
         }
     }
-    offer?.let { item ->
-        val palette=LocalGlassPalette.current
-        Dialog(onDismissRequest={ if(!answering) scope.launch { c.incomingCalls.dismiss(item.invitation.id) } }) {
-            GlassSurface(Modifier.fillMaxWidth().semantics { contentDescription="TA 主动来电" },
-                contentPadding=PaddingValues(24.dp)) {
-                Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.CenterHorizontally,
-                    verticalArrangement=Arrangement.spacedBy(18.dp)) {
-                    Avatar(item.ta.avatar,item.ta.avatarEmoji ?: avatarLetter(item.ta.name,"TA"),72.dp)
-                    Text(item.ta.name.ifBlank { "TA" },color=palette.content,fontSize=22.sp)
-                    Text("想和你语音通话",color=palette.contentSecondary,fontSize=14.sp)
-                    Text(item.invitation.reason,color=palette.content,fontSize=15.sp)
-                    Row(horizontalArrangement=Arrangement.spacedBy(48.dp)) {
-                        Column(horizontalAlignment=Alignment.CenterHorizontally) {
-                            GlassIconButton(Icons.Rounded.CallEnd,"拒绝 TA 来电",{
-                                scope.launch { c.incomingCalls.dismiss(item.invitation.id) }
-                            },LocalWallpaperBackdrop.current,tint=palette.error,enabled=!answering,size=60.dp)
-                            Text("拒绝",color=palette.contentSecondary,fontSize=12.sp)
-                        }
-                        Column(horizontalAlignment=Alignment.CenterHorizontally) {
-                            GlassIconButton(Icons.Rounded.Call,"接听 TA 来电",{prepare(item.invitation.id)},
-                                LocalWallpaperBackdrop.current,enabled=!answering,size=60.dp)
-                            Text(if(answering) "正在接通…" else "接听",color=palette.contentSecondary,fontSize=12.sp)
-                        }
-                    }
-                    Text("接听后才打开话筒",color=palette.contentSecondary,fontSize=11.sp)
-                }
+    // Keep the outgoing content for its short exit, with its actions disabled immediately.
+    var lastOffer by remember { mutableStateOf<IncomingCallOffer?>(null) }
+    SideEffect { if (offer != null) lastOffer = offer }
+    val displayed = offer ?: lastOffer
+    val motion = systemMotionEnabled()
+    val visibility = remember { MutableTransitionState(false) }
+    LaunchedEffect(offer?.invitation?.id) { visibility.targetState = offer != null }
+    BackHandler(enabled = offer != null && !answering) {
+        offer?.let { item -> scope.launch { c.incomingCalls.dismiss(item.invitation.id) } }
+    }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        AnimatedVisibility(
+            visibleState = visibility,
+            modifier = Modifier.statusBarsPadding().padding(horizontal = 14.dp, vertical = 8.dp),
+            enter = if (motion) slideInVertically(spring(dampingRatio = 0.9f, stiffness = 420f)) { -it } else EnterTransition.None,
+            exit = if (motion) slideOutVertically(tween(180)) { -it } else ExitTransition.None,
+        ) {
+            displayed?.let { item ->
+                IncomingCallBanner(
+                    ta = item.ta,
+                    answering = answering,
+                    enabled = offer?.invitation?.id == item.invitation.id,
+                    onDecline = { scope.launch { c.incomingCalls.dismiss(item.invitation.id) } },
+                    onAnswer = { prepare(item.invitation.id) },
+                )
             }
         }
     }
