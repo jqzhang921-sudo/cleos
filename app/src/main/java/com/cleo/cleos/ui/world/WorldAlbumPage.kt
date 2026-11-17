@@ -1,10 +1,10 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.cleo.cleos.data.WorldAlbumData
+import com.cleo.cleos.data.WorldAlbumConsent
 import com.cleo.cleos.data.WorldReading
 import com.cleo.cleos.data.db.*
 import com.cleo.cleos.glass.*
@@ -47,6 +48,10 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
     val schedule by remember(ta.id) { c.db.worldAlbum().observeSchedule(ta.id) }.collectAsStateWithLifecycle(null)
     val lookRows by remember(ta.id) { c.db.worldAlbum().observeLooks(ta.id) }.collectAsStateWithLifecycle<List<WorldAlbumLookEntity>?>(null)
     val looks = lookRows.orEmpty()
+    val photoHistory = remember(photos, looks) { photos.associate { it.id to WorldAlbumConsent.history(it, looks) } }
+    val unseenCount = photos.count { photoHistory[it.id].isNullOrEmpty() }
+    val galleryState by c.worldAlbumGallery.state.collectAsStateWithLifecycle()
+    val linked = galleryState.links.any { it.owner == ta.id && it.ownerCreatedAt == ta.createdAt && it.active }
     val state by remember(ta.id) { c.db.world().observeState(ta.id) }.collectAsStateWithLifecycle(null)
     val busy by c.world.busy.collectAsStateWithLifecycle()
     var importing by remember { mutableStateOf(false) }
@@ -74,7 +79,7 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
     }
     val used = state?.takeIf { it.day == LocalDate.now().toEpochDay() }?.let { (it.attempts - if (it.token != null) 1 else 0).coerceAtLeast(0) } ?: 0
     val list = worldPageScroll(navigation, "album", ta.id, photoRows != null && lookRows != null)
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom = bottom - 10.dp), state = list,
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom = bottom - 10.dp), state = list,
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = top + 22.dp, bottom = bottom + 24.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)) {
         item(key = "intro") {
@@ -89,10 +94,11 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
                 if (notice.isNotBlank()) Text(notice, color = p.contentSecondary, fontSize = 13.sp, lineHeight = 21.sp)
             }
         }
-        item(key = "arrangements") { WorldAlbumAutonomy(ta, revision, photos.isNotEmpty(), state, options, onOptions) }
+        item(key = "gallery") { AlbumGalleryPanel(ta, photos.size) }
+        item(key = "arrangements") { WorldAlbumAutonomy(ta, revision, photos.isNotEmpty() || linked, unseenCount, state, options, onOptions, hasLinkedAlbum = linked) }
         if (photos.isEmpty()) item { Text("相册还空着。不同 TA 的照片分别选择，互相不会看到。", color = p.contentSecondary, fontSize = 15.sp, modifier = Modifier.padding(12.dp)) }
         items(photos, key = { it.id }) { photo ->
-            val records = looks.filter { it.companionId == ta.id && it.photoId == photo.id && it.photoSha256 == photo.sha256 }
+            val records = photoHistory[photo.id].orEmpty()
             val looking = ta.id in busy && c.world.lookingAtAlbum(ta.id, photo.id)
             var failed by remember(photo.file, photo.sha256) { mutableStateOf(false) }
             AlbumCard {
@@ -131,7 +137,7 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
         }
     }
     sending?.let { photo -> AlertDialog(onDismissRequest = { sending = null }, title = { Text("让${ta.name.ifBlank { "TA" }}看看这张？") },
-        text = { Text("这一张照片、你写的说明和 TA 的角色设定会发送到 TA 当前配置的模型接口，需要支持看图。感想保存在相册，与阅读共用每天 ${WorldReading.DAILY} 次机会，今天已用 $used 次。失败或停止会退回。") },
+        text = { Text("这一张照片、你写的说明、TA 的角色设定和它对同一张照片最近的少量感想会发送到 TA 当前配置的模型接口，需要支持看图。感想保存在相册，与阅读共用每天 ${WorldReading.DAILY} 次机会，今天已用 $used 次。失败或停止会退回。") },
         confirmButton = { TextButton(onClick = { sending = null; scope.launch {
             try { c.worldAlbum.look(ta.id, ta.createdAt, revision, photo) { c.world.startAlbum(ta.id, ta.createdAt, photo) } }
             catch (e: CancellationException) { throw e } catch (_: Exception) { notice = "相册已变化，请重新打开后再看。" }

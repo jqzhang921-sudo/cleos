@@ -7,12 +7,12 @@ import org.junit.Test
 class ToolSettingsTest {
     @Test
     fun phoneSharingIsOffForNewAndOldSettingsAndRoundTripsIndependently() {
-        val phone = setOf(ToolGroup.PhoneBattery, ToolGroup.PhoneUsage)
+        val phone = setOf(ToolGroup.PhoneBattery, ToolGroup.PhoneUsage, ToolGroup.PhoneAppUsage)
         assertEquals(emptySet<ToolGroup>(), AppSettings().tools.intersect(phone))
         val old = ToolGroup.entries.filter { it !in phone }.joinToString(",") { "${it.name}:on" }
         assertEquals(emptySet<ToolGroup>(), decodeTools(old).intersect(phone))
         assertEquals(emptySet<ToolGroup>(), decodeTools("Todos,Weather").intersect(phone))
-        for (chosen in listOf(emptySet(), setOf(ToolGroup.PhoneBattery), setOf(ToolGroup.PhoneUsage), phone))
+        for (chosen in listOf(emptySet(), setOf(ToolGroup.PhoneBattery), setOf(ToolGroup.PhoneUsage), setOf(ToolGroup.PhoneAppUsage), phone))
             assertEquals(chosen, decodeTools(encodeTools(chosen)))
     }
     @Test

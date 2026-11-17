@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.tabBarScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -97,7 +98,7 @@ internal fun NotebookScrollReader(
             val leaf = p.card.copy(shadowAlpha = p.card.shadowAlpha * .55f, shadowRadius = 12.dp, shadowOffsetY = 4.dp)
             GlassSurface(Modifier.weight(1f).fillMaxWidth().padding(horizontal = if (compact) 12.dp else 20.dp), style = leaf,
                 shape = GlassShape.Rounded(24.dp), contentPadding = PaddingValues(if (compact) 12.dp else 18.dp)) {
-                SelectionContainer(Modifier.fillMaxSize().verticalScroll(scroll)) {
+                SelectionContainer(Modifier.fillMaxSize().tabBarScroll(scroll).verticalScroll(scroll)) {
                     Text(body, color = p.content, fontSize = 16.sp, lineHeight = 26.sp, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "阅读正文，上下滑动" },
                         onTextLayout = { result -> if (layout != result) { ready = false; layout = result } })
                 }

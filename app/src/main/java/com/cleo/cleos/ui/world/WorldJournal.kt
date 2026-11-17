@@ -1,7 +1,7 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -45,7 +45,7 @@ internal fun WorldJournal(ta: CompanionEntity?, article: WorldArticleEntity?, no
     var allNotes by rememberSaveable(ta.id, article.id) { mutableStateOf(false) }
     var failed by remember(image?.file) { mutableStateOf(false) }
     val paragraphs = remember(article.fingerprint) { article.content.split(Regex("\n\\s*\n")).filter(String::isNotBlank) }
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list,
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list,
         contentPadding = PaddingValues(top = top + 20.dp, bottom = bottom + 28.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
         item(key = "title") { Column(Modifier.padding(horizontal = 26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("窗外 · 一则见闻", color = p.contentSecondary, fontSize = 12.sp)

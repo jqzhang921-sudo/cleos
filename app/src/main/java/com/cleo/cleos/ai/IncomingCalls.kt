@@ -86,7 +86,7 @@ class IncomingCalls(context: Context, private val db: AppDatabase, private val s
                 val recent = dao.recent(companionId,now-IncomingCallRules.DAY_MS)
                 IncomingCallRules.held(ta.incomingCallsEnabled,ta.freeTopicEnabled,
                     IncomingCallRules.quiet(ta,Instant.ofEpochMilli(now).atZone(ZoneId.systemDefault())),
-                    audioBusy(),dao.open().isNotEmpty(),recent.firstOrNull()?.createdAt,recent.size,now,ta.incomingCallIntervalMinutes,ta.incomingCallDailyMax)?.let { error(it) }
+                    audioBusy(),dao.open().isNotEmpty(),recent.firstOrNull()?.createdAt,recent.size,now,ta.incomingCallIntervalMinutes,ta.incomingCallDailyMax,ta.incomingCallMode)?.let { error(it) }
                 check(!db.conversations().idsFor(companionId).any { chat.isTyping(it) || (it != conversationId && chat.busy(it)) }) { "对方正在聊天，先不打扰。" }
                 check(db.messages().lastUserFor(companionId) != null) { "还没有聊过，先等第一次聊天。" }
                 configured(ta)

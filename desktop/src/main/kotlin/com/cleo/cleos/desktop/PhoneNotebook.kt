@@ -36,7 +36,7 @@ internal fun readPhoneSnapshot(directory:Path,data:DesktopData,maxJsonBytes:Long
     importCheck(bytes.size.toLong()<=maxJsonBytes,"手机归档超过浏览上限，原文件保留。")
     val root=try {Json.parseToJsonElement(bytes.toString(Charsets.UTF_8)) as? JsonObject} catch(_:Exception){null}
         ?:throw ImportFailure("手机归档格式无法读取，聊天资料未更改。")
-    importCheck(root.word("format")=="cleos-backup" && root.number("version") in 1..15,"手机归档版本暂不支持浏览。")
+    importCheck(root.word("format")=="cleos-backup" && root.number("version") in 1..SUPPORTED_MOBILE_BACKUP,"手机归档版本暂不支持浏览。")
     importCheck(root.number("version").toInt()==origin.mobileVersion && root.number("exportedAt")==origin.exportedAt,"手机归档与这份资料库不对应，请检查原始备份。")
     return root
 }

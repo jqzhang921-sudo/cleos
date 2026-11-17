@@ -146,7 +146,7 @@ class DesktopBackupTest {
         }
         val data=DesktopBackupArchive().inspect(file).data
         assertFalse(DesktopBackupArchive().inspect(modified(data.copy(companions=data.companions.map {it.copy(endpoint=it.endpoint.copy(allowHttp=true))}))).data.companions.first().endpoint.allowHttp)
-        assertThrows(ImportFailure::class.java) {DesktopBackupArchive().inspect(modified(data.copy(version=5)))}
+        assertThrows(ImportFailure::class.java) {DesktopBackupArchive().inspect(modified(data.copy(version=6)))}
         assertThrows(ImportFailure::class.java) {DesktopBackupArchive().inspect(modified(data.copy(userAvatar="../keys.dpapi")))}
     }
 }

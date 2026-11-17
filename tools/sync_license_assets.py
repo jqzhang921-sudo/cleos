@@ -5,6 +5,15 @@ import argparse
 
 ROOT = Path(__file__).resolve().parents[1]
 PAIRS = {
+    "licenses/message-rendering/commonmark-LICENSE.txt": "app/src/main/assets/licenses/message-rendering/commonmark-LICENSE.txt",
+    "licenses/message-rendering/jlatexmath-android-0.2.0-source.zip": "app/src/main/assets/licenses/message-rendering/jlatexmath-android-0.2.0-source.zip",
+    "licenses/message-rendering/jlatexmath-COPYING.txt": "app/src/main/assets/licenses/message-rendering/jlatexmath-COPYING.txt",
+    "licenses/message-rendering/jlatexmath-LICENSE.txt": "app/src/main/assets/licenses/message-rendering/jlatexmath-LICENSE.txt",
+    "licenses/message-rendering/Knuth_License.txt": "app/src/main/assets/licenses/message-rendering/Knuth_License.txt",
+    "licenses/message-rendering/License_for_dsrom.txt": "app/src/main/assets/licenses/message-rendering/License_for_dsrom.txt",
+    "licenses/message-rendering/markwon-LICENSE.txt": "app/src/main/assets/licenses/message-rendering/markwon-LICENSE.txt",
+    "licenses/message-rendering/OFL.txt": "app/src/main/assets/licenses/message-rendering/OFL.txt",
+    "licenses/message-rendering/PROVENANCE.txt": "app/src/main/assets/licenses/message-rendering/PROVENANCE.txt",
     "licenses/lucide/LICENSE.txt": "app/src/main/assets/licenses/lucide-LICENSE.txt",
     "licenses/pdfbox/pdfbox-android-LICENSE.txt": "app/src/main/assets/licenses/pdfbox/pdfbox-android-LICENSE.txt",
     "licenses/pdfbox/pdfbox-android-NOTICE.txt": "app/src/main/assets/licenses/pdfbox/pdfbox-android-NOTICE.txt",

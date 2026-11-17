@@ -89,7 +89,7 @@ class WorldReadingScheduler(context: Context, private val db: AppDatabase, priva
         }
     }
 
-    /** False means the wall clock moved back; keep this Worker pending without reading early. */
+    /** False retains a pending ticket for a clock rollback or transient occupation, without spending a chance. */
     suspend fun run(id: Long, revision: String, due: Long): Boolean {
         var early = false
         val next = schedules.withLock {
@@ -102,6 +102,11 @@ class WorldReadingScheduler(context: Context, private val db: AppDatabase, priva
                 if (ticket.nextAt != due) { restoreTicket = ticket; return@withTransaction null }
                 val now = ZonedDateTime.now()
                 if (now.toInstant().toEpochMilli() < due) { early = true; return@withTransaction null }
+                if (library.backgroundOccupied(id)) {
+                    early = true
+                    runCatching { diagnostic("event=world_reading_deferred route=world stage=prepare reason=busy") }
+                    return@withTransaction null
+                }
                 val reading = db.world().state(id)
                 val used = reading?.let { it.attempts - if (it.token != null) 1 else 0 } ?: 0
                 val exhausted = reading?.day == now.toLocalDate().toEpochDay() && used >= WorldReading.DAILY
@@ -116,8 +121,17 @@ class WorldReadingScheduler(context: Context, private val db: AppDatabase, priva
             advanced
         }
         runCatching { diagnostic("event=world_reading_opportunity route=world stage=background") }
-        library.readInBackground(id) {
+        val started = library.readInBackground(id) {
             !paused && db.world().schedule(id) == next && db.companions().get(id)?.createdAt == next.companionCreatedAt
+        }
+        if (!started) schedules.withLock {
+            // Another world job may win between the preflight and launch. Retain one later ticket,
+            // but never revive a disabled, replaced or restored opt-in. The old four-hour Worker is stale.
+            if (!paused && db.world().schedule(id) == next && db.companions().get(id)?.createdAt == next.companionCreatedAt) {
+                val retry = next.copy(nextAt = WorldScheduleRules.first(ZonedDateTime.now()))
+                db.world().put(retry); enqueue(retry)
+                runCatching { diagnostic("event=world_reading_deferred route=world stage=launch reason=busy") }
+            }
         }
         return true
     }

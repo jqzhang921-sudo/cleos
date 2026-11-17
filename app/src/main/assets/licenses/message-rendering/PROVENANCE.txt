@@ -1,0 +1,20 @@
+Cleos 0.42.16 - local message rendering
+
+Markwon core 4.6.2 (Apache-2.0), noties/Markwon tag v4.6.2.
+CommonMark Java 0.13.0 (BSD 2-Clause), commonmark/commonmark-java tag commonmark-parent-0.13.0.
+JLaTeXMath Android 0.2.0, unmodified published Maven library ru.noties:jlatexmath-android:0.2.0.
+Upstream tag v0.2.0, commit cc2a83dcf695028b5588f91a90734d94eb5bd02b.
+GPL-2.0-or-later WITH upstream independent-module linking exception; see LICENSE and COPYING.
+The linking exception does not remove the library's own source and attribution obligations.
+Bundled core fonts retain their own OFL, dsrom, Knuth and public-domain terms.
+Optional Greek and Cyrillic font modules are not linked by Cleos.
+
+Corresponding upstream source, resources and build scripts are supplied unmodified as
+assets/licenses/message-rendering/jlatexmath-android-0.2.0-source.zip in the APK.
+The archive includes upstream demo/optional modules for source completeness; these are not linked.
+Source archive: https://github.com/noties/jlatexmath-android/archive/refs/tags/v0.2.0.zip
+No part of this library has been relicensed as Cleos Apache-2.0 code.
+Cleos integration: ui/chat/MessageMarkup.kt and RichMessageText.kt, source in this repository.
+
+No WebView, network image plugin, remote fonts or general TeX execution are enabled.
+LaTeX support is deliberately bounded; unsupported expressions retain the original source.

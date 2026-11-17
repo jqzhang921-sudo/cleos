@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,7 +65,7 @@ import kotlinx.coroutines.launch
  * the TA can't change or delete it), or add one of their own.
  */
 @Composable
-fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
+fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit, onSearch: () -> Unit = {}, onChanges: () -> Unit = {}) {
     val c = appContainer()
     val palette = LocalGlassPalette.current
     val scope = rememberCoroutineScope()
@@ -104,7 +105,10 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                 subtitle = if (memories.isEmpty()) null else "${memories.size} 件 · 点开能改",
                 backdrop = page,
                 leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
-                trailing = { GlassIconButton(Icons.Rounded.Add, "自己加一条", { onOpen(0) }, page) },
+                trailing = { Row {
+                    GlassIconButton(Icons.Rounded.Search, "找旧聊天", onSearch, page)
+                    GlassIconButton(Icons.Rounded.Add, "自己加一条", { onOpen(0) }, page)
+                } },
             )
         },
     ) {
@@ -115,6 +119,14 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = statusTop + TopBarHeight + 10.dp, bottom = navBottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            item(key="maintenance") {
+                GlassSurface(modifier=Modifier.fillMaxWidth().clickable(onClick=onChanges),shape=GlassShape.Rounded(22.dp),contentPadding=PaddingValues(16.dp)) {
+                    Column {
+                        Text("整理与改动",color=palette.content,fontWeight=FontWeight.Medium)
+                        Text("检查重复和冲突 · 查看建议与撤销改动",color=palette.contentSecondary,fontSize=12.sp)
+                    }
+                }
+            }
             if (memories.isEmpty()) {
                 item(key = "empty") {
                     Notice("还没有记下什么。聊着聊着，$name 会自己记；你也可以点右上角自己加一条。")
@@ -198,6 +210,7 @@ private fun MemoryCard(m: MemoryEntity, onClick: () -> Unit) {
             }
             Spacer(Modifier.height(4.dp))
             Text(m.summary, color = palette.content, fontSize = 14.sp, lineHeight = 20.sp)
+            Text(com.cleo.cleos.data.MemoryContext.timing(m), color = palette.contentSecondary, fontSize = 12.sp)
         }
     }
 }

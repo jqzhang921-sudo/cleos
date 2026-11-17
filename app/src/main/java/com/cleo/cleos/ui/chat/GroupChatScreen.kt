@@ -427,7 +427,7 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                                             theme = if (mine) settings.myBubbleTheme else settings.taBubbleThemes[row.speakerId.toString()] ?: "glass",
                                             background = settings.bubbleBackgrounds[if (mine) settings.myBubbleTheme else settings.taBubbleThemes[row.speakerId.toString()] ?: "glass"],
                                             modifier = Modifier.widthIn(max = bubbleWidth).combinedClickable(onClick = {}, onLongClick = { menuOpen = true })) { ink ->
-                                            MessageText(piece.text, ink, TextStyle(fontSize = 16.sp, lineHeight = 23.sp), narration = !mine)
+                                            MessageText(piece.text, ink, TextStyle(fontSize = 16.sp, lineHeight = 23.sp), narration = !mine, render = row.status != "running")
                                         }
                                     } }
                                 }

@@ -37,7 +37,7 @@ class WorldAlbumScheduler(context: Context, private val db: AppDatabase, private
             check(WorldReading.sameContext(expected, db.companions().get(id))) { "角色或模型设置已变化，请重新打开相册" }
             if (!enabled) { db.worldAlbum().deleteSchedule(id); null }
             else {
-                check(db.worldAlbum().photos(id).isNotEmpty()) { "先为这位 TA 选择一张照片" }
+                check(db.worldAlbum().photos(id).isNotEmpty() || library.hasNewAlbumPhotos(id)) { "先为这位 TA 选择照片或关联手机图集" }
                 val hash = checkNotNull(fingerprint(id)) { "请先配置这位 TA 的看图模型和密钥" }
                 db.worldAlbum().schedule(id)?.takeIf { it.companionCreatedAt == expected.createdAt && it.contextHash == hash }
                     ?: WorldAlbumScheduleEntity(id, expected.createdAt, UUID.randomUUID().toString(), hash, WorldScheduleRules.first(now()))
@@ -110,7 +110,8 @@ class WorldAlbumScheduler(context: Context, private val db: AppDatabase, private
         }
         suspend fun allowed(): Boolean = !paused && db.worldAlbum().schedule(id) == next && matches(next)
         currentCoroutineContext().ensureActive()
-        if (!allowed() || !library.canBrowseOutside(id, next.companionCreatedAt) || db.worldAlbum().photos(id).isEmpty()) return true
+        if (!allowed() || !library.canBrowseOutside(id, next.companionCreatedAt) ||
+            !library.hasNewAlbumPhotos(id)) return true
         runCatching { diagnostic("event=world_album_opportunity route=world stage=background") }
         library.browseAlbumInBackground(id, next.companionCreatedAt, ::allowed)
         return true

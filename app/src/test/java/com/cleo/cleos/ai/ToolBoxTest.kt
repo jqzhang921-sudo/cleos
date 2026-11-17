@@ -53,19 +53,22 @@ class ToolBoxTest {
 
     @Test
     fun phoneToolsRequireSeparateConsentAndPrivateIdentityAndNeverAppearInGroup() = runBlocking {
-        var battery=0;var usage=0
+        var battery=0;var usage=0;var apps=0
         val source=object: PhoneStatusSource {
             override suspend fun battery():String { battery++;return "fixture battery" }
             override suspend fun usage():String { usage++;return "fixture usage" }
+            override suspend fun appUsage():String { apps++;return "fixture apps" }
         }
         val phoneBox=ToolBox(todos,diary,weather,phoneStatus=source)
         val onlyBattery=AppSettings(tools=setOf(ToolGroup.PhoneBattery))
         val onlyUsage=AppSettings(tools=setOf(ToolGroup.PhoneUsage))
-        val allPhone=AppSettings(tools=setOf(ToolGroup.PhoneBattery,ToolGroup.PhoneUsage))
+        val onlyApps=AppSettings(tools=setOf(ToolGroup.PhoneAppUsage))
+        val allPhone=AppSettings(tools=setOf(ToolGroup.PhoneBattery,ToolGroup.PhoneUsage,ToolGroup.PhoneAppUsage))
         assertEquals(listOf("get_phone_battery"),phoneBox.specs(onlyBattery.tools).map{it.name})
         assertEquals(listOf("get_phone_usage"),phoneBox.specs(onlyUsage.tools).map{it.name})
+        assertEquals(listOf("get_app_usage"),phoneBox.specs(onlyApps.tools).map{it.name})
         assertTrue(GroupToolRules.offered(allPhone).isEmpty())
-        for (name in listOf("get_phone_battery","get_phone_usage")) {
+        for (name in listOf("get_phone_battery","get_phone_usage","get_app_usage")) {
             val call=ToolCall("phone",name,"{}")
             phoneBox.run(call,AppSettings(),1,2)
             phoneBox.run(call,allPhone,-1,2)
@@ -74,10 +77,12 @@ class ToolBoxTest {
         }
         phoneBox.run(ToolCall("p","get_phone_usage","{}"),onlyBattery,1,2)
         phoneBox.run(ToolCall("p","get_phone_battery","{}"),onlyUsage,1,2)
-        assertEquals(0,battery);assertEquals(0,usage)
+        phoneBox.run(ToolCall("p","get_app_usage","{}"),onlyUsage,1,2)
+        assertEquals(0,battery);assertEquals(0,usage);assertEquals(0,apps)
         assertEquals("fixture battery",phoneBox.run(ToolCall("p","get_phone_battery","{}"),onlyBattery,1,2).result)
         assertEquals("fixture usage",phoneBox.run(ToolCall("p","get_phone_usage","{}"),onlyUsage,1,2).result)
-        assertEquals(1,battery);assertEquals(1,usage)
+        assertEquals("fixture apps",phoneBox.run(ToolCall("p","get_app_usage","{}"),onlyApps,1,2).result)
+        assertEquals(1,battery);assertEquals(1,usage);assertEquals(1,apps)
     }
 
     @Test

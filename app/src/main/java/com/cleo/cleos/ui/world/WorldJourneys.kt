@@ -1,7 +1,7 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
@@ -90,7 +90,7 @@ internal fun WorldJourneys(ta: CompanionEntity?, articles: List<WorldArticleEnti
         WorldJourney(ta, articles, notes, looks, pictures, top, bottom, depth, onJournal, onSource, onLookup,
             navigation, topic, entries, { edit(topic) }); return
     }
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item(key = "intro") { Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("把好奇连成一条线", color = p.content, fontSize = 18.sp, fontWeight = FontWeight.Medium)
             Text("围绕一个地方或主题，把这位 TA 已保存的公开见闻按顺序放在一起。图片、摘要与感想各有出处，浏览不调用模型。", color = p.contentSecondary, fontSize = 13.sp, lineHeight = 22.sp)
@@ -139,7 +139,7 @@ private fun WorldJourneyEditor(draft: WorldJourneyDraft, ta: CompanionEntity?, a
     val p = LocalGlassPalette.current
     if (ta == null || draft.owner != ta.id || draft.ownerCreatedAt != ta.createdAt) return
     val sources = WorldOutsideViews.articles(ta.id, articles)
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "form") { WorldPanel {
             Text(if (draft.expected == null) "新建图文专题" else "整理图文专题", color = p.content, fontSize = 18.sp)
             OutlinedTextField(draft.title, { if (it.length <= WorldJourneyTopics.MAX_TITLE) draft.title = it }, Modifier.fillMaxWidth(),

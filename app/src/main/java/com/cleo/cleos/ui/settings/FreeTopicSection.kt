@@ -89,12 +89,20 @@ internal fun FreeTopicSection(vm: SettingsViewModel) {
                     Text("尚未允许锁屏全屏提醒，仍会尝试显示来电横幅；若停留仍太短，可在系统中允许。",color=color,fontSize=12.sp)
                 }
 
-                IncomingLimitChoice("两次来电至少间隔", IncomingCallRules.intervalText(vm.incomingCallIntervalMinutes),
-                    IncomingCallRules.INTERVALS, IncomingCallRules::intervalText, vm::chooseIncomingCallInterval)
-                IncomingLimitChoice("最近 24 小时最多来电", "${vm.incomingCallDailyMax} 次",
-                    IncomingCallRules.DAILY_LIMITS, { "$it 次" }, vm::chooseIncomingCallDailyMax)
-                Text("只影响这位 TA 的主动来电，不限制接通后的通话时长。最短间隔 30 分钟；未接或拒绝也计入次数，关闭再开启不会清除记录。TA 仍会自行决定是否来电。",
-                    color = color, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("来电频率", color = LocalGlassPalette.current.content, fontSize = 14.sp)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Chip("按间隔", selected = vm.incomingCallMode == IncomingCallRules.LIMITED) { vm.chooseIncomingCallMode(IncomingCallRules.LIMITED) }
+                    Chip("随时", selected = vm.incomingCallMode == IncomingCallRules.ANYTIME) { vm.chooseIncomingCallMode(IncomingCallRules.ANYTIME) }
+                }
+                if (vm.incomingCallMode == IncomingCallRules.ANYTIME) {
+                    Text("这位 TA 在聊天中或想找你聊的唤醒机会里，可以随时邀请来电，不设来电冷却或每日次数。仍遵守免打扰，有通话或等待接听的来电时不会再拨；接听后才开麦。不会因此增加后台唤醒或模型请求次数，TA 仍自行决定是否来电。", color=color,fontSize=12.sp,lineHeight=18.sp)
+                } else {
+                    IncomingLimitChoice("两次来电至少间隔", IncomingCallRules.intervalText(vm.incomingCallIntervalMinutes),
+                        IncomingCallRules.INTERVALS, IncomingCallRules::intervalText, vm::chooseIncomingCallInterval)
+                    IncomingLimitChoice("最近 24 小时最多来电", "${vm.incomingCallDailyMax} 次",
+                        IncomingCallRules.DAILY_LIMITS, { "$it 次" }, vm::chooseIncomingCallDailyMax)
+                    Text("只影响这位 TA 的主动来电，不限制接通后的通话时长。最短间隔 30 分钟；未接或拒绝也计入次数，关闭再开启不会清除记录。切换到随时后，原来的间隔和次数仍为你保留。", color=color,fontSize=12.sp,lineHeight=18.sp)
+                }
             }
         }
     }

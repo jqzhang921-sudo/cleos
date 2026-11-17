@@ -1,10 +1,10 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material3.*
@@ -55,7 +55,7 @@ internal fun WorldArticleForm(ta: CompanionEntity, top: Dp, bottom: Dp, backdrop
     }
     BackHandler(LocalPageShown.current && (loading || paste)) { if (loading) job?.cancel() else paste = false }
     if (paste) { WorldPasteForm(ta, top, bottom, backdrop, saved); return }
-    LazyColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom),
+    TabScrollColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom),
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = top + 22.dp, bottom = bottom + 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         item { Text("给${ta.name.ifBlank { "TA" }}的书架添一本", color = p.content, fontSize = 22.sp, fontWeight = FontWeight.SemiBold) }

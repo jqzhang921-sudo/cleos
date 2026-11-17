@@ -1,8 +1,8 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardActions
@@ -61,7 +61,7 @@ internal fun WorldOnlineBooks(ta: CompanionEntity, top: Dp, bottom: Dp, backdrop
     fun open(url: String) { if (runCatching { uri.openUri(url) }.isFailure) message = "没有打开来源，请稍后重试" }
     fun search() { results = null; preview = null; load(searching = true) { results = client.search(query, fullText) } }
     val validQuery = runCatching { WorldOnlineText.searchTerm(query).also { if (!fullText) WorldOnlineText.titleUrl(it) } }.isSuccess
-    LazyColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, contentBottom), state = list, contentPadding = worldPadding(top, contentBottom),
+    TabScrollColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, contentBottom), state = list, contentPadding = worldPadding(top, contentBottom),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text(if (selected == null) "从在线文库找读物" else "确认这份读物", color = p.content, fontSize = 21.sp, fontWeight = FontWeight.SemiBold) }
         if (selected == null) item { WorldPanel {

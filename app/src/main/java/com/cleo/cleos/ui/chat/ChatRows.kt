@@ -35,7 +35,7 @@ internal sealed interface ChatRow {
 
 internal fun MessageEntity.isToolLine() = role == "tool" && !note.isNullOrBlank()
 internal fun MessageEntity.thoughtOnly() = role == "assistant" && content.isEmpty() && error == null &&
-    MessageImages.decode(images).isEmpty() && audio == null && feedShare == null
+    MessageImages.decode(images).isEmpty() && audio == null && feedShare == null && letterId == null
 private fun MessageEntity.silent() = (thoughtOnly() && (thought == null || proactive)) ||
     (role == "tool" && note.isNullOrBlank()) || call != null
 private fun MessageEntity.side(): Boolean? = when {

@@ -1,0 +1,9 @@
+# Envelope material assets
+
+`frost-fiber-v1-source.png` was generated on 2026-11-09 with the built-in imagegen tool. It contains no user content, lettering, seal or envelope outline. The 512px WebP runtime derivatives in Android `drawable-nodpi/envelope_frost_fiber_v1.webp` and desktop `resources/envelopes/frost-fiber-v1.webp` are identical, 12,094 bytes each. Source PNG is not bundled in either application. Only ordinary resizing and WebP compression were applied to the generated source.
+
+The frozen decoration ID is `frost-fiber-v1`. Do not replace this version's runtime image with another material: old sent letters must retain their appearance. A future revision needs its own asset and ID. Titles, sender, timestamps, read state, folds and seal marks remain live code-rendered elements, independent of the bitmap. Android loads the local resource only for this decoration; desktop caches its decoded bitmap. Neither platform downloads assets at runtime.
+
+## Final generation prompt
+
+Production UI material asset for a small elegant letter envelope in a mobile app. Generate ONE seamless square grayscale material texture, full bleed, orthographic flat surface, viewed straight on. Very fine premium cotton stationery microfibers softly blended with a satin frosted-glass surface, airy and delicate, smooth pearlescent milky base, tiny irregular tactile grain, restrained diffuse soft lighting, very subtle natural tonal depth. NEUTRAL GRAYSCALE, near-white overall, low contrast, no hue, no objects, no envelope silhouette, no folds, no seams, no wax seals, no bevelled border, no frame, no letters, no typography, no symbols, no watermarks, no cast shadow. This will be recolored and composited UNDER live code-rendered titles and envelope flap lines, so all areas must be quiet and readable. Uniform scale throughout, seamless tileable edges, no large central highlight or vignette. A texture map only, not a product photograph or mockup.

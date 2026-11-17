@@ -89,7 +89,7 @@ internal object WakeOutput {
     /** Only the actual person's current message can opt into literal quotation in ordinary chat. */
     fun allowsLiteral(userText: String): Boolean {
         val text = canonical(userText)
-        return (literal.containsMatchIn(text) || text.contains("保持安静") || text.contains("消息编号")) && !negative.containsMatchIn(text) &&
+        return (literal.containsMatchIn(text) || text.contains("保持安静") || text.contains("消息编号") || text.contains("</text>",ignoreCase=true)) && !negative.containsMatchIn(text) &&
             (controlOnly(text) || quotation.containsMatchIn(text))
     }
 

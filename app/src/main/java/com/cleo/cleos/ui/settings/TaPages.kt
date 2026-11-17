@@ -33,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -199,15 +198,11 @@ private fun ConnectionFields(fields: EndpointFields) {
 
     Field("接口地址", fields.baseUrl, { fields.baseUrl = it }, keyboardType = KeyboardType.Uri)
     HttpPermissionControl(fields.baseUrl)
-    OutlinedTextField(
+    SecretKeyField(
         value = fields.keyInput,
         onValueChange = { fields.keyInput = it },
-        label = { Text("API Key") },
-        placeholder = { if (hasKey) Text("已保存（不再显示）；要换就重新填") },
-        visualTransformation = PasswordVisualTransformation(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        modifier = Modifier.fillMaxWidth(),
+        hasSavedKey = hasKey,
+        contextKey = fields.baseUrl,
     )
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (fields.keyInput.isNotBlank()) Text("Key 将随当前配置一起保存", color = palette.contentSecondary, fontSize = 13.sp)
@@ -294,6 +289,7 @@ internal fun BehaviorPage(vm: SettingsViewModel) {
             Text("默认关闭，每位 TA 分别设置。开启后会多一次模型请求，即使 TA 选择不说话也会消耗 token。后台执行可能稍晚，过时的机会会直接跳过。", color = LocalGlassPalette.current.contentSecondary, fontSize = 12.sp, lineHeight = 18.sp)
         }
     }
+    InstantLetterSection(vm)
     FreeTopicSection(vm)
     FeedVisitSection(vm.companionId)
     if (vm.proactive || vm.freeTopicEnabled || vm.followUpEnabled) {

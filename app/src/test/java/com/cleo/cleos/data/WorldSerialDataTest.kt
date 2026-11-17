@@ -52,7 +52,7 @@ class WorldSerialDataTest {
         }
         val read = codec.decodeFromString(BackupFile.serializer(), JsonObject(old).toString())
         assertTrue(read.worldSerials.isEmpty()); assertTrue(read.worldSerialChapters.isEmpty()); assertEquals(listOf(one, two), read.worldWritings)
-        assertEquals(29, BackupFile.VERSION)
+        assertTrue("Serial metadata requires backup format 29 or newer", BackupFile.VERSION >= 29)
     }
     private fun reject(block: () -> Unit) { try { block(); fail("Invalid serial was accepted") } catch (_: IllegalArgumentException) { } }
 }

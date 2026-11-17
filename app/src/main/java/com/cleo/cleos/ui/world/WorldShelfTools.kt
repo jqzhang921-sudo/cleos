@@ -1,9 +1,9 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -93,7 +93,7 @@ internal fun WorldBookmarks(ta: CompanionEntity?, articles: List<WorldArticleEnt
     val byId = remember(articles) { articles.associateBy { it.id } }
     val filtered = marks.filter { query.isBlank() || (it.label + byId[it.articleId]?.title.orEmpty()).contains(query.trim(), true) }
     val list = worldPageScroll(navigation, "bookmarks", ta?.id, ready && markRows != null)
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(0.dp, bottom), state = list, contentPadding = worldPadding(0.dp, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(0.dp, bottom), state = list, contentPadding = worldPadding(0.dp, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("你的书签，留给下次回看", color = p.content, fontSize = 18.sp) }
         item { Text("这里和 TA 的阅读位置分开。打开原文，在想留下的段落下添加书签。", color = p.contentSecondary, fontSize = 13.sp, lineHeight = 21.sp) }
         item { GlassSearchField(query, { if (it.length <= 100) query = it }, placeholder = "翻找书签", description = "搜索书签", clearDescription = "清除书签搜索") }

@@ -1,13 +1,9 @@
 package com.cleo.cleos.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -21,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.key
@@ -37,6 +34,9 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -51,6 +51,8 @@ import com.cleo.cleos.glass.backdropSource
 import com.cleo.cleos.glass.rememberBackdrop
 import com.cleo.cleos.ui.chat.ChatTab
 import com.cleo.cleos.ui.common.appContainer
+import com.cleo.cleos.ui.common.LocalTabBarScrollBehavior
+import com.cleo.cleos.ui.common.TabBarScrollBehavior
 import com.cleo.cleos.ui.records.RecordsTab
 import com.cleo.cleos.ui.home.HomeTab
 import com.cleo.cleos.ui.icons.LucideTabIcons
@@ -141,6 +143,17 @@ fun MainScreen(
     val density = LocalDensity.current
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val keyboardOpen = WindowInsets.ime.getBottom(density) > 0
+    val threshold = with(density) { 24.dp.toPx() }
+    val tabScroll = remember(tab, keyboardOpen, threshold) { TabBarScrollBehavior(threshold) }
+    val barHidden = keyboardOpen || (tab != 0 && tabScroll.hidden)
+    val barSlide = animateFloatAsState(
+        if (barHidden) 1f else 0f,
+        tween(220, easing = FastOutSlowInEasing), label = "floatingTabBarSlide",
+    )
+    var barHeight by remember { mutableIntStateOf(0) }
+    val barOffscreen by remember { derivedStateOf { barSlide.value >= .999f } }
+    val shadowClearance = with(density) { 16.dp.toPx() }
+    // Always reserve the same space: hiding the bar must not reflow content or move its scroll.
     val bottomInset = navBottom + TabBarReserve
     val tabs = remember {
         listOf(
@@ -209,7 +222,10 @@ fun MainScreen(
             val dir = if (tab > from) 1f else -1f
             for (index in (alive + from + tab).sorted()) {
                 key(index) {
-                    CompositionLocalProvider(LocalPageShown provides (index == tab)) {
+                    CompositionLocalProvider(
+                        LocalPageShown provides (index == tab),
+                        LocalTabBarScrollBehavior provides tabScroll.takeIf { index == tab && tab != 0 && !keyboardOpen },
+                    ) {
                         Page(index, placed = index == tab || index == from) {
                             when {
                                 from == tab -> 0f
@@ -221,12 +237,18 @@ fun MainScreen(
                 }
             }
         }
-        // The keyboard covers the bar anyway; sliding it away lets the input sit on the keys.
-        AnimatedVisibility(
-            visible = !keyboardOpen,
-            enter = fadeIn() + slideInVertically { it / 2 },
-            exit = fadeOut() + slideOutVertically { it / 2 },
-            modifier = Modifier.align(Alignment.BottomCenter),
+        // Translate a retained layer, keeping the glass/lens out of per-frame remeasurement.
+        // The measured wrapper includes the system navigation inset; its shadow also clears it.
+        Box(
+            Modifier.align(Alignment.BottomCenter)
+                .onSizeChanged { barHeight = it.height }
+                .graphicsLayer { translationY = barSlide.value * (barHeight + shadowClearance) }
+                .then(if (barOffscreen) Modifier.clearAndSetSemantics { } else Modifier)
+                .pointerInput(barHidden) {
+                    if (barHidden) awaitPointerEventScope {
+                        while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                    }
+                },
         ) {
             GlassTabBar(
                 tabs = tabs,

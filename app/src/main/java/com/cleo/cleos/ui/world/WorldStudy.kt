@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -90,14 +91,14 @@ private fun WorldShelf(
     val recent = summary.recent
     val used = state?.takeIf { it.day == LocalDate.now().toEpochDay() }?.let { (it.attempts - if (it.token != null) 1 else 0).coerceAtLeast(0) } ?: 0
     val list = worldPageScroll(navigation, "shelf", ta?.id, ready && metadataRows != null)
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item(key = "reading") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("留一点时间给阅读", fontSize = 19.sp, fontWeight = FontWeight.SemiBold, color = p.content, modifier = Modifier.weight(1f))
                     Text("${books.size} 份读物", color = p.contentSecondary, fontSize = 12.sp)
                 }
-                Text("让 TA 自己挑一份，接着上次的地方慢慢读。", color = p.contentSecondary, fontSize = 14.sp, lineHeight = 23.sp)
+                Text("让 TA 自己挑一份，也决定这次读多长，接着上次的地方读。", color = p.contentSecondary, fontSize = 14.sp, lineHeight = 23.sp)
                 Text("阅读会把标题、正文片段、相关想读理由和这本书的旧笔记发送给这位 TA 的模型。开启「记忆」时也会带上少量相关读书记忆。今日已用 $used / ${WorldReading.DAILY} 次，失败或停止退回次数。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     GlassButton(onClick = {
@@ -132,7 +133,7 @@ private fun WorldShelf(
                             }
                         })
                 }
-                Text("开启后约 15 分钟给第一次机会，之后每 4 小时左右一次。与手动阅读共用每天 ${WorldReading.DAILY} 次机会，失败不扣次；TA 也可以不读，不会因此发消息。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
+                Text("开启后约 15 分钟给第一次机会，之后每 4 小时左右一次；遇到聊天或通话占用会稍后重试。TA 自己选书，也决定本次读多长（目标 1500–18000 字符，按段落或余量收尾），用量随篇幅增加。与手动阅读、窗外共用每天 ${WorldReading.DAILY} 次机会，失败不扣次；TA 也可以不读，不会因此发消息。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
                 if (schedule != null) {
                     val next = remember(schedule?.nextAt) { Instant.ofEpochMilli(schedule!!.nextAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm")) }
                     Text("下次机会：$next 起，由系统安排；省电或网络可能让它晚一些。停止阅读只结束本次，关闭这里才取消后续机会。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
@@ -169,7 +170,7 @@ internal fun WorldPasteForm(ta: CompanionEntity, top: Dp, bottom: Dp, backdrop: 
     var body by rememberSaveable(ta.id) { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
-    LazyColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text("放进${ta.name.ifBlank { "TA" }}的书架", color = p.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
         item { Text("适合短文章。来源可以写作者、刊物或链接；填写链接不会自动抓取网页。保存文章不会调用模型。", color = p.contentSecondary, lineHeight = 23.sp) }
         item { OutlinedTextField(title, { if (it.length <= 120) title = it }, Modifier.fillMaxWidth(), label = { Text("文章标题") }, enabled = !saving, singleLine = true) }
@@ -231,7 +232,7 @@ internal fun WorldArticlePage(article: WorldArticleEntity?, ta: CompanionEntity?
             raw = value
         }
     }
-    LazyColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             WorldPanel {
                 Text(book?.title ?: article?.title ?: "读物已不在书架上", color = p.content, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)

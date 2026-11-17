@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.todo
 
+import com.cleo.cleos.ui.common.tabBarScroll
 import android.animation.ValueAnimator
 import com.cleo.cleos.ui.records.LocalRecordCalendar
 import com.cleo.cleos.ui.records.RecordViewButton
@@ -396,6 +397,7 @@ fun TodoTab(bottomInset: Dp, sectionHeader: @Composable () -> Unit = {}) {
                     modifier = Modifier
                         .fillMaxSize()
                         .fadeUnderTopBar(0.dp, bottom = barTop)
+                        .tabBarScroll(contentScroll)
                         .verticalScroll(contentScroll)
                         .padding(
                             start = 16.dp,

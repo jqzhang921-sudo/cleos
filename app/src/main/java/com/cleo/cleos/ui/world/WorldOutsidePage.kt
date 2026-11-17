@@ -1,11 +1,11 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -102,7 +102,7 @@ internal fun WorldOutsidePage(ta: CompanionEntity?, articles: List<WorldArticleE
         Box(Modifier.fillMaxSize().padding(worldPadding(top, bottom))) { Text("正在打开本地见闻…", color = p.contentSecondary, fontSize = 14.sp) }
         return
     }
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item(key = "tabs") { PrimaryTabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = p.content) {
             listOf("见闻", "足迹", "笔记").forEachIndexed { index, label -> Tab(selected = tab == index, enabled = !managing,
                 onClick = { navigation.outsideTab.value = index; options = false }, text = { Text(label, fontSize = 15.sp) }) }

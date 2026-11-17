@@ -3,6 +3,9 @@ package com.cleo.cleos.ai
 import java.time.ZonedDateTime
 
 object IncomingCallRules {
+    const val LIMITED = "limited"
+    const val ANYTIME = "anytime"
+    fun mode(raw: String) = if (raw == ANYTIME) ANYTIME else LIMITED
     const val RING_MS = 60_000L
     const val DEFAULT_INTERVAL_MINUTES = 120
     const val COOLDOWN_MS = DEFAULT_INTERVAL_MINUTES * 60_000L
@@ -25,12 +28,13 @@ object IncomingCallRules {
         return clean
     }
     fun held(enabled: Boolean, free: Boolean, quiet: Boolean, audioBusy: Boolean, otherPending: Boolean,
-             last: Long?, count: Int, now: Long, intervalMinutes: Int = DEFAULT_INTERVAL_MINUTES, dailyMax: Int = DAILY_MAX): String? = when {
+             last: Long?, count: Int, now: Long, intervalMinutes: Int = DEFAULT_INTERVAL_MINUTES, dailyMax: Int = DAILY_MAX,
+             mode: String = LIMITED): String? = when {
         !enabled || !free -> "对方没有开启这位 TA 的主动来电。"
         quiet -> "现在是免打扰时间，没有发起来电。"
         audioBusy || otherPending -> "现在有其他通话或来电，没有发起新的来电。"
-        last != null && (now < last || now-last < intervalMinutes(intervalMinutes) * 60_000L) -> "距离上次主动来电还太近，至少要间隔${intervalText(intervalMinutes)}，这次不打扰。"
-        count >= dailyMax(dailyMax) -> "最近 24 小时已达到设置的 ${dailyMax(dailyMax)} 次来电上限，先保持安静。"
+        mode(mode) != ANYTIME && last != null && (now < last || now-last < intervalMinutes(intervalMinutes) * 60_000L) -> "距离上次主动来电还太近，至少要间隔${intervalText(intervalMinutes)}，这次不打扰。"
+        mode(mode) != ANYTIME && count >= dailyMax(dailyMax) -> "最近 24 小时已达到设置的 ${dailyMax(dailyMax)} 次来电上限，先保持安静。"
         else -> null
     }
     fun quiet(ta: com.cleo.cleos.data.db.CompanionEntity, at: ZonedDateTime) = FreeTopicRules.quiet(at,

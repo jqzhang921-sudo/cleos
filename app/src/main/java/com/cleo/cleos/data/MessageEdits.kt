@@ -8,7 +8,7 @@ object MessageEdits {
         it.conversationId == edited.conversationId &&
             (it.createdAt < edited.createdAt || (it.createdAt == edited.createdAt && it.id <= edited.id))
     }.sortedWith(compareBy<MessageEntity> { it.createdAt }.thenBy { it.id })
-    fun eligible(m: MessageEntity) = m.role == "user" && m.note == null && m.audio == null &&
+    fun eligible(m: MessageEntity) = m.role == "user" && m.letterId == null && m.note == null && m.audio == null &&
         m.call == null && m.toolCalls == null && m.content.isNotBlank() && StickerText.without(m.content).isNotBlank()
 
     fun problem(current: MessageEntity?, original: MessageEntity, text: String): String? = when {

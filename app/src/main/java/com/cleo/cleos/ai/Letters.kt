@@ -1,4 +1,5 @@
 package com.cleo.cleos.ai
+import androidx.room.withTransaction
 
 import android.util.Log
 import com.cleo.cleos.data.AppSettings
@@ -120,7 +121,7 @@ object LetterRules {
         diarySince: Int,
         cooldown: Duration = COOLDOWN,
     ): Boolean {
-        val own = letters.filter { it.author == LetterEntity.AUTHOR_AI }
+        val own = letters.filter { it.author == LetterEntity.AUTHOR_AI && it.sourceType == LetterEntity.RETROSPECTIVE }
         // One waiting to be read (or still on its way) is enough; a second would pile up.
         if (own.any { it.readAt == null }) return false
         val last = maxOf(ta.lastLetterTry ?: 0L, own.maxOfOrNull { it.createdAt } ?: 0L, ta.createdAt)
@@ -130,7 +131,7 @@ object LetterRules {
 
     /** Where material counts from: the TA's last letter, or when they came to be. */
     fun materialSince(ta: CompanionEntity, letters: List<LetterEntity>): Long =
-        letters.filter { it.author == LetterEntity.AUTHOR_AI }.maxOfOrNull { it.createdAt } ?: ta.createdAt
+        letters.filter { it.author == LetterEntity.AUTHOR_AI && it.sourceType == LetterEntity.RETROSPECTIVE }.maxOfOrNull { it.createdAt } ?: ta.createdAt
 }
 
 /**
@@ -270,7 +271,7 @@ class Letters(
         if (id == 0L) {
             return db.letters().insert(LetterEntity(companionId = companionId, author = LetterEntity.AUTHOR_ME, content = content, createdAt = now))
         }
-        val draft = db.letters().get(id)?.takeIf { it.draft } ?: return id
+        val draft = db.letters().get(id)?.takeIf { it.draft && it.companionId == companionId && it.sourceType == LetterEntity.RETROSPECTIVE } ?: return id
         db.letters().update(draft.copy(content = content, createdAt = now))
         return id
     }
@@ -281,7 +282,7 @@ class Letters(
      * already listed what to answer.
      */
     suspend fun send(id: Long, choice: ReplyWhen = ReplyWhen.Hours) {
-        val draft = db.letters().get(id)?.takeIf { it.draft && it.content.isNotBlank() } ?: return
+        val draft = db.letters().get(id)?.takeIf { it.draft && it.sourceType == LetterEntity.RETROSPECTIVE && it.content.isNotBlank() } ?: return
         val now = clock()
         val reply = LetterTiming.replyAt(now, seed = id, zone = zone(), choice = choice)
         db.letters().update(draft.copy(content = draft.content.trim(), createdAt = now, deliverAt = now, replyDueAt = reply))
@@ -289,11 +290,14 @@ class Letters(
     }
 
     suspend fun markRead(id: Long) {
-        val l = db.letters().get(id) ?: return
-        if (l.author == LetterEntity.AUTHOR_AI && l.readAt == null) db.letters().update(l.copy(readAt = clock()))
+        db.letters().markRead(id, clock())
     }
 
-    suspend fun delete(id: Long) = db.letters().delete(id)
+    suspend fun delete(id: Long) = db.withTransaction {
+        db.letters().unlink(id)
+        db.letters().detachReplies(id)
+        db.letters().delete(id)
+    }
 
     /**
      * Writes what is due: replies to letters still unanswered, then, where the time has

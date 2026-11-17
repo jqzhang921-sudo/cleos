@@ -26,6 +26,7 @@ data class Message(
     val reasoning: String = "", val status: String = "complete", val error: String = "", val at: Long = System.currentTimeMillis(),
     val speakerName: String = "", val speakerAvatar: String? = null, val attachments: List<Attachment> = emptyList(),
     val context: Boolean = true, val notice: Boolean = false,
+    val mobileLetterId:Long?=null,
 ) { companion object { const val USER = "user" } }
 
 @Serializable
@@ -39,13 +40,14 @@ data class Conversation(
 
 @Serializable
 data class DesktopData(
-    val format: String = "cleos-desktop", val version: Int = 4, val userName: String = "我",
+    val format: String = "cleos-desktop", val version: Int = 5, val userName: String = "我",
     val companions: List<DesktopTa> = emptyList(), val conversations: List<Conversation> = emptyList(), val selectedId: String = "",
     val userAvatar: String? = null, val importOrigin: ImportOrigin? = null,
     val transcription:TranscriptionSettings=TranscriptionSettings(),
+    val mobileLetters:List<MobileLetter> = emptyList(),
 ) {
     fun checked(): DesktopData {
-        require(format == "cleos-desktop" && version in 1..4) { "这个资料库版本暂不支持，请保留原文件。" }
+        require(format == "cleos-desktop" && version in 1..5) { "这个资料库版本暂不支持，请保留原文件。" }
         require(companions.isNotEmpty() && conversations.isNotEmpty())
         require(companions.map { it.id }.distinct().size == companions.size)
         require(conversations.map { it.id }.distinct().size == conversations.size)
@@ -53,7 +55,12 @@ data class DesktopData(
         require(conversations.all { c -> c.messages.map { it.id }.distinct().size == c.messages.size })
         require(conversations.all { it.draftImages.size <= 4 && it.draftImages.all { a -> a.kind == "image" } })
         require(conversations.all {it.draftVoice==null || (it.draftVoice.millis in 1..120000 && it.draftVoice.file.startsWith("media/") && safeMediaName(it.draftVoice.file.removePrefix("media/")))})
-        return if (version < 4) copy(version = 4) else this
+        require(mobileLetters.map{it.id}.distinct().size==mobileLetters.size)
+        mobileLetters.forEach{it.checked()}
+        conversations.forEach{c->c.messages.filter{it.mobileLetterId!=null}.forEach{m->
+            require(letterFor(c,m)!=null && m.text.isEmpty() && m.attachments.isEmpty() && !m.notice) {"信件与聊天的关联无效，请保留原资料。"}
+        }}
+        return if (version < 5) copy(version = 5) else this
     }
     fun recoverInterrupted() = copy(conversations = conversations.map { c -> c.copy(messages = c.messages.map { m ->
         if (m.status == "streaming") m.copy(status = "interrupted", error = "上次回复中断了，已保留收到的内容。") else m
@@ -90,10 +97,10 @@ fun prompt(data: DesktopData, chat: Conversation, ta: DesktopTa): List<WireMessa
         }
         if (chat.group && chat.sharedNotes.isNotEmpty()) append("\n这个群保留的共同记录：\n" + chat.sharedNotes.joinToString("\n") { "${it.title}：${it.summary}" }.take(12000))
     }))
-    chat.messages.filter { it.context && (it.text.isNotBlank() || it.attachments.isNotEmpty()) }.takeLast(120).forEach { m ->
+    chat.messages.filter { it.context && (it.mobileLetterId==null || data.letterFor(chat,it)!=null) && (it.text.isNotBlank() || it.attachments.isNotEmpty() || data.letterFor(chat,it)!=null) }.takeLast(120).forEach { m ->
         val images = if(ta.endpoint.supportsImages && m.speakerId == Message.USER) m.attachments.filter { it.kind == "image" }.map {it.file} else emptyList()
         val unseen = m.attachments.size - images.size
-        val words = m.text + if (unseen>0) "\n[附带 $unseen 项图片或录音；这些附件未发送给模型，只能参考已有文字]" else ""
+        val words = (if(m.mobileLetterId!=null)data.letterFor(chat,m)?.context().orEmpty() else m.text) + if (unseen>0) "\n[附带 $unseen 项图片或录音；这些附件未发送给模型，只能参考已有文字]" else ""
         when (m.speakerId) {
             ta.id -> add(WireMessage("assistant", words))
             Message.USER -> add(WireMessage("user", if (chat.group) "[${data.userName}] $words" else words,images))

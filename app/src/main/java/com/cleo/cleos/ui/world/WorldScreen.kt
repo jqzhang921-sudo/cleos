@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import com.cleo.cleos.ui.common.systemMotionEnabled
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -25,7 +26,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -247,7 +247,7 @@ fun WorldTab(bottomInset: Dp) {
             }
         } else {
             holder.SaveableStateProvider(active) {
-                LazyColumn(
+                TabScrollColumn(
                     Modifier.fillMaxSize().fadeUnderTopBar(statusTop + TopBarHeight, bottom = bottomInset - 10.dp),
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = statusTop + TopBarHeight + 22.dp, bottom = bottomInset + 24.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -275,7 +275,7 @@ private fun WorldOverview(
 ) {
     val palette = LocalGlassPalette.current
     val shelf = remember(selectedId, articles) { WorldShelfSummary.from(selectedId, articles) }
-    LazyColumn(
+    TabScrollColumn(
         modifier = Modifier.fillMaxSize().fadeUnderTopBar(top, bottom = bottom - 10.dp),
         contentPadding = PaddingValues(top = top + 12.dp, bottom = bottom + 24.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),

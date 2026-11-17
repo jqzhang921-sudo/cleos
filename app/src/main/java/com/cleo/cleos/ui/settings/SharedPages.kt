@@ -29,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -446,16 +445,13 @@ private fun VoicePanel(vm: SettingsViewModel, service: VoiceService, hasKey: Boo
         VoiceService.OpenAI -> Unit
     }
 
-    OutlinedTextField(
+    SecretKeyField(
         value = vm.speechKeyInput,
         onValueChange = { vm.speechKeyInput = it },
         // 「MiniMax 的 Key」, 「硅基流动的 Key」: a space only after a Latin name.
-        label = { Text(service.label + (if (service.label.last().code < 128) " 的 Key" else "的 Key")) },
-        placeholder = { if (hasKey) Text("已保存（不再显示）；要换就重新填") },
-        visualTransformation = PasswordVisualTransformation(),
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        modifier = Modifier.fillMaxWidth(),
+        label = service.label + (if (service.label.last().code < 128) " 的 Key" else "的 Key"),
+        hasSavedKey = hasKey,
+        contextKey = listOf(service,vm.minimaxGlobal,vm.speechBaseUrl),
     )
     if (vm.speechKeyInput.isNotBlank()) Chip("保存 Key", selected = true) { vm.saveSpeechKey() }
     if (hasKey) Text("Key 已经有了。", color = palette.contentSecondary, fontSize = 12.sp)

@@ -84,6 +84,9 @@ data class BackupSettings(
     /** Absent from backups made before these could be set: the defaults then. */
     val letterReply: String? = null,
     val letterEveryDays: Int = 5,
+    val defaultEnvelopeTheme: String = "ink-white",
+    val customEnvelopeThemes: List<EnvelopeSnapshot> = emptyList(),
+    val aiEnvelopeChoice: Boolean = false,
     val voiceBaseUrl: String = "",
     val voiceModel: String = "",
     /** "api" for any OpenAI-shaped service in backups from before each had its own place (Speech.migrate). */
@@ -99,6 +102,8 @@ data class BackupSettings(
     val expandVoiceText: Boolean = false,
     val showThought: Boolean = true,
     val showTokenUsage: Boolean = false,
+    val messageRichText: Boolean = true,
+    val messageColors: Boolean = false,
 )
 
 /** The backup format: one zip, `backup.json` plus the pictures under `images/`. */
@@ -118,8 +123,11 @@ data class BackupFile(
     val companions: List<CompanionEntity> = emptyList(),
     /** Absent in backups from before there were letters. */
     val letters: List<LetterEntity> = emptyList(),
+    val letterDispatches: List<com.cleo.cleos.data.db.LetterDispatchEntity> = emptyList(),
     /** Absent in backups from before TAs kept memories. */
     val memories: List<MemoryEntity> = emptyList(),
+    val memoryChanges: List<com.cleo.cleos.data.db.MemoryChangeEntity> = emptyList(),
+    val memoryBlocks: List<com.cleo.cleos.data.db.MemoryBlockEntity> = emptyList(),
     /** Absent in backups from before there were stickers; their pictures are under `images/` with the rest. */
     val stickers: List<StickerEntity> = emptyList(),
     val favorites: List<FavoriteEntity> = emptyList(),
@@ -149,7 +157,7 @@ data class BackupFile(
     companion object {
         const val FORMAT = "cleos-backup"
         // Older readers must not re-activate former members or drop shared conversations.
-        const val VERSION = 29
+        const val VERSION = 35
     }
 }
 
@@ -231,6 +239,7 @@ class BackupService(
     private val db: AppDatabase,
     private val settings: SettingsRepository,
     private val images: ImageStore,
+    private val beforeReplace: suspend () -> Unit = {},
 ) {
     private val resolver = context.contentResolver
     private val cacheDir = context.cacheDir
@@ -335,6 +344,9 @@ class BackupService(
                 taBubbleThemes = s.taBubbleThemes,
                 letterReply = s.letterReply.key,
                 letterEveryDays = s.letterEveryDays,
+                defaultEnvelopeTheme = s.defaultEnvelopeTheme,
+                customEnvelopeThemes = s.customEnvelopeThemes,
+                aiEnvelopeChoice = s.aiEnvelopeChoice,
                 voiceBaseUrl = s.voiceBaseUrl,
                 voiceModel = s.voiceModel,
                 speechEngine = s.speechEngine,
@@ -349,6 +361,8 @@ class BackupService(
                 expandVoiceText = s.expandVoiceText,
                 showThought = s.showThought,
                 showTokenUsage = s.showTokenUsage,
+                messageRichText = s.messageRichText,
+                messageColors = s.messageColors,
                 knownSince = lead?.knownSince,
             ),
             conversations = db.conversations().all(),
@@ -361,7 +375,10 @@ class BackupService(
                 System.currentTimeMillis()) },
             companions = companions,
             letters = db.letters().all(),
+            letterDispatches = db.letterDispatches().all(),
             memories = db.memories().all(),
+            memoryChanges = db.memoryChanges().all(),
+            memoryBlocks = db.memoryChanges().allBlocks(),
             stickers = db.stickers().all(),
             favorites = db.favorites().all(),
             lore = db.lore().all(),
@@ -465,7 +482,12 @@ class BackupService(
             if (d.version > BackupFile.VERSION) throw BackupException("这份备份来自更新版本的 Cleos，先更新 App 再恢复")
             try {
                 com.cleo.cleos.ai.TaVoices.validateBackup(d.companions)
+                require(d.settings.customEnvelopeThemes.size <= EnvelopeThemes.MAX_CUSTOM && EnvelopeThemes.custom(d.settings.customEnvelopeThemes) == d.settings.customEnvelopeThemes) { "自定义信封主题无效" }
+                InstantLetterData.validate(d.letters, d.messages, d.conversations.associate { it.id to it.companionId })
+                com.cleo.cleos.ai.InstantLetterRules.validateReceipts(d.letterDispatches, d.letters, d.companions.map { it.id }.ifEmpty { listOf(1L) }.toSet())
                 MessageStyle.validateBackup(d.companions)
+                MemoryContext.validateBackup(d.memories, d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet())
+                MemoryRules.validateBackup(d.memoryChanges,d.memoryBlocks,d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet())
                 GroupBackupRules.validate(d.groups, d.groupMembers, d.groupTurns, d.groupMessages, d.groupMemories)
                 WorldWritingData.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldWritings, d.worldNotes, d.worldPictureLooks, d.worldAlbumLooks)
                 WorldSerialData.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldSerials, d.worldSerialChapters, d.worldWritings)
@@ -524,6 +546,7 @@ class BackupService(
             }
             // A sticker is its picture: one whose file didn't come along would be a name drawn as nothing.
             val stickers = d.stickers.filter { images.file(it.file).exists() }
+            beforeReplace()
             db.withTransaction {
                 // What TAs noted to come back to, and what came of it: not in backups, and about
                 // conversations that are about to go.
@@ -556,7 +579,10 @@ class BackupService(
                 db.focus().clear()
                 db.todos().clear()
                 db.letters().clear()
+                db.letterDispatches().clear()
                 db.memories().clear()
+                db.memoryChanges().clear()
+                db.memoryChanges().clearBlocks()
                 db.lore().clear()
                 db.feed().clear()
                 db.stickers().clear()
@@ -572,7 +598,10 @@ class BackupService(
                 db.todos().insertAll(d.todos)
                 db.focus().insertAll(d.focusSessions.map(com.cleo.cleos.focus.FocusTimer::restored))
                 db.letters().insertAll(d.letters)
+                db.letterDispatches().insertAll(d.letterDispatches)
                 db.memories().insertAll(d.memories)
+                db.memoryChanges().restore(d.memoryChanges)
+                db.memoryChanges().block(d.memoryBlocks)
                 db.lore().insertAll(d.lore)
                 db.feed().insertAll(d.feedPosts)
                 db.stickers().insertAll(stickers)
@@ -634,6 +663,9 @@ class BackupService(
                     taBubbleThemes = bs.taBubbleThemes.filterKeys { key -> companions.any { ta -> ta.id.toString() == key } },
                     letterReply = ReplyWhen.of(bs.letterReply),
                     letterEveryDays = bs.letterEveryDays,
+                    defaultEnvelopeTheme = bs.defaultEnvelopeTheme.take(100),
+                    customEnvelopeThemes = bs.customEnvelopeThemes,
+                    aiEnvelopeChoice = bs.aiEnvelopeChoice,
                     voiceBaseUrl = bs.voiceBaseUrl,
                     voiceModel = bs.voiceModel,
                     speechEngine = speechEngine,
@@ -648,6 +680,8 @@ class BackupService(
                     expandVoiceText = bs.expandVoiceText,
                     showThought = bs.showThought,
                     showTokenUsage = bs.showTokenUsage,
+                    messageRichText = bs.messageRichText,
+                    messageColors = bs.messageColors,
                 )
             }
             settings.setCurrentCompanion(companions.first().id)

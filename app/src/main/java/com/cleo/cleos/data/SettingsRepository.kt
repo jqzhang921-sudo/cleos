@@ -88,6 +88,8 @@ data class AppSettings(
     val showThought: Boolean = true,
     /** Optional usage labels and details; recording and billing are unaffected. */
     val showTokenUsage: Boolean = false,
+    val messageRichText: Boolean = true,
+    val messageColors: Boolean = false,
     /** 拍一拍 (Pats): the verb's one character, what follows the TA's name, and whether the phone buzzes. */
     val patVerb: String = Pats.VERB,
     val patSuffix: String = "",
@@ -109,6 +111,9 @@ data class AppSettings(
     val letterReply: ReplyWhen = ReplyWhen.Hours,
     /** The least time, in days, between two letters a TA writes of their own. */
     val letterEveryDays: Int = 5,
+    val defaultEnvelopeTheme: String = "ink-white",
+    val customEnvelopeThemes: List<EnvelopeSnapshot> = emptyList(),
+    val aiEnvelopeChoice: Boolean = false,
     /** Where voice messages are turned into text (an OpenAI-shaped /audio/transcriptions), and with which model. */
     val voiceBaseUrl: String = "",
     val voiceModel: String = "",
@@ -206,6 +211,8 @@ class SettingsRepository(private val context: Context) {
         val expandVoiceText = booleanPreferencesKey("expand_voice_text")
         val showThought = booleanPreferencesKey("show_thought")
         val showTokenUsage = booleanPreferencesKey("show_token_usage")
+        val messageRichText = booleanPreferencesKey("message_rich_text")
+        val messageColors = booleanPreferencesKey("message_colors")
         val patVerb = stringPreferencesKey("pat_verb")
         val patSuffix = stringPreferencesKey("pat_suffix")
         val patBuzz = booleanPreferencesKey("pat_buzz")
@@ -226,6 +233,9 @@ class SettingsRepository(private val context: Context) {
         val notificationsAsked = booleanPreferencesKey("notifications_asked")
         val letterReply = stringPreferencesKey("letter_reply")
         val letterEveryDays = intPreferencesKey("letter_every_days")
+        val defaultEnvelopeTheme = stringPreferencesKey("default_envelope_theme")
+        val customEnvelopeThemes = stringPreferencesKey("custom_envelope_themes")
+        val aiEnvelopeChoice = booleanPreferencesKey("ai_envelope_choice")
         val voiceBaseUrl = stringPreferencesKey("voice_base_url")
         val voiceModel = stringPreferencesKey("voice_model")
         val speechEngine = stringPreferencesKey("speech_engine")
@@ -292,6 +302,8 @@ class SettingsRepository(private val context: Context) {
             expandVoiceText = this[Keys.expandVoiceText] ?: d.expandVoiceText,
             showThought = this[Keys.showThought] ?: d.showThought,
             showTokenUsage = this[Keys.showTokenUsage] ?: d.showTokenUsage,
+            messageRichText = this[Keys.messageRichText] ?: d.messageRichText,
+            messageColors = this[Keys.messageColors] ?: d.messageColors,
             patVerb = this[Keys.patVerb]?.takeIf { it.isNotBlank() } ?: d.patVerb,
             patSuffix = this[Keys.patSuffix] ?: d.patSuffix,
             patBuzz = this[Keys.patBuzz] ?: d.patBuzz,
@@ -307,6 +319,9 @@ class SettingsRepository(private val context: Context) {
             notificationsAsked = this[Keys.notificationsAsked] ?: d.notificationsAsked,
             letterReply = ReplyWhen.of(this[Keys.letterReply]),
             letterEveryDays = this[Keys.letterEveryDays] ?: d.letterEveryDays,
+            defaultEnvelopeTheme = this[Keys.defaultEnvelopeTheme] ?: d.defaultEnvelopeTheme,
+            customEnvelopeThemes = runCatching { EnvelopeThemes.custom(tuningJson.decodeFromString<List<EnvelopeSnapshot>>(this[Keys.customEnvelopeThemes] ?: "[]")) }.getOrDefault(emptyList()),
+            aiEnvelopeChoice = this[Keys.aiEnvelopeChoice] ?: false,
             voiceBaseUrl = this[Keys.voiceBaseUrl] ?: d.voiceBaseUrl,
             voiceModel = this[Keys.voiceModel] ?: d.voiceModel,
             speechEngine = speechEngine,
@@ -355,6 +370,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.expandVoiceText] = next.expandVoiceText
             prefs[Keys.showThought] = next.showThought
             prefs[Keys.showTokenUsage] = next.showTokenUsage
+            prefs[Keys.messageRichText] = next.messageRichText
+            prefs[Keys.messageColors] = next.messageColors
             prefs[Keys.patVerb] = next.patVerb
             prefs[Keys.patSuffix] = next.patSuffix
             prefs[Keys.patBuzz] = next.patBuzz
@@ -367,6 +384,9 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.notificationsAsked] = next.notificationsAsked
             prefs[Keys.letterReply] = next.letterReply.key
             prefs[Keys.letterEveryDays] = next.letterEveryDays
+            prefs[Keys.defaultEnvelopeTheme] = next.defaultEnvelopeTheme.take(100)
+            prefs[Keys.customEnvelopeThemes] = tuningJson.encodeToString(EnvelopeThemes.custom(next.customEnvelopeThemes))
+            prefs[Keys.aiEnvelopeChoice] = next.aiEnvelopeChoice
             prefs[Keys.voiceBaseUrl] = next.voiceBaseUrl
             prefs[Keys.voiceModel] = next.voiceModel
             prefs[Keys.speechEngine] = next.speechEngine

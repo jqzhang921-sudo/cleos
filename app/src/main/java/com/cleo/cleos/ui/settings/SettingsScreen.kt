@@ -276,6 +276,15 @@ internal val NOTICES = listOf(
     "licenses/transfer/zxing-core-LICENSE.txt",
     "licenses/transfer/zxing-core-NOTICE.txt",
     "licenses/transfer/scanner-copyrights.txt",
+    "licenses/message-rendering/commonmark-LICENSE.txt",
+    "licenses/message-rendering/jlatexmath-COPYING.txt",
+    "licenses/message-rendering/jlatexmath-LICENSE.txt",
+    "licenses/message-rendering/Knuth_License.txt",
+    "licenses/message-rendering/License_for_dsrom.txt",
+    "licenses/message-rendering/markwon-LICENSE.txt",
+    "licenses/message-rendering/OFL.txt",
+    "licenses/message-rendering/PROVENANCE.txt",
+
 )
 
 /** How much of the persona the profile page shows: a few lines' worth, never all of it. */

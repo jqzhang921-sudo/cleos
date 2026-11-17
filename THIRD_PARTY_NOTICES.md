@@ -72,3 +72,10 @@ Claude 的记忆功能提供过思路启发，Cleos 的分类、动作、上下�
 
 新增或更新依赖、移植代码和素材时重新核对来源、版权与许可；保留必要的上游 LICENSE / NOTICE，不以本文件替代上游要求。
 安装包内的 Apache 原文、NOTICE、第三方说明和依赖清单由 `tools/sync_license_assets.py` 同步，可在“关于 → 许可与版权 → 看许可全文”查看。
+
+
+## Message rendering (0.42.16)
+
+- Markwon core 4.6.2: Apache-2.0, copyright Dimitry Ivanov; CommonMark Java 0.13.0: BSD 2-Clause, copyright Atlassian Pty Ltd.
+- JLaTeXMath Android 0.2.0: GPL-2.0-or-later with the upstream explicit independent-module linking exception. This exception is retained verbatim, and the library remains under its own license. Its core fonts retain OFL, dsrom, Knuth and public-domain terms.
+- Exact texts and provenance: `licenses/message-rendering/`; corresponding unmodified upstream v0.2.0 source/build archive is bundled in the APK's assets alongside those notices. Optional Greek/Cyrillic font modules are not linked.

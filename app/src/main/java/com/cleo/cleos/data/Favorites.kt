@@ -24,6 +24,7 @@ data class FavoritePart(
     val audio: MessageAudio? = null,
     val images: List<MessageImage> = emptyList(),
     val gapBefore: Boolean = false,
+    val letter: com.cleo.cleos.data.db.LetterEntity? = null,
 )
 
 object FavoriteContent {
@@ -31,17 +32,19 @@ object FavoriteContent {
     fun encode(parts: List<FavoritePart>): String = json.encodeToString(parts)
     fun decode(raw: String): List<FavoritePart> = runCatching { json.decodeFromString<List<FavoritePart>>(raw) }.getOrDefault(emptyList())
     fun eligible(m: MessageEntity): Boolean = m.role in setOf("user", "assistant") && m.note == null &&
-        (m.content.isNotBlank() || m.audio != null || MessageImages.decode(m.images).isNotEmpty())
+        (m.letterId != null || m.content.isNotBlank() || m.audio != null || MessageImages.decode(m.images).isNotEmpty())
 
     /** Gaps count visible messages, not hidden tool calls. Ordering is the database's stable order. */
-    fun select(history: List<MessageEntity>, ids: Set<Long>, me: String, ai: String): List<FavoritePart> {
+    fun select(history: List<MessageEntity>, ids: Set<Long>, me: String, ai: String,
+               letters: Map<Long, com.cleo.cleos.data.db.LetterEntity> = emptyMap()): List<FavoritePart> {
         val visible = history.filter(::eligible).sortedWith(compareBy({ it.createdAt }, { it.id }))
         var previous = -1
         return visible.mapIndexedNotNull { index, m ->
             if (m.id !in ids) return@mapIndexedNotNull null
             FavoritePart(m.id, m.createdAt, m.role, if (m.role == "user") me else ai,
-                m.content, MessageAudios.decode(m.audio), MessageImages.decode(m.images),
-                gapBefore = previous >= 0 && index != previous + 1).also { previous = index }
+                m.letterId?.let { letters[it]?.let { l -> InstantLetterData.content(l, InstantLetterData.MAX_BODY) } } ?: m.content,
+                MessageAudios.decode(m.audio), MessageImages.decode(m.images),
+                gapBefore = previous >= 0 && index != previous + 1, letter = m.letterId?.let { letters[it] }).also { previous = index }
         }
     }
 
@@ -57,6 +60,23 @@ object FavoriteContent {
 class Favorites(private val db: AppDatabase, private val settings: SettingsRepository, private val images: ImageStore) {
     private val lock = Mutex()
 
+    suspend fun saveLetter(id: Long): Long = lock.withLock {
+        db.withTransaction {
+            val letter = db.letters().get(id)?.takeUnless { it.draft } ?: error("这封信还没有寄出或已删除")
+            val ta = db.companions().get(letter.companionId) ?: error("这位 TA 已不存在")
+            val linked = db.letters().linkedMessage(id)
+            val conversation = linked?.conversationId ?: -ta.id
+            val key = "letter:$id:${letter.createdAt}"
+            db.favorites().find(conversation, key)?.let { return@withTransaction it.id }
+            val part = FavoritePart(linked?.id ?: 0, letter.deliverAt ?: letter.createdAt,
+                if (letter.author == "me") "user" else "assistant",
+                if (letter.author == "me") settings.current().userName.ifBlank { "我" } else ta.name,
+                InstantLetterData.content(letter, InstantLetterData.MAX_BODY), letter = letter)
+            db.favorites().insert(FavoriteEntity(companionId = ta.id, conversationId = conversation,
+                sourceKey = key, parts = FavoriteContent.encode(listOf(part)), createdAt = System.currentTimeMillis()))
+        }
+    }
+
     suspend fun save(conversationId: Long, ids: Set<Long>): Long = withContext(Dispatchers.IO) {
         lock.withLock {
             val copied = mutableListOf<String>()
@@ -66,7 +86,7 @@ class Favorites(private val db: AppDatabase, private val settings: SettingsRepos
                     val ta = db.companions().get(conversation.companionId) ?: error("这个 TA 已经不在了")
                     val s = settings.current()
                     val parts = FavoriteContent.select(db.messages().forFavorite(conversationId), ids,
-                        s.userName.ifBlank { "我" }, ta.name.ifBlank { "TA" })
+                        s.userName.ifBlank { "我" }, ta.name.ifBlank { "TA" }, db.letters().allFor(ta.id).filter { !it.draft }.associateBy { it.id })
                     require(parts.isNotEmpty() && parts.size == ids.size) { "有消息已经变了，请重新选择" }
                     val key = parts.joinToString(",") { "${it.messageId}:${it.at}" }
                     db.favorites().find(conversationId, key)?.let { return@withTransaction it.id }

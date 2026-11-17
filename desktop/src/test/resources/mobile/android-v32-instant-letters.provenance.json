@@ -1,0 +1,9 @@
+{
+  "producer": "Cleos Android BackupService export",
+  "versionName": "0.42.7",
+  "versionCode": 287,
+  "backupVersion": 32,
+  "syntheticOnly": true,
+  "externalModelRequests": 0,
+  "sha256": "93c246b48fb626cd2036c86599d9d1e0b55638b7fbe4151f60410dde273614c8"
+}

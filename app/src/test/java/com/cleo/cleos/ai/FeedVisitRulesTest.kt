@@ -71,10 +71,10 @@ class FeedVisitRulesTest {
         val read = withFriend.copy(interactions = FeedInteractions.record(withFriend, 7, "friend", false))
         assertTrue(FeedVisitRules.targets(listOf(read), 7, post.createdAt).isEmpty())
     }
-    @Test fun newCommentIsReadableEvenAfterTheBodyWasRead() {
+    @Test fun newHumanCommentIsReadableEvenAfterTheBodyWasRead() {
         val bodyRead = post.copy(interactions = FeedInteractions.record(post, 7, null, false))
         assertTrue(FeedVisitRules.targets(listOf(bodyRead), 7, post.createdAt).isEmpty())
-        val new = bodyRead.copy(comments = FeedComments.encode(listOf(FeedComment("new", 8, "再聊聊", 3))))
+        val new = bodyRead.copy(comments = FeedComments.encode(listOf(FeedComment("new", 0, "再聊聊", 3))))
         assertEquals("new", FeedVisitRules.targets(listOf(new), 7, post.createdAt).single().replyTo)
     }
     @Test fun contextIsBoundedAndExcludesFutureAndOldPosts() {

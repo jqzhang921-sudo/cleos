@@ -1,7 +1,7 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -31,7 +31,7 @@ internal fun WorldTopicPage(ta: CompanionEntity?, seed: String, query: String, o
     val matches = topicResults(articles, query, fetch?.query, fetch?.articleIds)
     val used = reading?.takeIf { it.day == LocalDate.now().toEpochDay() }?.let { (it.attempts - if (it.token != null) 1 else 0).coerceAtLeast(0) } ?: 0
     val valid = runCatching { WorldTopicSearch.query(query) }.isSuccess
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { WorldPanel {
             Text("沿着一个问题看看", color = p.content, fontSize = 18.sp)
             if (seed.isNotBlank()) Text("还想知道 · $seed", color = p.contentSecondary, fontSize = 14.sp, lineHeight = 22.sp)

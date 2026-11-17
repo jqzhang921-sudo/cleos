@@ -1,9 +1,10 @@
 package com.cleo.cleos.ai
 
-/** Only bounded aggregate text crosses this boundary; no app names or raw events. */
+/** Only bounded aggregate text crosses this boundary; app names need separate consent. */
 interface PhoneStatusSource {
     suspend fun battery(): String
     suspend fun usage(): String
+    suspend fun appUsage(): String = throw ToolFailure("此设备暂不支持应用时长查询。", "暂时不可用")
 }
 
 /** Re-check device-local consent before reading and before returning, including in-flight revocation. */
@@ -17,6 +18,7 @@ class GuardedPhoneStatus(private val source: PhoneStatusSource, private val allo
     }
     override suspend fun battery() = read(ToolGroup.PhoneBattery) { source.battery() }
     override suspend fun usage() = read(ToolGroup.PhoneUsage) { source.usage() }
+    override suspend fun appUsage() = read(ToolGroup.PhoneAppUsage) { source.appUsage() }
 }
 
 data class BatteryReading(val percent: Int, val charging: Boolean?) {

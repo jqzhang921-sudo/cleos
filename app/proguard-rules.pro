@@ -8,3 +8,6 @@
 # WorkManager reconstructs this persisted Worker by its class name after process restart.
 -keep class com.cleo.cleos.data.WorldOutsideWorker { public <init>(android.content.Context, androidx.work.WorkerParameters); }
 -keep class com.cleo.cleos.data.WorldTopicWorker { public <init>(android.content.Context, androidx.work.WorkerParameters); }
+
+# JLaTeXMath loads formula macros by class/method names from bundled XML.
+-keep class org.scilab.forge.jlatexmath.** { *; }

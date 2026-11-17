@@ -39,7 +39,8 @@ object FeedVisitRules {
     }
     fun targets(posts: List<FeedPostEntity>, taId: Long, now: Long): List<FeedVisitTarget> = posts.take(20)
         .filter { now - it.createdAt in 0..7 * 24 * 60 * 60_000L }.mapNotNull { post ->
-            val reply = FeedComments.decode(post.comments).lastOrNull { FeedInteractions.canInvite(post, taId, it.id) }
+            val comments = FeedComments.decode(post.comments)
+            val reply = comments.lastOrNull { FeedInteractions.canInvite(post, taId, it.id) }
             when {
                 reply != null -> FeedVisitTarget(post, reply.id)
                 FeedInteractions.canInvite(post, taId, null) -> FeedVisitTarget(post, null)
@@ -69,6 +70,7 @@ object FeedVisitRules {
         .substringBefore("只输出 JSON：") + """
         这是你独立逛朋友圈的一次机会，不是聊天消息，不需要发消息提醒对方，也不要因没人回复而催促。
         每个阅读对象都标明了作者和要回应的评论。你的正文和评论属于你自己，不能当成别人写的或无缘无故反驳自己。
+        ${FeedThreadContext.RULE}
         只在给出的阅读对象中选一个，用 reply 点赞或回应；回复对象必须原样使用给出的 postId 和 replyTo。
         也可以只是看看，选择 skip。没有收到图片时，不编造照片内容；不重复自己最近发过的动态和评论。
         ${if (allowPost) "允许选择 post 分享一条新动态。日常限 80 字；仅依据给出的资讯才可写话题，并填写对应 sourceIndex，限 600 字。" else "这次不允许发新动态，只能 reply 或 skip。"}

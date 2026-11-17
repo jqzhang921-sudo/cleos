@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.home
 
+import com.cleo.cleos.ui.common.tabBarScroll
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -115,6 +116,7 @@ fun HomeTab(bottomInset: Dp, onOpenSettings: () -> Unit, onOpenLetters: () -> Un
     val now by rememberNow()
     val remembered by remember(taId) { taId?.let { c.db.memories().observeFor(it) } ?: flowOf(emptyList()) }
         .collectAsStateWithLifecycle(emptyList())
+    val pageScroll = rememberScrollState()
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     var pickingFor by remember { mutableStateOf<AvatarRequest?>(null) }
@@ -158,7 +160,8 @@ fun HomeTab(bottomInset: Dp, onOpenSettings: () -> Unit, onOpenLetters: () -> Un
             Modifier
                 .fillMaxSize()
                 .fadeUnderTopBar(statusTop + TopBarHeight, bottom = bottomInset - 10.dp)
-                .verticalScroll(rememberScrollState())
+                .tabBarScroll(pageScroll)
+                .verticalScroll(pageScroll)
                 .padding(start = 14.dp, end = 14.dp, top = statusTop + TopBarHeight + 8.dp, bottom = bottomInset + 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {

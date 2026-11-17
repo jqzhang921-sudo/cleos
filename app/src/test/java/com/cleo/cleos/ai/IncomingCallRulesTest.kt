@@ -8,6 +8,25 @@ import org.junit.Test
 import java.time.ZonedDateTime
 
 class IncomingCallRulesTest {
+    @Test fun anytimeBypassesBothFrequencyLimitsWithoutResettingSavedChoices() {
+        assertNull(IncomingCallRules.held(true,true,false,false,false,now,999,now,1440,1,IncomingCallRules.ANYTIME))
+        val ta=CompanionEntity(apiBaseUrl="",apiModel="",createdAt=1,incomingCallMode="anytime",incomingCallIntervalMinutes=720,incomingCallDailyMax=2)
+        assertEquals(ta,Json.decodeFromString<CompanionEntity>(Json.encodeToString(ta)))
+        assertEquals(720,ta.copy(incomingCallMode="limited").incomingCallIntervalMinutes)
+    }
+    @Test fun anytimeStillRequiresOptInQuietAndAudioExclusivity() {
+        assertNotNull(IncomingCallRules.held(false,true,false,false,false,null,0,now,mode="anytime"))
+        assertNotNull(IncomingCallRules.held(true,false,false,false,false,null,0,now,mode="anytime"))
+        assertNotNull(IncomingCallRules.held(true,true,true,false,false,null,0,now,mode="anytime"))
+        assertNotNull(IncomingCallRules.held(true,true,false,true,false,null,0,now,mode="anytime"))
+        assertNotNull(IncomingCallRules.held(true,true,false,false,true,null,0,now,mode="anytime"))
+        assertNotNull(IncomingCallRules.held(true,true,false,false,false,now,99,now,mode="bad"))
+    }
+    @Test fun anytimePromptDoesNotRetainOldLimitedFrequency() {
+        val ta=CompanionEntity(apiBaseUrl="",apiModel="",createdAt=1,incomingCallMode="anytime")
+        val p=Prompt.system(AppSettings(),ta,setOf(ToolGroup.FreeVisit),incomingCalls=true)
+        assertTrue(p.contains("不设来电冷却"));assertFalse(p.contains("两次至少间隔"))
+    }
     private val now=10*IncomingCallRules.DAY_MS
     private fun held(enabled:Boolean=true,free:Boolean=true,quiet:Boolean=false,busy:Boolean=false,pending:Boolean=false,
                      last:Long?=null,count:Int=0)=IncomingCallRules.held(enabled,free,quiet,busy,pending,last,count,now)

@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,7 +52,7 @@ internal fun WorldWishlist(ta: CompanionEntity?, wishes: List<WorldWishEntity>, 
         }
     }
     val list = worldPageScroll(navigation, "wishes", ta?.id, ready)
-    LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = worldPadding(0.dp, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize(), state = list, contentPadding = worldPadding(0.dp, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item {
             WorldPanel {
                 Text("书架之外，还想读点什么", color = p.content, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)

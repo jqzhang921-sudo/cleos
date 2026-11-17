@@ -7,7 +7,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Manual selected-photo import only. Restores drain this lock before replacing the database. */
+/** Bounded private copies, manually selected or from explicit gallery consent. Restores drain this lock. */
 class WorldAlbum(private val db: AppDatabase, private val images: ImageStore,
     private val beforeChange: suspend (Long, Long) -> Unit, private val discard: suspend (String) -> Unit) {
     private val lock = Mutex()
@@ -19,21 +19,27 @@ class WorldAlbum(private val db: AppDatabase, private val images: ImageStore,
         currentCoroutineContext().ensureActive()
         check(!paused && ta !in removedTas && revision == generation && db.companions().get(ta)?.createdAt == createdAt) { "相册或角色已变化，请重新打开" }
     }
-    suspend fun add(ta: Long, createdAt: Long, revision: Long, uri: Uri): Long = lock.withLock {
+    suspend fun add(ta: Long, createdAt: Long, revision: Long, uri: Uri, fromGallery: Boolean = false, caption: String = "",
+        permitted: suspend () -> Boolean = { true }, beforeSave: suspend (StoredImage) -> Unit = {}): Long = lock.withLock {
         allowed(ta, createdAt, revision)
+        require(WorldAlbumData.caption(caption)) { "说明最多 500 字" }
+        check(permitted()) { "图集授权或照片已经变化" }
         check(db.worldAlbum().photos(ta).size < WorldAlbumData.MAX_PHOTOS) { "相册已放满 50 张，请先整理一些" }
         var temporary: String? = null
         try {
             val image = withContext(NonCancellable) { images.import(uri, 960, "album-") }
             temporary = image.file
             allowed(ta, createdAt, revision)
+            check(permitted()) { "图集授权或照片已经变化" }
             val sha = withContext(Dispatchers.IO) { WorldPictureData.digest(images.file(image.file)) }
             check(images.validWorldPicture(images.file(image.file), image.width, image.height, sha)) { "图片无法保存，请选择其他照片" }
+            beforeSave(image)
             val id = db.withTransaction {
                 allowed(ta, createdAt, revision)
+                check(permitted()) { "图集授权或照片已经变化" }
                 check(db.worldAlbum().photos(ta).size < WorldAlbumData.MAX_PHOTOS)
                 db.worldAlbum().add(WorldAlbumPhotoEntity(companionId = ta, file = image.file, width = image.width,
-                    height = image.height, sha256 = sha, createdAt = System.currentTimeMillis()))
+                    height = image.height, sha256 = sha, caption = caption, createdAt = System.currentTimeMillis(), fromGallery = fromGallery))
             }
             temporary = null
             id

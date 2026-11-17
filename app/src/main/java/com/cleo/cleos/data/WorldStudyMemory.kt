@@ -89,7 +89,7 @@ object WorldStudyMemory {
                 put("article_id", n.articleId); put("at", n.createdAt); put("from", n.fromOffset); put("to", n.toOffset)
                 put("note", clip(n.content, 420)); put("question", clip(n.question, 180))
             } }, 1800))
-            put("reading_preferences", bounded(relevantMemory.map { m -> buildJsonObject { put("name", clip(m.name, 80)); put("summary", clip(m.summary, 220)) } }, 1200))
+            put("reading_preferences", bounded(relevantMemory.map { m -> buildJsonObject { put("name", clip(m.name, 80)); put("summary", clip(m.summary, 220)); put("time_state", MemoryContext.timing(m)) } }, 1200))
         }
     }
 }

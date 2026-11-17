@@ -24,6 +24,8 @@ class WorldLibrary(
     private val albumPixels: suspend (WorldAlbumPhotoEntity) -> String? = { null },
     private val beforeOutsideDelete: suspend (Long, Set<Long>) -> Unit = { _, _ -> },
     private val readingMemories: suspend (Long) -> List<MemoryEntity> = { emptyList() },
+    private val galleryCandidates: suspend (CompanionEntity) -> List<AlbumCandidate> = { emptyList() },
+    private val albumAutomaticAccess: suspend (WorldAlbumPhotoEntity) -> Boolean = { !it.fromGallery },
 ) {
     private data class TopicLookup(val recent: List<String>, val fetch: suspend (String) -> List<Long>)
     private data class PictureLook(val createdAt: Long, val picture: WorldPictureEntity? = null,
@@ -137,6 +139,11 @@ class WorldLibrary(
     }
     suspend fun stopAlbumBackground(taId: Long) { jobs[taId]?.takeIf { it.background && it.space == "album" }?.job?.cancelAndJoin() }
     fun lookingAtAlbum(taId: Long, id: Long): Boolean = jobs[taId]?.let { it.space == "album" && it.articleId == id } == true
+    private suspend fun albumChoices(ta: CompanionEntity): List<AlbumCandidate> {
+        val local = WorldAlbumConsent.candidates(db.worldAlbum().photos(ta.id).filter { albumAutomaticAccess(it) }, db.worldAlbum().looks(ta.id)).map { AlbumCandidate(it) }
+        return local + if (local.size < 10) galleryCandidates(ta).take(10 - local.size) else emptyList()
+    }
+    suspend fun hasNewAlbumPhotos(taId: Long): Boolean = db.companions().get(taId)?.let { albumChoices(it).isNotEmpty() } ?: false
     fun browsingAlbum(taId: Long): Boolean = jobs[taId]?.let { it.space == "album" && it.background } == true
     suspend fun stopAlbum(taId: Long, id: Long) { jobs[taId]?.takeIf { it.space == "album" && (it.articleId == id || it.background) }?.job?.cancelAndJoin() }
     suspend fun stopPicture(taId: Long, articleId: Long) { jobs[taId]?.takeIf { it.space == "picture" && (it.articleId == articleId || it.background) }?.job?.cancelAndJoin() }
@@ -157,10 +164,11 @@ class WorldLibrary(
         launchReading(taId, false, "outside", articleIds = articleIds.toSet(), focus = WorldTopicSearch.query(query)) { true }
     }
     private fun launchReading(taId: Long, background: Boolean, space: String, sourceId: String? = null,
-        articleIds: Set<Long>? = null, focus: String = "", topic: TopicLookup? = null, picture: PictureLook? = null, album: AlbumLook? = null, permission: suspend () -> Boolean): Job? = synchronized(jobs) {
+        articleIds: Set<Long>? = null, focus: String = "", topic: TopicLookup? = null, picture: PictureLook? = null, album: AlbumLook? = null,
+        deferred: () -> Unit = {}, permission: suspend () -> Boolean): Job? = synchronized(jobs) {
         if (paused || taId in removing.value || jobs.containsKey(taId)) return@synchronized null
         val job = scope.launch(start = CoroutineStart.LAZY) {
-            run(taId, if (topic == null) space else "outside", sourceId, articleIds, focus, topic, picture, album, permission)
+            run(taId, if (topic == null) space else "outside", sourceId, articleIds, focus, topic, picture, album, deferred, permission)
         }
         jobs[taId] = Active(job, background, space, picture?.picture?.articleId ?: album?.photo?.id)
         working.update { it + taId }
@@ -172,14 +180,18 @@ class WorldLibrary(
         job
     }
     /** A stopped Worker must also stop the app-scope request it owns, without cancelling manual work. */
-    suspend fun readInBackground(taId: Long, space: String = "study", sourceId: String? = null, permission: suspend () -> Boolean) {
+    suspend fun readInBackground(taId: Long, space: String = "study", sourceId: String? = null, permission: suspend () -> Boolean): Boolean {
         require(space in setOf("study", "outside")); currentCoroutineContext().ensureActive()
-        val job = launchReading(taId, true, space, sourceId, permission = permission) ?: return
+        var deferred = false
+        val job = launchReading(taId, true, space, sourceId, deferred = { deferred = true }, permission = permission) ?: return false
         try { job.join() } catch (e: CancellationException) {
             withContext(NonCancellable) { job.cancelAndJoin() }
             throw e
         }
+        return !deferred
     }
+    /** Busy is transient; do not confuse it with missing credentials or an exhausted daily allowance. */
+    suspend fun backgroundOccupied(taId: Long): Boolean = paused || taId in removing.value || jobs.containsKey(taId) || occupied(taId)
     /** Topic selection, one search and reading share one lease and one cancellation owner. */
     suspend fun exploreInBackground(taId: Long, recent: List<String>, fetch: suspend (String) -> List<Long>, permission: suspend () -> Boolean) {
         currentCoroutineContext().ensureActive()
@@ -290,12 +302,13 @@ class WorldLibrary(
             catalogAuthor = catalog?.author ?: expected.catalogAuthor, verifiedAt = if (catalog != null) at else expected.verifiedAt))
     }
 
-    private suspend fun run(taId: Long, space: String, sourceId: String?, articleIds: Set<Long>?, initialFocus: String, topic: TopicLookup?, picture: PictureLook?, album: AlbumLook?, permission: suspend () -> Boolean) {
+    private suspend fun run(taId: Long, space: String, sourceId: String?, articleIds: Set<Long>?, initialFocus: String, topic: TopicLookup?, picture: PictureLook?, album: AlbumLook?, deferred: () -> Unit, permission: suspend () -> Boolean) {
         initialize()
         val token = UUID.randomUUID().toString()
         var claimed = false
         var phase = "prepare"
         var albumPhoto = album?.photo
+        var albumPool: List<AlbumCandidate> = emptyList()
         var pictureImage = picture?.picture
         var pictureArticle: WorldArticleEntity? = null
         suspend fun status(text: String, failureCode: String = "", refund: Boolean = false) = db.withTransaction {
@@ -309,6 +322,14 @@ class WorldLibrary(
             if (album != null) {
                 checkReading(ta.createdAt == album.createdAt && (albumPhoto == null || albumPhoto?.let { it.companionId == taId && db.worldAlbum().photo(it.id) == it } == true),
                     "picture_changed", "相册照片或角色已变化，请重新打开")
+                if (albumPhoto == null) {
+                    checkReading(!paused && permission(), "permission_changed", "自主翻看已关闭，本次没有开始")
+                    albumPool = albumChoices(ta)
+                    if (albumPool.isEmpty()) {
+                        diagnostic("event=world_album_idle route=world stage=prepare reason=no_unseen")
+                        return // No model request, no shared daily opportunity, no fabricated failure.
+                    }
+                }
                 checkReading(db.world().recordCount(taId) < WorldReading.MAX_NOTES, "notebook_full", "世界记录已满，请先整理一些")
             }
             if (picture != null) {
@@ -356,6 +377,8 @@ class WorldLibrary(
                     "picture_changed", "配图已经移除或变化，本次结果未保存")
                 if (albumPhoto != null) checkReading(albumPhoto?.let { db.worldAlbum().photo(it.id) == it } == true,
                     "picture_changed", "相册照片已经移除或变化，本次结果未保存")
+                if (album?.photo == null && albumPhoto != null) checkReading(albumAutomaticAccess(requireNotNull(albumPhoto)),
+                    "permission_changed", "手机图集授权或照片已经变化，本次翻看已停止")
             }
             val endpoint = ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel)
             if (space == "writing") {
@@ -380,23 +403,31 @@ class WorldLibrary(
             if (album != null) {
                 if (albumPhoto == null) {
                     allowed(); phase = "choose_album"
-                    val candidates = WorldAlbumConsent.candidates(db.worldAlbum().photos(taId), db.worldAlbum().looks(taId))
-                    checkReading(candidates.isNotEmpty(), "album_empty", "相册暂时没有可看的照片")
+                    val candidates = albumPool.map { it.photo }
+                    if (candidates.isEmpty()) {
+                        status("照片已经看过了，等有新照片再翻看", refund = true)
+                        return
+                    }
                     val chosen = reader.chooseAlbum(endpoint, ta, candidates)
                     allowed()
-                    checkReading(candidates.all { db.worldAlbum().photo(it.id) == it }, "picture_changed", "相册候选已变化，本次结果未保存")
+                    checkReading(albumPool.filter { it.materialize == null }.all { db.worldAlbum().photo(it.photo.id) == it.photo }, "picture_changed", "相册候选已变化，本次结果未保存")
                     if (chosen == null) { db.withTransaction { allowed(); status("TA 这次暂时不翻相册，没有发送照片") }; return }
-                    albumPhoto = candidates.single { it.id == chosen }
+                    val selected = albumPool.single { it.photo.id == chosen }
+                    albumPhoto = selected.materialize?.invoke() ?: selected.photo
                     val thisJob = currentCoroutineContext()[Job]
-                    synchronized(jobs) { jobs[taId]?.takeIf { it.job == thisJob }?.let { jobs[taId] = it.copy(articleId = chosen) } }
-                    db.withTransaction { allowed(); db.world().state(taId)?.let { db.world().put(it.copy(albumPhotoId = chosen)) } }
+                    synchronized(jobs) { jobs[taId]?.takeIf { it.job == thisJob }?.let { jobs[taId] = it.copy(articleId = albumPhoto?.id) } }
+                    db.withTransaction { allowed(); db.world().state(taId)?.let { db.world().put(it.copy(albumPhotoId = albumPhoto?.id)) } }
+                    if (selected.materialize != null && WorldAlbumConsent.history(requireNotNull(albumPhoto), db.worldAlbum().looks(taId)).isNotEmpty()) {
+                        status("这张图像已经看过了，没有重复发送照片", refund = true)
+                        return
+                    }
                 }
                 val selectedPhoto = requireNotNull(albumPhoto)
                 allowed(); phase = "album_pixels"
                 val pixels = albumPixels(selectedPhoto)
                 checkReading(pixels != null, "picture_missing", "本地照片缺失或损坏，没有发送请求")
                 allowed(); phase = "look_album"
-                val result = reader.lookAlbum(endpoint, ta, selectedPhoto, requireNotNull(pixels))
+                val result = reader.lookAlbum(endpoint, ta, selectedPhoto, requireNotNull(pixels), db.worldAlbum().looks(taId))
                 allowed()
                 if (result == null) { db.withTransaction { allowed(); status("TA 这次想先放一放，没有确认看过照片") }; return }
                 phase = "save_album"
@@ -492,7 +523,8 @@ class WorldLibrary(
             checkReading(db.world().recordCount(taId) < WorldReading.MAX_NOTES, "notebook_full", "随手本已满，请先整理一些笔记")
             val article = articles.single { it.id == chosen }
             checkReading(db.world().article(chosen) == article, "article_changed", "文章已经变化，本次阅读已停止")
-            val end = WorldReading.end(article.content, article.readOffset)
+            val end = WorldReading.end(article.content, article.readOffset, if (space == "study") decision.readCharacters else WorldReading.SEGMENT)
+            runCatching { diagnostic("event=world_reading_span route=world stage=read characters=${end - article.readOffset} requested=${if (space == "study") decision.readCharacters else WorldReading.SEGMENT}") }
             phase = "read"
             val bookParts = if (space == "study") WorldBookVolumes.books(shelf).first { b -> b.parts.any { it.id == chosen } }.parts.map { it.id } else emptyList()
             val context = if (space == "study") WorldStudyMemory.reading(taId, article, shelf, wishes, db.world().studyNotes(taId, bookParts), readingMemories(taId)) else null
@@ -529,6 +561,7 @@ class WorldLibrary(
                 if (original.code == "invalid_result" && phase.startsWith("save_"))
                     WorldFailure("save_failed", "阅读结果没有保存成功，可查看工具诊断后重试") else original
             }
+            if (!claimed && failure.code == "busy") deferred()
             runCatching { diagnostic("event=world_reading_failure route=world stage=$phase reason=${failure.code} type=${e.javaClass.simpleName}") }
             val message = if (!claimed) e.message?.take(160) ?: "暂时无法开始阅读" else failure.message + if (space == "writing") "。次数已退回，没有保存随笔" else "。次数已退回，进度未更新"
             if (!claimed && db.companions().get(taId) != null && db.world().state(taId) == null) {

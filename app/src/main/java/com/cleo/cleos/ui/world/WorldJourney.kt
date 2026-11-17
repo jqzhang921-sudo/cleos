@@ -1,7 +1,7 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -54,7 +54,7 @@ internal fun WorldJourney(ta: CompanionEntity?, articles: List<WorldArticleEntit
     }
     val current by remember { derivedStateOf { (list.firstVisibleItemIndex - 1).coerceAtLeast(0) } }
     val name = ta?.name?.ifBlank { "TA" } ?: "TA"
-    LazyColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list,
+    TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list,
         contentPadding = PaddingValues(top = top + 18.dp, bottom = bottom + 28.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
         item(key = "intro") {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {

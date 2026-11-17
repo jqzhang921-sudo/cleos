@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -221,7 +221,7 @@ fun DiaryTab(
                         }
                     }
                 }
-                LazyColumn(
+                TabScrollColumn(
                     state = if (calendar) calendarState else listState,
                     modifier = Modifier
                         .fillMaxSize()

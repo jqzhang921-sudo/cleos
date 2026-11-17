@@ -74,7 +74,7 @@ class PhoneKeepsTest {
         assertFalse(prompts.toString().contains("合成来信"));assertFalse(prompts.toString().contains("合成收藏"))
         val archive=DesktopBackupArchive();val saved=archive.export(root,data,"合成库",temp.newFolder().toPath().resolve("backup.zip"))
         val restored=temp.newFolder().toPath();archive.write(saved,restored)
-        assertEquals(keeps,readPhoneKeeps(restored,saved.data));assertEquals(4,saved.data.version)
+        assertEquals(keeps,readPhoneKeeps(restored,saved.data));assertEquals(5,saved.data.version)
     }
     @Test fun `malformed visibility roles timestamps paths and duplicate IDs are reported and do not expose records`() {
         val source=keepsFixture(temp.newFolder().toPath())

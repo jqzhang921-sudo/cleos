@@ -211,6 +211,12 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
         return true
     }
 
+    /** This explicit client action grants one requested letter; it leaves unsent text/photos alone. */
+    fun requestLetter(): Boolean {
+        val id = conversationId.value ?: return false
+        return c.chat.send(id, "给我写一封信吧。", letterRequested = true)
+    }
+
     /** 拍一拍: pats the TA ([ai]) or the person themself. A line in the chat, and no answer. */
     fun pat(ai: Boolean) {
         val s = state.value

@@ -90,6 +90,9 @@ data class LetterRoute(val id: Long)
 object MemoryRoute
 
 @Serializable
+object MemoryChangesRoute
+
+@Serializable
 object FavoritesRoute
 
 @Serializable
@@ -221,8 +224,10 @@ fun CleosNavHost() {
             com.cleo.cleos.ui.favorites.FavoriteScreen(entry.toRoute<FavoriteRoute>().id, onBack = nav::back,
                 onFound = { nav.popBackStack(MainRoute, inclusive = false) }, onImage = { nav.go(ImageRoute(it)) })
         }
-        composable<MemoryRoute> { MemoryScreen(onBack = nav::back, onOpen = { nav.go(MemoryEditRoute(it)) }) }
-        composable<MemoryEditRoute> { entry -> MemoryEditScreen(entry.toRoute<MemoryEditRoute>().id, onBack = nav::back) }
+        composable<MemoryRoute> { MemoryScreen(onBack = nav::back, onOpen = { nav.go(MemoryEditRoute(it)) }, onSearch = { nav.go(SearchRoute) }, onChanges = { nav.go(MemoryChangesRoute) }) }
+        composable<MemoryChangesRoute> { com.cleo.cleos.ui.memory.MemoryChangesScreen(nav::back) { nav.go(MemoryEditRoute(it)) } }
+        composable<MemoryEditRoute> { entry -> MemoryEditScreen(entry.toRoute<MemoryEditRoute>().id, onBack = nav::back,
+            onFound = { nav.popBackStack(MainRoute, inclusive = false) }) }
         composable<SettingsRoute> { entry ->
             SettingsScreen(
                 start = SettingsPage.of(entry.toRoute<SettingsRoute>().page),

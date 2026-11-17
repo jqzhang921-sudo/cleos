@@ -116,6 +116,7 @@ class ChatRepository(
     private val interrupted: (Long) -> Unit = {},
     private val activities: WakeActivities = WakeActivities(db),
 ) {
+    private val instantLetterSender = com.cleo.cleos.data.InstantLetters(db, settings)
     /** The replies being written, by conversation. */
     private val _streaming = MutableStateFlow<Map<Long, StreamingReply>>(emptyMap())
     val streaming: StateFlow<Map<Long, StreamingReply>> = _streaming.asStateFlow()
@@ -430,7 +431,7 @@ class ChatRepository(
      * stopped for a moment ([answerSoon]). [quote]: the message this one answers. False only
      * when there is nothing to send.
      */
-    fun send(conversationId: Long, text: String, pictures: List<MessageImage> = emptyList(), quote: MessageQuote? = null, diaryRequestId: Long? = null, feedShare: FeedShare? = null): Boolean {
+    fun send(conversationId: Long, text: String, pictures: List<MessageImage> = emptyList(), quote: MessageQuote? = null, diaryRequestId: Long? = null, feedShare: FeedShare? = null, letterRequested: Boolean = false): Boolean {
         val shared = feedShare?.copy(caption = text.trim())
         val content = shared?.let(FeedShares::text) ?: text.trim()
         if (content.isEmpty() && pictures.isEmpty()) return false
@@ -451,6 +452,7 @@ class ChatRepository(
                     images = MessageImages.encode(shared?.images.orEmpty() + pictures),
                     quote = quote?.let(MessageQuotes::encode),
                     feedShare = shared?.let(FeedShares::encode),
+                    letterRequested = letterRequested && shared == null && pictures.isEmpty(),
                 ),
             )
             val conversation = db.conversations().get(conversationId)
@@ -464,6 +466,12 @@ class ChatRepository(
     }
 
     /** A sticker from the drawer: sent as its name, the way the TA sends them (StickerText). */
+    /** A durable instant letter is a user turn; use the existing reply queue. */
+    fun answerLetter(conversationId: Long) { answerSoon(conversationId) }
+
+    private suspend fun letterHistory(conversation: com.cleo.cleos.data.db.ConversationEntity): List<MessageEntity> =
+        com.cleo.cleos.data.InstantLetterData.resolve(recaps.live(conversation), db.letters().allFor(conversation.companionId), conversation.companionId)
+
     fun sendSticker(conversationId: Long, name: String, quote: MessageQuote? = null): Boolean =
         send(conversationId, StickerText.token(name), quote = quote)
 
@@ -624,6 +632,7 @@ class ChatRepository(
     /** Throw away [assistantMessageId] (a failed or unwanted reply) and ask again. */
     fun retry(conversationId: Long, assistantMessageId: Long) {
         start(conversationId) {
+            if (db.messages().get(assistantMessageId)?.letterId != null) return@start
             db.messages().delete(assistantMessageId)
             reply(conversationId)
         }
@@ -771,7 +780,7 @@ class ChatRepository(
         val conversation = db.conversations().get(conversationId) ?: throw ChatException("这段对话已经删了")
         val endpoint = ApiEndpoint(use.baseUrl, key, use.model)
         val endpointKey = endpoint.chatUrl + "|" + endpoint.model
-        val history = Recap.sent(recaps.live(conversation), s.historySize)
+        val history = Recap.sent(letterHistory(conversation), s.historySize)
         val literalAllowed = instruction == null && WakeOutput.allowsLiteral(history.lastOrNull { it.role == "user" }?.content.orEmpty())
         // First answer to an incoming call: greet before doing calendar/memory tool round trips.
         // Later turns keep their usual call tools and the same full conversation context.
@@ -784,7 +793,7 @@ class ChatRepository(
         val calls = callsOutside(history)
         fun build() = Prompt.messages(
             s, ta, history, ZonedDateTime.now(), groups, false, memories, conversation.recap, stickers = stickers, call = callId, calls = calls,
-            lore = lore, studyMemory = study,
+            lore = lore, studyMemory = study, studyBackground = instruction != null,
             preserveReasoning = Thinking.keepsToolReasoning(use.model),
         ).let { if (instruction != null) Prompt.withWake(it, instruction) else it }
         var messages = build()
@@ -1049,10 +1058,12 @@ class ChatRepository(
         val conversation = db.conversations().get(conversationId) ?: return WakeResult.Failed("对话已经删了")
         val endpoint = ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel)
         val endpointKey = endpoint.chatUrl + "|" + endpoint.model
-        val history = Recap.sent(recaps.live(conversation), s.historySize)
+        val history = Recap.sent(letterHistory(conversation), s.historySize)
+        val wakeLetterAnchor=db.messages().newest(conversationId,UNANSWERED_LOOKBACK).firstOrNull{it.role=="user"}?.id
         val now = ZonedDateTime.now()
         val since = System.currentTimeMillis()
         val incomingAllowed = freeVisit && ta.incomingCallsEnabled && ta.freeTopicEnabled
+        val lettersAllowed = freeVisit && ta.freeTopicEnabled && InstantLetterRules.available(ta.instantLetterMode, null, wake = true)
         // No outside services and no pictures: nobody is there to allow a call, and deciding
         // whether to say something shouldn't cost what answering a picture does. No music either:
         // a song is paused or skipped when the person asks, and a wake is nobody asking.
@@ -1066,7 +1077,7 @@ class ChatRepository(
         val calls = callsOutside(history)
         fun build() = Prompt.withWake(
             Prompt.messages(s, ta, history, now, groups, false, memories, conversation.recap, stickers = stickers, sendStickers = sendStickers, calls = calls, lore = lore,
-                studyMemory = study,
+                studyMemory = study, instantLetters = lettersAllowed, studyBackground = true,
                 preserveReasoning = Thinking.keepsToolReasoning(endpoint.model)),
             instruction + if(incomingAllowed) "\n你也可以自主选择用 request_call 邀请一次语音通话。只有确实想通过声音聊时才邀请，成功后直接结束本次回复，等待对方决定。" else "",
         )
@@ -1083,7 +1094,7 @@ class ChatRepository(
         try {
             while (true) {
                 val mayRefuse = rounds == 0 && (groups.isNotEmpty() || thinking)
-                when (val step = step(conversationId, endpoint, messages, tools.specs(groups,incomingAllowed), mayRefuse, thinking, showThought = ta.deepThinking, wake = true,
+                when (val step = step(conversationId, endpoint, messages, tools.specs(groups,incomingAllowed,lettersAllowed), mayRefuse, thinking, showThought = ta.deepThinking, wake = true,
                     onRequest = { activities.request(activity) }, background = background,
                     // Follow-up anchors stop matching after our own first tool message is saved.
                     allowed = if (rounds == 0) allowed else { { true } },
@@ -1114,12 +1125,20 @@ class ChatRepository(
                         messages = build()
                     }
                     is Step.Called -> {
+                        if(step.message.toolCalls.any{it.name==ToolSpecs.writeInstantLetter.name}) {
+                            val latest=db.messages().newest(conversationId,UNANSWERED_LOOKBACK).firstOrNull{it.role=="user"}?.id
+                            val occupied=com.cleo.cleos.ai.CallAudioOwnership.slot.occupied() || db.conversations().idsFor(ta.id).any{isTyping(it) || (it!=conversationId && busy(it))}
+                            if(!allowed() || latest!=wakeLetterAnchor || occupied) return result("对方正在聊天或通话，这次没有寄信。")
+                        }
                         if (rounds == MAX_TOOL_ROUNDS) return result("连着用了太多次工具")
                         activities.tools(activity, step.message.toolCalls.map { tools.action(it.name) })
                         var invitation: String? = null
+                        var letterSent: Long? = null
                         val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, emptyList(), ta.name, wake = true,
-                            incomingAllowed=incomingAllowed,onIncoming={invitation=it})
+                            incomingAllowed=incomingAllowed,onIncoming={invitation=it}, instantLettersAllowed=lettersAllowed && ToolGroup.Letters in groups,
+                            letterOrigin="${ta.id}:wake:$conversationId:${activity ?: since}", onLetter={letterSent=it})
                         invitation?.let { return WakeResult.Invited(it) }
+                        if (letterSent != null) return result("")
                         if (step.message.toolCalls.all { it.name in ToolSpecs.speaking }) return result("")
                         messages = messages + step.message + results
                         rounds++
@@ -1150,7 +1169,7 @@ class ChatRepository(
         // What isn't folded into the recap yet, as much of it as the window takes. The recap
         // stands in for everything before.
         val conversation = db.conversations().get(conversationId)
-        val history = if (conversation == null) emptyList() else Recap.sent(recaps.live(conversation), s.historySize)
+        val history = if (conversation == null) emptyList() else Recap.sent(letterHistory(conversation), s.historySize)
         val literalAllowed = WakeOutput.allowsLiteral(history.lastOrNull { it.role == "user" }?.content.orEmpty())
         // Something said aloud is answered by the model the TA has for words heard, when it has one.
         val use = ta.modelFor(heard = history.lastOrNull { it.role == "user" }?.audio != null)
@@ -1180,6 +1199,8 @@ class ChatRepository(
             val now = ZonedDateTime.now()
             var groups = groupsFor(s, ta)
             val incomingAllowed = ta.incomingCallsEnabled && ta.freeTopicEnabled
+            val letterAnchor = history.lastOrNull { it.role == "user" }
+            val lettersAllowed = InstantLetterRules.offered(ta.instantLetterMode)
             // The tools of the MCP services switched on come along whenever tools do.
             var outside = mcp.tools()
             var withImages = endpointKey !in refusesImages && history.any { it.role == "user" && it.images != null }
@@ -1202,7 +1223,7 @@ class ChatRepository(
                 s, ta, history, now, groups, withImages, memories, recap, outside, due.map { it.what }, heard, stickers, sendStickers, calls = calls,
                 lore = lore, studyMemory = study,
                 preserveReasoning = Thinking.keepsToolReasoning(endpoint.model),
-                incomingCalls = incomingAllowed,
+                incomingCalls = incomingAllowed, instantLetters = lettersAllowed,
                 textReply = history.lastOrNull { it.role == "user" }?.audio == null,
             )
             var messages = prepare(build())
@@ -1221,7 +1242,7 @@ class ChatRepository(
             try {
             while (true) {
                 val mayRefuse = rounds == 0 && (groups.isNotEmpty() || outside.isNotEmpty() || withImages || thinking)
-                val specs = tools.specs(groups,incomingAllowed) + outside.map { it.spec }
+                val specs = tools.specs(groups,incomingAllowed,lettersAllowed) + outside.map { it.spec }
                 when (val step = step(conversationId, endpoint, messages, specs, mayRefuse, thinking, showThought = ta.deepThinking,
                     onUsage = { u -> usage.updateAndGet { it + u } },
                     literalAllowed = literalAllowed)) {
@@ -1255,10 +1276,12 @@ class ChatRepository(
                             return
                         }
                         var invitation: String? = null
+                        var letterSent: Long? = null
                         val results = runTools(conversationId, step, s.copy(tools = groups), ta.id, outside, ta.name,
                             imageBudget = imageBudget, literalAllowed = literalAllowed,
-                            incomingAllowed = incomingAllowed, onIncoming = { invitation=it })
-                        if (invitation != null) {
+                            incomingAllowed = incomingAllowed, onIncoming = { invitation=it }, instantLettersAllowed = lettersAllowed && ToolGroup.Letters in groups,
+                            letterAnchor = letterAnchor?.id, letterOrigin = "${ta.id}:chat:$conversationId:${letterAnchor?.id ?: 0}", onLetter = { letterSent=it })
+                        if (invitation != null || letterSent != null) {
                             done()
                             hide(conversationId)
                             return
@@ -1376,6 +1399,7 @@ class ChatRepository(
         /** What each request of this step cost, when the service says (MessageUsage). */
         onUsage: (com.cleo.cleos.data.UsageStep) -> Unit = {},
     ): Step {
+        val letterToolOffered = specs.any { it.name == ToolSpecs.writeInstantLetter.name }
         val startedAt = System.currentTimeMillis()
         val text = StringBuilder()
         // What goes back to the model within this turn, and what the person gets to read.
@@ -1414,7 +1438,7 @@ class ChatRepository(
                     is ChatEvent.Delta -> {
                         doneThinking()
                         text.append(event.text)
-                        live(StreamingReply(conversationId, WakeOutput.preview(text.toString(), literalAllowed), thinking = false, thought = thoughtShown, thoughtMs = thinkingMs))
+                        live(StreamingReply(conversationId, InstantLetterRules.preview(WakeOutput.preview(text.toString(), literalAllowed), letterToolOffered), thinking = false, thought = thoughtShown, thoughtMs = thinkingMs))
                     }
                     is ChatEvent.Reasoning -> {
                         if (event.sendBack) reasoning.append(event.text)
@@ -1430,7 +1454,7 @@ class ChatRepository(
         } catch (e: CancellationException) {
             // Half of what a wake was deciding to say is not a message.
             if (!wake) withContext(NonCancellable) { finish(conversationId, startedAt,
-                WakeOutput.message(text.toString(), proactive = false, literalAllowed).orEmpty(), STOPPED, keepEmpty = false, thought()) }
+                WakeOutput.message(InstantLetterRules.preview(text.toString(), letterToolOffered), proactive = false, literalAllowed).orEmpty(), STOPPED, keepEmpty = false, thought()) }
             throw e
         } catch (e: ChatException) {
             error = e.message
@@ -1443,6 +1467,10 @@ class ChatRepository(
                 ?.let { feature -> return Step.Refused(feature) }
         }
 
+        if (!literalAllowed && InstantLetterRules.protocolPayload(text.toString()) && calls.none { it.name == ToolSpecs.writeInstantLetter.name }) {
+            text.clear()
+            error = "这次信件没有寄出，请重试；没有把内部结构当作信件发送。"
+        } else if (error != null && InstantLetterRules.preview(text.toString(), letterToolOffered).isBlank()) text.clear()
         if (!wake) error = ReplyFailure.message(error, text.toString(),
             reasoning.toString().ifBlank { thinkingText.toString() }, failure?.retryableNetwork == true)
 
@@ -1450,13 +1478,14 @@ class ChatRepository(
             val shown = if (wake) null else thought()
             if (error == null && calls.isNotEmpty()) {
                 val body = text.toString()
-                val visibleBody = WakeOutput.message(body, wake, literalAllowed).orEmpty()
+                val letterCall = calls.any { it.name == ToolSpecs.writeInstantLetter.name }
+                val visibleBody = if (letterCall) "" else WakeOutput.message(body, wake, literalAllowed).orEmpty()
                 val sentBack = reasoning.toString().ifEmpty { null }
                 // Sent messages are stored as bubbles of their own, not as calls (Prompt turns
                 // bubbles in a row back into calls). With some sent, the words said first go in
                 // now as a bubble too, and the other calls only after the messages (runTools):
                 // a call has to stay right before its results.
-                val speaks = calls.any { it.name in ToolSpecs.speaking }
+                val speaks = !letterCall && calls.any { it.name in ToolSpecs.speaking }
                 val id = when {
                     !speaks -> db.messages().insert(
                         MessageEntity(
@@ -1464,7 +1493,7 @@ class ChatRepository(
                             role = "assistant",
                             content = visibleBody,
                             createdAt = startedAt,
-                            toolCalls = ToolCallCodec.encode(calls),
+                            toolCalls = ToolCallCodec.encode(if (letterCall) InstantLetterRules.storedCalls(calls, pending = true) else calls),
                             reasoning = sentBack.takeUnless { wake },
                             thought = shown?.let(MessageThoughts::encode),
                             proactive = wake,
@@ -1517,7 +1546,14 @@ class ChatRepository(
         literalAllowed: Boolean = false,
         incomingAllowed: Boolean = false,
         onIncoming: (String) -> Unit = {},
+        instantLettersAllowed: Boolean = false,
+        letterAnchor: Long? = null,
+        letterOrigin: String = "",
+        onLetter: (Long) -> Unit = {},
     ): List<ApiMessage> {
+        if (step.message.toolCalls.any { it.name == ToolSpecs.writeInstantLetter.name })
+            return runInstantLetter(conversationId, companionId, step, wake, inCall, instantLettersAllowed,
+                letterAnchor, letterOrigin, onLetter)
         val quiet = wake || inCall != null
         val said = step.message.content
         val (sends, others) = step.message.toolCalls.partition { it.name in ToolSpecs.speaking }
@@ -1693,6 +1729,50 @@ class ChatRepository(
             results[call.id] = ApiMessage("tool", outcome.result, toolCallId = call.id)
         }
         return step.message.toolCalls.mapNotNull { results[it.id] }
+    }
+
+    /** A letter is one atomic delivery, never a batch of send_message/voice/call effects. */
+    private suspend fun runInstantLetter(conversationId: Long, owner: Long, step: Step.Called, wake: Boolean,
+                                         inCall: Long?, offered: Boolean, anchor: Long?, origin: String,
+                                         onLetter: (Long) -> Unit): List<ApiMessage> = withContext(NonCancellable) {
+        val calls = step.message.toolCalls
+        val chosen = calls.first { it.name == ToolSpecs.writeInstantLetter.name }
+        var saved = false
+        fun results(result: String) = calls.map { call -> ApiMessage("tool",
+            if (call.id == chosen.id) result else "本轮只处理一封信，其他分条、语音、来电及工具没有执行；需要资料应先查询，再单独寄信。", toolCallId = call.id) }
+        suspend fun store(items: List<ApiMessage>, at: Long, letterId: Long?) {
+            step.savedId?.let { db.messages().setToolCalls(it, ToolCallCodec.encode(InstantLetterRules.storedCalls(calls,letterId))) }
+            for (item in items) db.messages().insert(MessageEntity(conversationId=conversationId,role="tool",
+                content=item.content,createdAt=at,toolCallId=item.toolCallId,
+                note=if (item.toolCallId == chosen.id && letterId == null) "信件没有寄出" else "",proactive=wake))
+        }
+        try {
+            check(offered && inCall == null && ToolGroup.Letters in settings.current().tools) { "本次未开放即时写信，没有寄出。" }
+            val ta = db.companions().get(owner) ?: error("TA 已不存在，没有寄出。")
+            val user = anchor?.let { db.messages().get(it) }?.takeIf { it.conversationId == conversationId }
+            val request = if (wake) null else InstantLetterRules.requested(user)
+            if (!wake) {
+                check(user != null && db.messages().newest(conversationId, UNANSWERED_LOOKBACK).firstOrNull { it.role == "user" }?.id == user.id) { "用户已发来新消息，请先回应最新内容。" }
+            }
+            val intent = InstantLetterRules.arguments(chosen.arguments)
+            var response = emptyList<ApiMessage>()
+            val sent = instantLetterSender.sendAi(owner,ta.createdAt,conversationId,origin,request,intent.title,intent.body,intent.themeId,wake) { id, at ->
+                response = results("信件 #$id 已寄出，已生成独立信封并保存到信箱。现在结束本次回复，不再发送正文。")
+                store(response, at, id)
+            }
+            if (!sent.fresh) {
+                response = results("这次请求之前已寄出信件 #${sent.letterId}，本次没有重复投递。结束本次回复。")
+                store(response,System.currentTimeMillis(),sent.letterId)
+            }
+            saved = true
+            onLetter(sent.letterId)
+            response
+        } catch (e: Exception) {
+            // Domain errors contain no raw arguments. Failed validation never creates an envelope/receipt.
+            val response = results("信件没有寄出：${e.message ?: "请检查参数后重试"}")
+            if (!saved) store(response,System.currentTimeMillis(),null)
+            response
+        }
     }
 
     /**

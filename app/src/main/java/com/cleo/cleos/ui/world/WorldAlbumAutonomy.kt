@@ -26,7 +26,7 @@ import java.time.*
 import java.time.format.DateTimeFormatter
 
 @Composable
-internal fun WorldAlbumAutonomy(ta: CompanionEntity, albumRevision: Long, hasPhotos: Boolean, state: WorldReadingStateEntity?, expanded: Boolean, onExpanded: (Boolean) -> Unit) {
+internal fun WorldAlbumAutonomy(ta: CompanionEntity, albumRevision: Long, hasPhotos: Boolean, unseenCount: Int, state: WorldReadingStateEntity?, expanded: Boolean, onExpanded: (Boolean) -> Unit, hasLinkedAlbum: Boolean = false) {
     val c = appContainer(); val p = LocalGlassPalette.current
     val schedule by remember(ta.id) { c.db.worldAlbum().observeSchedule(ta.id) }.collectAsStateWithLifecycle(null)
     val busy by c.world.busy.collectAsStateWithLifecycle()
@@ -53,6 +53,12 @@ internal fun WorldAlbumAutonomy(ta: CompanionEntity, albumRevision: Long, hasPho
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         TextButton(onClick = { onExpanded(!expanded) }) { Text(if (expanded) "收起翻看安排" else if (schedule == null) "翻看安排 · 仅手动" else "翻看安排 · 自主开启") }
+        if (schedule != null && hasPhotos) Text(
+            if (unseenCount == 0 && hasLinkedAlbum) "已保存的照片已经看过了，后续会检查授权的手机图集；也可以手动邀请重看。"
+            else if (unseenCount == 0) "这些照片已经看过了，等有新照片再翻看；也可以点「让 TA 看」邀请它重看。"
+            else "还有 $unseenCount 张尚未确认看过，TA 可以挑一张，也可以暂时不看。",
+            color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp,
+        )
         // Keep reconciliation mounted and the stop/error controls available even when details are collapsed.
         if (ta.id in busy && c.world.browsingAlbum(ta.id)) TextButton(onClick = { c.world.cancel(ta.id) }) { Text("停止这次翻看") }
         if (state?.space == "album") state.status.takeIf(String::isNotBlank)?.let { Text(it, color = p.contentSecondary, fontSize = 13.sp, lineHeight = 21.sp) }
@@ -67,8 +73,8 @@ internal fun WorldAlbumAutonomy(ta: CompanionEntity, albumRevision: Long, hasPho
                 modifier = Modifier.semantics { contentDescription = "相册自主翻看" },
                 onCheckedChange = { if (it) confirm = true else change(false) })
         }
-        Text("开启后约 15 分钟给第一次机会，之后约每 4 小时一次。TA 从这位 TA 的相册中挑一张，也可以不看；与阅读共用每天 ${WorldReading.DAILY} 次机会，失败或停止退回。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
-        Text("仅看你选入这位 TA 相册的照片，包括以后新添加的。照片、说明会发送到当前模型，感想只留在相册，不会自动发消息或动态。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
+        Text("开启后约 15 分钟给第一次机会，之后约每 4 小时一次。TA 从尚未确认看过的照片里挑一张，也可以不看；没有新照片时不请求模型、不消耗次数。与阅读共用每天 ${WorldReading.DAILY} 次机会，失败或停止退回。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
+        Text("仅看你选入这位 TA 相册的照片，或明确关联的手机图集范围。照片、说明会发送到当前模型；手动重看时会带上它对同一张照片最近的少量感想，不带其他照片或其他 TA 的记录。感想只留在相册，不会自动发消息或动态。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
         schedule?.let { t ->
             val due = Instant.ofEpochMilli(t.nextAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm"))
             Text("下次机会：$due 起，由系统安排，省电或网络可能让它晚一些。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
@@ -77,7 +83,7 @@ internal fun WorldAlbumAutonomy(ta: CompanionEntity, albumRevision: Long, hasPho
         }
     }
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("允许${ta.name.ifBlank { "TA" }}自己翻看相册？") },
-        text = { Text("TA 可以挑选你为它放进相册的照片，包括以后添加的照片。先发送候选照片的说明，由 TA 选一张，再把该照片发至当前配置的模型，需要支持看图。你可以随时关闭，感想只保存在这位 TA 的相册，不会自动分享。") },
+        text = { Text("TA 可以挑选你为它放进相册的照片，以及明确关联的手机图集范围。先发送候选的说明或图集名称与日期，由 TA 选一张，再把该照片发至当前配置的模型，需要支持看图。你可以随时关闭，感想只保存在这位 TA 的相册，不会自动分享。") },
         confirmButton = { TextButton(onClick = { confirm = false; change(true) }) { Text("允许翻看") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("暂不开启") } })
 }

@@ -23,7 +23,7 @@ object Mailbox {
 
     /** A letter the person sent that has no reply in the mailbox yet: not written, or on its way. */
     fun replyOnTheWay(letters: List<LetterEntity>, now: Long): Boolean =
-        letters.any { sent -> sent.author == LetterEntity.AUTHOR_ME && !sent.draft && letters.none { it.replyTo == sent.id && it.arrived(now) } }
+        letters.any { sent -> sent.sourceType == LetterEntity.RETROSPECTIVE && sent.author == LetterEntity.AUTHOR_ME && !sent.draft && letters.none { it.sourceType == LetterEntity.RETROSPECTIVE && it.author == LetterEntity.AUTHOR_AI && it.replyTo == sent.id && it.arrived(now) } }
 }
 
 /** The time, again every half minute: a letter due now shows up without leaving the screen. */

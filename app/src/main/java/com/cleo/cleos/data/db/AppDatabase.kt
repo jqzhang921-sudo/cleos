@@ -20,7 +20,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TodoEntity::class,
         com.cleo.cleos.focus.FocusSession::class,
         LetterEntity::class,
+        LetterDispatchEntity::class,
         MemoryEntity::class,
+        MemoryChangeEntity::class,
+        MemoryBlockEntity::class,
         LaterEntity::class,
         WakeEntity::class,
         WakeActivityEntity::class,
@@ -59,7 +62,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorldJourneyTopicEntity::class,
         WorldJourneyItemEntity::class,
     ],
-    version = 66,
+    version = 71,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -153,6 +156,11 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 64, to = 65),
         // User-arranged serial metadata; creative prose stays untouched.
         AutoMigration(from = 65, to = 66),
+        AutoMigration(from = 66, to = 67),
+        AutoMigration(from = 67, to = 68),
+        AutoMigration(from = 68, to = 69),
+        AutoMigration(from = 69, to = 70),
+        AutoMigration(from = 70, to = 71),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -183,7 +191,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun focus(): com.cleo.cleos.focus.FocusDao
     abstract fun todos(): TodoDao
     abstract fun letters(): LetterDao
+    abstract fun letterDispatches(): LetterDispatchDao
     abstract fun memories(): MemoryDao
+    abstract fun memoryChanges(): MemoryChangeDao
     abstract fun later(): LaterDao
     abstract fun wakes(): WakeDao
     abstract fun wakeActivities(): WakeActivityDao

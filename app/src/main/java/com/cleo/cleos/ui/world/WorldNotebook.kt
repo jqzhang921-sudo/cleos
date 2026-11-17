@@ -1,11 +1,11 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.*
@@ -132,7 +132,7 @@ internal fun WorldNotebook(writings: List<WorldWritingEntity>, writingOptions: B
                 }
             }, onDirectory = { navigation.notebookEntry.value = "" }, onDelete = requestDelete,
             onSource = onSource, onLookup = onLookup, onJournal = onJournal, serialTitle = book?.book?.title, onOrganize = organize)
-    } else LazyColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), state = list,
+    } else TabScrollColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), state = list,
         contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         item(key = "intro") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

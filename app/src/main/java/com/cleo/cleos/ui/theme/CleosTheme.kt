@@ -32,6 +32,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.cleo.cleos.ui.chat.LocalMessageRendering
+import com.cleo.cleos.ui.chat.MessageRendering
 import com.cleo.cleos.data.AppSettings
 import com.cleo.cleos.data.GlassMode
 import com.cleo.cleos.data.ImageStore
@@ -108,6 +110,7 @@ fun CleosTheme(settings: AppSettings, images: ImageStore, content: @Composable (
     MaterialTheme(colorScheme = colorSchemeFor(palette)) {
         CompositionLocalProvider(
             LocalGlassPalette provides palette,
+            LocalMessageRendering provides MessageRendering(settings.messageRichText, settings.messageColors),
             LocalWallpaperBackdrop provides wallpaperBackdrop,
         ) {
             Box(Modifier.fillMaxSize()) {

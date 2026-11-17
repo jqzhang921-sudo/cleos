@@ -32,7 +32,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Cleos"
-            packageVersion = "0.13.0"
+            packageVersion = "0.14.1"
             description = "Cleos Desktop Preview"
             vendor = "Cleos"
             includeAllModules = true

@@ -61,6 +61,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
 import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.material.icons.rounded.DynamicFeed
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.AddPhotoAlternate
+import androidx.compose.material.icons.rounded.MailOutline
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Call
@@ -89,6 +92,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.getValue
@@ -216,6 +221,7 @@ private val MaxPictureHeight = 260.dp
 
 /** Pictures in one message: as many as are sent along with a request. */
 private const val MAX_ATTACHMENTS = Prompt.MAX_IMAGES
+private data class LetterLaunch(val owner: Long, val conversation: Long?, val id: Long? = null)
 
 @Composable
 fun ChatTab(
@@ -229,6 +235,8 @@ fun ChatTab(
     val vm = appViewModel { ChatViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
     val c = appContainer()
+    var letterLaunch by remember { mutableStateOf<LetterLaunch?>(null) }
+    var extrasOpen by remember(state.conversationId) { mutableStateOf(false) }
     // Whether this is the tab on screen: the page stays composed while another tab shows (MainScreen).
     val pageShown = LocalPageShown.current
     // This chat on screen: what a TA says on its own here needs no notification (see Later). Off
@@ -240,6 +248,12 @@ fun ChatTab(
         val shown = state.conversationId?.takeIf { pageShown }
         if (shown != null) c.chatOnScreen = shown
         onPauseOrDispose { if (shown != null && c.chatOnScreen == shown) c.chatOnScreen = null }
+    }
+    val chatLetters by remember(state.companionId) { c.db.letters().observeFor(state.companionId) }.collectAsStateWithLifecycle(emptyList())
+    val letterMap = remember(chatLetters) { chatLetters.associateBy { it.id } }
+    letterLaunch?.let { target ->
+        key(target) { com.cleo.cleos.ui.letters.InstantLetterDialog(target.owner, target.conversation, target.id,
+            onDismiss = { letterLaunch = null }) }
     }
     val companions by remember { c.companions.all }.collectAsStateWithLifecycle(emptyList())
     // 一起听歌: what the phone plays, followed only while this screen is up and the switch is on.
@@ -612,7 +626,7 @@ fun ChatTab(
         if (sentCount > 0) listState.animateScrollToItem(0)
     }
     // Something in the box: the TA waits for it before answering.
-    val composing = input.isNotBlank() || pendingShare != null || recording || pickingAttachment || vm.attaching || vm.attachments.isNotEmpty() || drawerOpen
+    val composing = input.isNotBlank() || pendingShare != null || recording || pickingAttachment || vm.attaching || vm.attachments.isNotEmpty() || drawerOpen || extrasOpen || letterLaunch != null
     val processingMedia = recording || pickingAttachment || vm.attaching
     LaunchedEffect(composing, processingMedia, pageShown, state.conversationId) {
         vm.typing(pageShown && composing, processingMedia = processingMedia)
@@ -791,6 +805,12 @@ fun ChatTab(
                 } ?: vm.attachments,
                 attaching = editingMessage == null && vm.attaching,
                 onPick = { pickingAttachment = true; vm.typing(true, processingMedia = true); picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                extrasOpen = extrasOpen,
+                onExtras = { extrasOpen = !extrasOpen; drawerOpen = false; keyboard?.hide() },
+                onWriteLetter = { extrasOpen = false; letterLaunch = LetterLaunch(state.companionId, state.conversationId) },
+                canRequestLetter = !state.replying && ToolGroup.Letters in appSettings.tools && companions.firstOrNull { it.id == state.companionId }?.let {
+                    com.cleo.cleos.ai.InstantLetterRules.mode(it.instantLetterMode) != com.cleo.cleos.ai.InstantLetterRules.OFF } == true,
+                onRequestLetter = { extrasOpen = false; if (vm.requestLetter()) sentCount++ },
                 onRemove = vm::detach,
                 quote = if (editingMessage != null) MessageQuotes.decode(editingMessage?.quote)?.let { quoteLabel(it) }
                     else if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
@@ -996,6 +1016,9 @@ fun ChatTab(
                                         reactionAvatar = if (m.role == "user") state.aiAvatar else state.userAvatar,
                                         reactionLetter = if (m.role == "user") state.aiAvatarEmoji ?: avatarLetter(state.aiName, "TA") else avatarLetter(state.userName, "我"),
                                         showFace = row.showFace,
+                                        letter = letterMap[m.letterId],
+                                        letterSenderName = if (m.role == "user") state.userName.ifBlank { "我" } else state.aiName,
+                                        onOpenLetter = { m.letterId?.let { letterLaunch = LetterLaunch(state.companionId, state.conversationId, it) } },
                                         canRetry = row.isLast && !state.replying,
                                         translationEnabled = !state.replying,
                                         onRetry = { vm.retry(m.id) },
@@ -1306,6 +1329,9 @@ private fun MessageBubble(
     onEdit: (() -> Unit)? = null,
     translationEnabled: Boolean = true,
     showTokenUsage: Boolean = false,
+    letter: com.cleo.cleos.data.db.LetterEntity? = null,
+    onOpenLetter: () -> Unit = {},
+    letterSenderName: String = "TA",
 ) {
     val palette = LocalGlassPalette.current
     val mine = message.role == "user"
@@ -1360,6 +1386,11 @@ private fun MessageBubble(
                     horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
+                    if (message.letterId != null) {
+                        if (letter != null) com.cleo.cleos.ui.letters.LetterEnvelope(letter,
+                            letterSenderName, onClick = onOpenLetter, onLongClick = { menu = true })
+                        else Text("信件暂时不可用", color = palette.contentSecondary)
+                    }
                     if (pictures.isNotEmpty()) {
                         PictureGroup(pictures, onOpen = onOpenImage, onLongPress = { menu = true })
                     }
@@ -1422,7 +1453,7 @@ private fun MessageBubble(
                     if (!mine && message.error == null && audio == null && words.isNotBlank())
                         add(MessageMenuAction(if (playingFile == readingMark(message.id)) "停止朗读" else "朗读") { onRead(words) })
                     if (message.error == null && MessageQuotes.of(message) != null) add(MessageMenuAction("引用", onQuote))
-                    if (!mine && canRetry) add(MessageMenuAction("重新回答", onRetry))
+                    if (!mine && canRetry && message.letterId == null) add(MessageMenuAction("重新回答", onRetry))
                     if (FavoriteContent.eligible(message)) {
                         add(MessageMenuAction("收藏", onFavorite)); add(MessageMenuAction("多选", onSelect))
                     }
@@ -2053,6 +2084,11 @@ private fun ChatInputBar(
     attachments: List<MessageImage>,
     attaching: Boolean,
     onPick: () -> Unit,
+    extrasOpen: Boolean,
+    onExtras: () -> Unit,
+    onWriteLetter: () -> Unit,
+    canRequestLetter: Boolean,
+    onRequestLetter: () -> Unit,
     onRemove: (MessageImage) -> Unit,
     quote: String?,
     onDropQuote: () -> Unit,
@@ -2087,7 +2123,8 @@ private fun ChatInputBar(
     }
     ChatComposer(backdrop, type, text, onTextChange, focus, action,
         onAction = if (action == ChatComposerAction.Stop) onStop else onSend,
-        onLeading = onPick, leadingEnabled = !editing && attachments.size < MAX_ATTACHMENTS,
+        onLeading = onExtras, leadingIcon = if (extrasOpen) Icons.Rounded.Close else Icons.Rounded.Add,
+        leadingLabel = "更多功能", leadingExpanded = extrasOpen, leadingEnabled = !editing,
         readOnly = editing && busy, onFieldFocus = onFieldFocus,
         drawerOpen = drawerOpen, onDrawer = onDrawer, drawerEnabled = !editing,
         actionEnabled = action != ChatComposerAction.Send || sendEnabled && canSend,
@@ -2098,6 +2135,15 @@ private fun ChatInputBar(
         },
         recording = recording, onVoiceStart = onVoiceStart, onVoiceMove = onVoiceMove, onVoiceEnd = onVoiceEnd,
         modifier = modifier) {
+        if (extrasOpen) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(enabled = attachments.size < MAX_ATTACHMENTS && !attaching, onClick = { onExtras(); onPick() }) {
+                Icon(Icons.Rounded.AddPhotoAlternate, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("图片")
+            }
+            TextButton(onClick = onWriteLetter) {
+                Icon(Icons.Rounded.MailOutline, null, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("写信")
+            }
+            if (canRequestLetter) TextButton(onClick = onRequestLetter) { Text("请 TA 写信") }
+        }
         if (editing) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(editHint, color = palette.contentSecondary, fontSize = 12.sp, modifier = Modifier.weight(1f), maxLines = 2)

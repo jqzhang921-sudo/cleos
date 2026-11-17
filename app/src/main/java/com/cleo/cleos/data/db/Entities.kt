@@ -44,6 +44,8 @@ data class CompanionEntity(
     /** Per-TA limits on invitations in a rolling 24-hour window; never a call duration cap. */
     @ColumnInfo(defaultValue = "120") val incomingCallIntervalMinutes: Int = 120,
     @ColumnInfo(defaultValue = "4") val incomingCallDailyMax: Int = 4,
+    @ColumnInfo(defaultValue = "'limited'") val incomingCallMode: String = "limited",
+    @ColumnInfo(defaultValue = "'requested'") val instantLetterMode: String = "requested",
     @ColumnInfo(defaultValue = "1") val freeTopicLevel: Int = 1,
     @ColumnInfo(defaultValue = "1") val freeTopicQuietOn: Boolean = true,
     @ColumnInfo(defaultValue = "1380") val freeTopicQuietStart: Int = 1380,
@@ -169,6 +171,12 @@ data class MemoryEntity(
     val source: String = SOURCE_AI,
     val createdAt: Long,
     val updatedAt: Long,
+    /** Historical is retained, but must not be presented as a current fact. Dates are epoch days. */
+    @ColumnInfo(defaultValue = "'current'") val temporalState: String = "current",
+    @ColumnInfo(defaultValue = "NULL") val validFromDay: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val validUntilDay: Long? = null,
+    /** Source references per unchanged summary/detail; never a second copy of private chat text. */
+    @ColumnInfo(defaultValue = "'[]'") val provenance: String = "[]",
 ) {
     companion object {
         const val SOURCE_AI = "ai"
@@ -233,12 +241,19 @@ data class LetterEntity(
     val replyTo: Long? = null,
     /** For the person's sent letter: when its reply arrives, as they picked on sending. */
     val replyDueAt: Long? = null,
+    /** Legacy letters retain their original delivery and reply schedule. */
+    @ColumnInfo(defaultValue = "'retrospective'") val sourceType: String = "retrospective",
+    @ColumnInfo(defaultValue = "''") val title: String = "",
+    /** Immutable resolved appearance, not a reference to today's default theme. */
+    @ColumnInfo(defaultValue = "NULL") val envelope: String? = null,
 ) {
     val draft: Boolean get() = author == AUTHOR_ME && deliverAt == null
 
     companion object {
         const val AUTHOR_ME = "me"
         const val AUTHOR_AI = "ai"
+        const val INSTANT = "instant"
+        const val RETROSPECTIVE = "retrospective"
     }
 }
 
@@ -284,7 +299,7 @@ data class ConversationEntity(
 @Serializable
 @Entity(
     tableName = "messages",
-    indices = [Index("conversationId")],
+    indices = [Index("conversationId"), Index("letterId")],
     foreignKeys = [
         ForeignKey(
             entity = ConversationEntity::class,
@@ -358,6 +373,10 @@ data class MessageEntity(
     val feedShare: String? = null,
     /** "assistant": the tokens the whole reply cost (MessageUsage as JSON), on the last row it stored. Shown only; null when unreported. */
     @ColumnInfo(defaultValue = "NULL") val usage: String? = null,
+    /** Canonical body is in letters. Kept separate from API role and ordinary text. */
+    @ColumnInfo(defaultValue = "NULL") val letterId: Long? = null,
+    /** Explicit client action requesting a letter; never supplied by a model tool. */
+    @ColumnInfo(defaultValue = "0") val letterRequested: Boolean = false,
 )
 
 /**

@@ -123,6 +123,8 @@ class AppContainer(context: Context) {
     val music = PhoneMusic(context)
     val lyrics = Lyrics(http, "Cleos/$version (${Releases.url(Releases.HOSTS.first())})", appScope)
     // Typed: its note_for_later reaches [later], which is made further down from what uses this.
+    val memoryStore = com.cleo.cleos.data.MemoryStore(db)
+    val memoryOrganizer by lazy { com.cleo.cleos.ai.MemoryOrganizer(db,memoryStore,settings,secrets,chatClient) }
     val tools: ToolBox = ToolBox(
         db.todos(),
         db.diary(),
@@ -131,6 +133,8 @@ class AppContainer(context: Context) {
         avatar = AiSelfAvatar(db, images, companions),
         letters = { id -> db.letters().allFor(id) },
         memories = db.memories(),
+        memoryHistory = com.cleo.cleos.ai.MemoryHistory(db.messages(), db.conversations()),
+        memoryStore = memoryStore,
         lore = db.lore(),
         location = PhoneLocation(context, http),
         later = { later },
@@ -174,7 +178,7 @@ class AppContainer(context: Context) {
         // A reply finished where the person isn't looking (they left, or went to another page): as a notification.
         replied = { ta, conversationId, said ->
             if (!(visible && chatOnScreen == conversationId)) notifier.messages(ta, conversationId, said)
-            followUps.plan(ta, conversationId, said)
+            if (said.none { it.letterId != null }) followUps.plan(ta, conversationId, said)
             freeTopics.replied(conversationId)
         },
         interrupted = { followUps.cancel(it); freeTopics.interrupt(it); feedVisits.interrupt(it); incomingCalls.cancelForConversation(it) },
@@ -190,7 +194,7 @@ class AppContainer(context: Context) {
         db.conversations().idsFor(id).any { chat.busy(it) || chat.isTyping(it) }
     }
     val favorites = com.cleo.cleos.data.Favorites(db, settings, images)
-    val backup = BackupService(context, db, settings, images)
+    val backup = BackupService(context, db, settings, images, beforeReplace = { worldAlbumGallery.clear() })
     val imports = ForeignImport(context, db, companions)
     val notifier = Notifier(context, images)
 
@@ -212,7 +216,8 @@ class AppContainer(context: Context) {
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
                     if (images.validWorldPicture(images.file(picture.file), picture.width, picture.height, picture.sha256)) images.dataUrl(picture.file, 960) else null
                 }
-            }, albumPixels = { photo ->
+            }, galleryCandidates = { ta -> worldAlbumGallery.candidates(ta) },
+            albumAutomaticAccess = { photo -> worldAlbumGallery.automaticAllowed(photo) }, albumPixels = { photo ->
                 kotlinx.coroutines.withContext(Dispatchers.IO) {
                     if (images.validWorldPicture(images.file(photo.file), photo.width, photo.height, photo.sha256)) images.dataUrl(photo.file, 960) else null
                 }
@@ -227,6 +232,7 @@ class AppContainer(context: Context) {
     val worldOutside by lazy { com.cleo.cleos.data.WorldOutsideLibrary(db, com.cleo.cleos.data.WorldOutside(), appScope) }
     val worldPictures: com.cleo.cleos.data.WorldPictures by lazy { com.cleo.cleos.data.WorldPictures(db, images, appScope, discard = { companions.discardAvatar(it) }, beforeRemove = { ta, article -> world.stopPicture(ta, article) }) }
     val worldAlbum by lazy { com.cleo.cleos.data.WorldAlbum(db, images, beforeChange = { ta, photo -> world.stopAlbum(ta, photo) }, discard = { companions.discardAvatar(it) }) }
+    val worldAlbumGallery by lazy { com.cleo.cleos.data.WorldAlbumGallery(context, db, worldAlbum, stop = { id -> world.stopAlbumBackground(id) }) }
     val worldPictureScheduler by lazy { com.cleo.cleos.data.WorldPictureScheduler(context, db, secrets, world, worldPictures, appScope, diagnostic = { toolDiagnostics.record(it) }) }
     val worldAlbumScheduler by lazy { com.cleo.cleos.data.WorldAlbumScheduler(context, db, secrets, world, appScope, diagnostic = { toolDiagnostics.record(it) }) }
     val worldOutsideScheduler by lazy {
@@ -290,6 +296,7 @@ class AppContainer(context: Context) {
         showing = { id -> visible && chatOnScreen == id },
         onEnabled = { later.wantsNotifications.value = true })
     val letters = Letters(db, settings, secrets, chatClient, appScope, written = { later.letterWritten(it) })
+    val instantLetters = com.cleo.cleos.data.InstantLetters(db, settings)
     val feedVisits = com.cleo.cleos.ai.FeedVisits(context, db, feedAi, chat, secrets, appScope, wakeActivities, groupChat::busyMember)
 
     /** Where a tapped notification leads, until a screen has gone there. */

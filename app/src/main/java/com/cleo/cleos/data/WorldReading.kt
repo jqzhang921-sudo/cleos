@@ -10,6 +10,8 @@ object WorldReading {
     const val MAX_ARTICLES = 50
     const val MAX_NOTES = 500
     const val SEGMENT = 3_000
+    const val MIN_SEGMENT = 1_500
+    const val MAX_SEGMENT = 18_000
     const val DAILY = 5
     /** Only inputs used by WorldReader define this result's identity; a letter heartbeat is not a prompt edit. */
     fun sameContext(expected: CompanionEntity, current: CompanionEntity?): Boolean = current != null &&
@@ -19,13 +21,14 @@ object WorldReading {
     fun fingerprint(text: String) = MessageDigest.getInstance("SHA-256").digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
     fun boundary(text: String, offset: Int) = offset in 0..text.length &&
         !(offset > 0 && offset < text.length && text[offset - 1].isHighSurrogate() && text[offset].isLowSurrogate())
-    fun end(text: String, start: Int): Int {
+    fun end(text: String, start: Int, span: Int = SEGMENT): Int {
         require(boundary(text, start))
-        var end = (start + SEGMENT).coerceAtMost(text.length)
+        require(span in MIN_SEGMENT..MAX_SEGMENT)
+        var end = (start + span).coerceAtMost(text.length)
         if (!boundary(text, end)) end--
         if (end < text.length) {
             val paragraph = text.lastIndexOf('\n', end - 1)
-            if (paragraph >= start + SEGMENT / 2) end = paragraph + 1
+            if (paragraph >= start + span / 2) end = paragraph + 1
         }
         return end
     }

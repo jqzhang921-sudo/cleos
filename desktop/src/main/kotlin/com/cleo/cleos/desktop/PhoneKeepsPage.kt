@@ -37,6 +37,7 @@ internal class PhoneKeepsCache {
     var query by rememberSaveable {mutableStateOf("")}
     var ownerKey by rememberSaveable {mutableStateOf("")}
     var letterFilter by rememberSaveable {mutableStateOf(0)}
+    var sourceFilter by rememberSaveable {mutableStateOf(0)}
     var selectedId by rememberSaveable {mutableStateOf<Long?>(null)}
     var ownerMenu by remember {mutableStateOf(false)}
     val listState=rememberLazyListState()
@@ -84,6 +85,9 @@ internal class PhoneKeepsCache {
                     if(!favorites)Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         listOf("全部","收到的","寄出的","草稿").forEachIndexed {index,label->FilterChip(letterFilter==index,{letterFilter=index;selectedId=null},label={Text(label)})}
                     }
+                    if(!favorites)Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        listOf("全部信件","回忆信件","即时信件").forEachIndexed {index,label->FilterChip(sourceFilter==index,{sourceFilter=index;selectedId=null},label={Text(label)})}
+                    }
                     val skipped=if(favorites)keeps.skippedFavorites else keeps.skippedLetters
                     if(skipped>0)Text("$skipped 条记录格式异常，未显示；完整记录仍在原始归档。",fontSize=11.sp,color=MaterialTheme.colorScheme.error)
                     if(favorites) {
@@ -94,16 +98,17 @@ internal class PhoneKeepsCache {
                             KeptFavoriteBody(root,selected,Modifier.weight(1f))
                         }else LazyColumn(Modifier.weight(1f).fillMaxWidth(),state=listState,verticalArrangement=Arrangement.spacedBy(8.dp)) {
                             if(rows.isEmpty())item {Text("当前分类没有匹配的收藏。",fontSize=13.sp)}
-                            items(rows,key={it.id}) {entry->KeepCard(entry.title,"${entry.owner.name} · ${keptDate(entry.at)} · ${entry.parts.size} 条消息",entry.note.ifBlank {entry.parts.joinToString(" ") {it.text}.take(180)}){selectedId=entry.id}}
+                            items(rows,key={it.id}) {entry->KeepCard(entry.title,"${entry.owner.name} · ${keptDate(entry.at)} · ${entry.parts.size} 条消息",entry.note.ifBlank {entry.parts.joinToString(" ") {it.instant?.let{l->"信件 · ${l.title.ifBlank{"一封信"}}"} ?: it.text}.take(180)}){selectedId=entry.id}}
                         }
                     }else {
-                        val rows=remember(keeps,query,ownerKey,letterFilter){keeps.letters.filter {
-                            (ownerKey.isBlank() || it.owner.key==ownerKey) && it.matches(query) && when(letterFilter){1->!it.mine;2->it.mine && !it.draft;3->it.draft;else->true}
+                        val rows=remember(keeps,query,ownerKey,letterFilter,sourceFilter){keeps.letters.filter {
+                            (ownerKey.isBlank() || it.owner.key==ownerKey) && it.matches(query) && (when(sourceFilter){1->it.instant==null;2->it.instant!=null;else->true}) && when(letterFilter){1->!it.mine;2->it.mine && !it.draft;3->it.draft;else->true}
                         }}
                         val selected=rows.find {it.id==selectedId}
                         if(selected!=null) {
                             TextButton({selectedId=null}){Text("‹ 返回信件列表")}
-                            key(selected.id) {LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(14.dp)) {
+                            if(selected.instant!=null) MobileLetterReading(selected.instant,Modifier.weight(1f))
+                            else key(selected.id) {LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(14.dp)) {
                                 item {Text(letterMeta(selected),fontSize=13.sp,color=MaterialTheme.colorScheme.primary)}
                                 item {Text(keptDate(selected.at),fontSize=12.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)}
                                 item {SelectionContainer {Text(selected.text.ifBlank {"这封信没有正文。"},fontSize=15.sp,lineHeight=27.sp)}}
@@ -139,7 +144,8 @@ private fun keptDate(at:Long)=DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").fo
         items(entry.parts) {part->Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(part.gapBefore)Text("··· 中间有未收藏的消息 ···",fontSize=11.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
             Text("${part.name} · ${keptDate(part.at)}",fontSize=12.sp,color=MaterialTheme.colorScheme.primary)
-            Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.primary.copy(alpha=if(part.mine).1f else .04f)) {
+            if(part.instant!=null) MobileLetterCard(part.instant)
+            else Surface(shape=RoundedCornerShape(18.dp),color=MaterialTheme.colorScheme.primary.copy(alpha=if(part.mine).1f else .04f)) {
                 Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     if(part.text.isNotBlank())SelectionContainer {Text(part.text,fontSize=14.sp,lineHeight=25.sp)}
                     part.attachments.forEach {AttachmentView(root,it)}

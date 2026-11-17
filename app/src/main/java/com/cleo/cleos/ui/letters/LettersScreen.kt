@@ -3,6 +3,9 @@ package com.cleo.cleos.ui.letters
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.FilterChip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -71,7 +74,8 @@ fun LettersScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
     var confirm by remember { mutableStateOf<LetterEntity?>(null) }
     val settings by c.settings.settings.collectAsStateWithLifecycle(AppSettings())
     val name = ta?.name?.trim()?.ifEmpty { null } ?: "TA"
-    val shown = Mailbox.shown(letters, now)
+    var source by remember { mutableStateOf<String?>(null) }
+    val shown = Mailbox.shown(letters, now).filter { source == null || it.sourceType == source }
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -93,6 +97,13 @@ fun LettersScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
             contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = statusTop + TopBarHeight + 10.dp, bottom = navBottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            item(key = "sources") {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(null to "全部", LetterEntity.RETROSPECTIVE to "回忆信件", LetterEntity.INSTANT to "即时信件").forEach { (value,label) ->
+                        FilterChip(selected = source == value, onClick = { source = value }, label = { Text(label) })
+                    }
+                }
+            }
             if (Mailbox.replyOnTheWay(letters, now)) {
                 item(key = "on-the-way") {
                     Notice(if (hasKey) "你的信寄出了，回信在路上。" else "你的信寄出了。${name}还没接上模型，接上了才回得了信。")
@@ -127,7 +138,9 @@ fun LettersScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
                             Spacer(Modifier.height(6.dp))
                             // One run of text: a letter's blank lines would leave the second preview line empty.
                             Text(
-                                letter.content.trim().replace(Regex("\\s+"), " ").ifEmpty { "（还没写）" },
+                                if (letter.sourceType == LetterEntity.INSTANT && !letter.draft)
+                                    letter.title.ifBlank { if (letter.author == LetterEntity.AUTHOR_AI && letter.readAt == null) "一封未拆开的信" else "点开信封阅读" }
+                                else letter.content.trim().replace(Regex("\\s+"), " ").ifEmpty { "（还没写）" },
                                 color = palette.content,
                                 fontSize = 15.sp,
                                 lineHeight = 22.sp,

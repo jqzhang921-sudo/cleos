@@ -33,6 +33,13 @@ class MobileBackupTest {
     @get:Rule val temp = TemporaryFolder()
     private fun fixture() = mobileFixture(temp.newFolder().toPath())
     private fun modified(source: Path, change: (JsonObject) -> JsonObject) = rewriteBackup(source, temp.newFolder().toPath().resolve("modified.zip")) { changeDocument(it, change) }
+    @Test fun `Android gallery provenance format remains importable without device permissions`() {
+        val source=fixture()
+        val updated=modified(source) { JsonObject(it+("version" to JsonPrimitive(35))) }
+        val current=MobileBackupImporter().inspect(updated)
+        assertEquals(35,current.version)
+        assertEquals(MobileBackupImporter().inspect(source).counts,current.counts)
+    }
     @Test fun `current Android serializer fixture preserves participant identity media thinking and memory`() {
         val preview = MobileBackupImporter().inspect(fixture())
         assertEquals(15, preview.version);assertEquals(2, preview.counts["TA"]);assertEquals(2, preview.counts["群聊"])
@@ -82,7 +89,7 @@ class MobileBackupTest {
     }
     @Test fun `future version and wrong format are refused`() {
         val source=fixture()
-        for (root in listOf(modified(source) { JsonObject(it+ ("version" to JsonPrimitive(16))) },modified(source) { JsonObject(it+("format" to JsonPrimitive("other"))) }))
+        for (root in listOf(modified(source) { JsonObject(it+ ("version" to JsonPrimitive(SUPPORTED_MOBILE_BACKUP+1))) },modified(source) { JsonObject(it+("format" to JsonPrimitive("other"))) }))
             assertThrows(ImportFailure::class.java) { MobileBackupImporter().inspect(root) }
     }
     @Test fun `legacy single TA backups use explicit settings fallback`() {
@@ -124,7 +131,7 @@ class MobileBackupTest {
         assertEquals(p.sha256,fileDigest(target.resolve("source/phone-backup.zip")))
         assertTrue(Files.readString(target.resolve("source/backup.json")).contains("合成私密日记"))
         assertTrue(Files.exists(target.resolve("media/voice-fixture.m4a")))
-        LocalStore(target).use { assertEquals(p.data,it.load());assertEquals(4,it.load().version) }
+        LocalStore(target).use { assertEquals(p.data,it.load());assertEquals(5,it.load().version) }
     }
     @Test fun `changed archive after preview cannot be committed`() {
         val path=fixture();val importer=MobileBackupImporter();val p=importer.inspect(path)
@@ -161,7 +168,7 @@ class MobileBackupTest {
     @Test fun `old desktop v1 data migrates in place without discarding its messages`() {
         val root=temp.newFolder().toPath();val original=DesktopData.fresh().let { d -> d.copy(version=1,conversations=d.conversations.map { it.copy(messages=listOf(Message(text="旧版电脑聊天"))) }) }
         Files.writeString(root.resolve("library.json"),diskJson.encodeToString(original))
-        LocalStore(root).use { assertEquals(4,it.load().version);assertEquals("旧版电脑聊天",it.load().conversations.first().messages.first().text) }
+        LocalStore(root).use { assertEquals(5,it.load().version);assertEquals("旧版电脑聊天",it.load().conversations.first().messages.first().text) }
     }
     @Test fun `corrupt attachment fails CRC and removes only unpublished staging`() = runBlocking(Dispatchers.Swing) {
         val parts=fixtureParts(fixture()); val marker="unique-synthetic-media-payload".toByteArray()

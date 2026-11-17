@@ -31,6 +31,23 @@ class MemoryTest {
         }
     }
 
+    @Test fun memoryDatesAndHistoryStateAreValidatedWithoutDiscardingOldDetails() {
+        act("""{"action":"remember","category":"recent","name":"考试","summary":"这周考试","details":["英语"],"valid_from":"2026-11-16","valid_until":"2026-11-18"}""")
+        val m=dao.rows.single()
+        assertTrue(act("""{"action":"open","id":${m.id}}""").result.contains("2026-11-18"))
+        act("""{"action":"update","id":${m.id},"valid_until":"不是日期"}""")
+        assertEquals(m,dao.rows.single())
+        act("""{"action":"update","id":${m.id},"valid_from":"2026-11-19"}""")
+        assertEquals(m,dao.rows.single())
+        act("""{"action":"update","id":${m.id},"temporal_state":"past"}""")
+        assertEquals("past",dao.rows.single().temporalState)
+        assertEquals(m.details,dao.rows.single().details)
+        act("""{"action":"update","id":${m.id},"valid_until":""}""")
+        assertNull(dao.rows.single().validUntilDay)
+        assertTrue(MemoryDigest.forChat(dao.rows,zone)!!.contains("过去的经历"))
+        assertTrue(MemoryDigest.forLetter(dao.rows,zone)!!.contains("过去的经历"))
+    }
+
     @Test
     fun rememberOpenUpdateForget() {
         val made = act("""{"action":"remember","category":"profile","name":"称呼","summary":"喜欢被叫小名","details":["别叫全名"]}""")

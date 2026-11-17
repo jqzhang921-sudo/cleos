@@ -60,24 +60,40 @@ internal fun PhotoAttribution(credit: PhotoCredit, modifier: Modifier = Modifier
 
 /** A tap opens only the URL span; the rest of the bubble retains its message menu. */
 @Composable
-internal fun MessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier, narration: Boolean = false) {
+internal fun MessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier, narration: Boolean = false, render: Boolean = true) {
     val lines = remember(text, narration) { if (narration) MessageNarration.lines(text) else emptyList() }
     if (lines.any { it.aside }) {
         Column(modifier) {
-            lines.forEach { line ->
+            val groups = remember(lines) {
+                buildList {
+                    var prose = mutableListOf<String>()
+                    fun flush() { if (prose.isNotEmpty()) { add(MessageNarration.Line(prose.joinToString("\n"), false)); prose = mutableListOf() } }
+                    lines.forEach { if (it.aside) { flush(); add(it) } else prose.add(it.text) }
+                    flush()
+                }
+            }
+            groups.forEach { line ->
                 val asideStyle = if (line.aside) style.copy(
                     fontFamily = FontFamily.Serif, fontStyle = FontStyle.Normal, fontWeight = FontWeight.Normal,
                     fontSize = style.fontSize * .92f, lineHeight = style.lineHeight,
                 ) else style
                 LinkedMessageText(line.text, if (line.aside) color.copy(alpha = color.alpha * .76f) else color,
-                    asideStyle, if (line.aside) Modifier.padding(start = 8.dp, end = 4.dp, top = 3.dp, bottom = 3.dp) else Modifier)
+                    asideStyle, if (line.aside) Modifier.padding(start = 8.dp, end = 4.dp, top = 3.dp, bottom = 3.dp) else Modifier, render)
             }
         }
-    } else LinkedMessageText(text, color, style, modifier)
+    } else LinkedMessageText(text, color, style, modifier, render)
 }
 
 @Composable
-private fun LinkedMessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
+private fun LinkedMessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier, render: Boolean = true) {
+    val rendering = LocalMessageRendering.current
+    if (render && rendering.enabled && style.fontFamily != FontFamily.Monospace && remember(text) { MessageMarkup.needsRendering(text) }) {
+        RichMessageText(text, color, style, modifier) { PlainLinkedMessageText(text, color, style) }
+    } else PlainLinkedMessageText(text, color, style, modifier)
+}
+
+@Composable
+private fun PlainLinkedMessageText(text: String, color: Color, style: TextStyle, modifier: Modifier = Modifier) {
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val parts = remember(text) { ChatLinks.parts(text) }

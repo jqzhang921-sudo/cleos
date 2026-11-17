@@ -185,6 +185,7 @@ class DesktopController(val store: LocalStore, private val vault: KeyVault, priv
         val index = chat.messages.indexOfFirst { it.id == messageId }
         if (index < 0 || index != chat.messages.lastIndex) { notice = "目前只支持重试最后一条回复，避免改写后续对话。"; return }
         val old = chat.messages[index]
+        if(old.mobileLetterId!=null)return
         val ta = data.companions.find { it.id == old.speakerId } ?: return
         if (!hasKey(ta)) { notice = "请先填写这位 TA 的 API Key。"; return }
         // Keep partial text in history; a new response is clearly a separate attempt.

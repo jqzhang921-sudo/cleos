@@ -5,15 +5,15 @@ import java.nio.file.Path
 
 internal data class KeptOwner(val key:String,val name:String)
 internal data class KeptLetter(val id:Long,val owner:KeptOwner,val mine:Boolean,val draft:Boolean,val unread:Boolean,
-    val at:Long,val text:String,val limited:Boolean) {
-    val title get()=text.lineSequence().firstOrNull {it.isNotBlank()}?.trim()?.take(80)?:"一封信"
-    fun matches(query:String)=query.isBlank() || text.contains(query,true) || owner.name.contains(query,true)
+    val at:Long,val text:String,val limited:Boolean,val instant:MobileLetter?=null) {
+    val title get()=instant?.title?.ifBlank{"一封信"} ?: text.lineSequence().firstOrNull {it.isNotBlank()}?.trim()?.take(80)?:"一封信"
+    fun matches(query:String)=query.isBlank() || title.contains(query,true) || text.contains(query,true) || owner.name.contains(query,true)
 }
 internal data class KeptPart(val name:String,val mine:Boolean,val at:Long,val text:String,val gapBefore:Boolean,
-    val attachments:List<Attachment>)
+    val attachments:List<Attachment>,val instant:MobileLetter?=null)
 internal data class KeptFavorite(val id:Long,val owner:KeptOwner,val at:Long,val note:String,val parts:List<KeptPart>,val limited:Boolean) {
-    val title get()=parts.firstOrNull()?.text?.lineSequence()?.firstOrNull {it.isNotBlank()}?.trim()?.take(80)?:"留下的对话"
-    fun matches(query:String)=query.isBlank() || note.contains(query,true) || owner.name.contains(query,true) || parts.any {it.text.contains(query,true) || it.name.contains(query,true)}
+    val title get()=parts.firstOrNull()?.instant?.title?.ifBlank{"一封信"} ?: parts.firstOrNull()?.text?.lineSequence()?.firstOrNull {it.isNotBlank()}?.trim()?.take(80)?:"留下的对话"
+    fun matches(query:String)=query.isBlank() || note.contains(query,true) || owner.name.contains(query,true) || parts.any {it.text.contains(query,true) || it.name.contains(query,true) || it.instant?.let{l->l.text.contains(query,true) || l.title.contains(query,true)}==true}
 }
 internal data class PhoneKeeps(val exportedAt:Long,val letters:List<KeptLetter>,val favorites:List<KeptFavorite>,val skippedLetters:Int,val skippedFavorites:Int)
 
@@ -41,14 +41,15 @@ internal fun readPhoneKeeps(directory:Path,data:DesktopData,maxJsonBytes:Long=32
         if(author=="ai" && (delivery==null || delivery>exportedAt))return@mapNotNull null
         val created=keptNumber(row,"createdAt");importCheck(created>=0 && (delivery==null || delivery>=0))
         val text=row.word("content");val read=keptOptionalNumber(row,"readAt")
+        val instant=if(text.isNotBlank())importedInstantLetter(row,exportedAt,names.keys,allowOwnDraft=true) else null
         KeptLetter(id,owner(row),author=="me",author=="me" && delivery==null,author=="ai" && read==null,
-            delivery?:created,text.take(200000),text.length>200000)
+            delivery?:created,if(instant!=null)text else text.take(200000),instant==null && text.length>200000,instant)
     }catch(_:Exception){skippedLetters++;null}}.sortedWith(compareByDescending<KeptLetter>{it.at}.thenByDescending{it.id})
     val favorites=favoriteRows.mapNotNull {row->try {
         val id=keptNumber(row,"id");importCheck(id>0 && favoriteIds.add(id))
         if(keptOptionalNumber(row,"removedAt")!=null)return@mapNotNull null
         val at=keptNumber(row,"createdAt");importCheck(at>=0)
-        val raw=row.word("parts");importCheck(raw.length<=1_000_000,"收藏片段过长。")
+        val raw=row.word("parts");importCheck(raw.length<=8_000_000,"收藏片段过长。")
         val array=Json.parseToJsonElement(raw) as? JsonArray ?:throw ImportFailure("收藏片段格式不正确。")
         importCheck(array.size in 1..2000)
         var remaining=200000;var limited=false
@@ -59,8 +60,14 @@ internal fun readPhoneKeeps(directory:Path,data:DesktopData,maxJsonBytes:Long=32
             val rawText=part.word("text");val text=rawText.take(remaining);remaining-=text.length
             if(text.length<rawText.length)limited=true
             val rawName=part.word("name");if(rawName.length>200)limited=true
+            val letter=part["letter"] as? JsonObject
+            val instant=if(letter?.word("sourceType")=="instant") {
+                val l=importedInstantLetter(letter,exportedAt,names.keys)
+                importCheck(l!=null && l.ownerId=="mobile-ta-${owner(row).key}" && l.mine==(role=="user"),"收藏中的信件归属或投递状态无效。")
+                l
+            } else null
             KeptPart(rawName.take(200).ifBlank {if(role=="user")"我" else "TA"},role=="user",time,text,
-                keptFlag(part,"gapBefore"),keptAttachments(part))
+                keptFlag(part,"gapBefore"),keptAttachments(part),instant)
         }
         val note=row.word("note");if(note.length>20000)limited=true
         KeptFavorite(id,owner(row),at,note.take(20000),parts,limited)

@@ -153,6 +153,27 @@ class LetterViewModel(private val c: AppContainer, startId: Long) : ViewModel() 
 
 @Composable
 fun LetterScreen(id: Long, onBack: () -> Unit) {
+    val c = appContainer()
+    if (id > 0) {
+        val loaded by androidx.compose.runtime.produceState<Pair<Boolean, LetterEntity?>>(false to null, id) {
+            value = true to c.db.letters().get(id)
+        }
+        if (!loaded.first) return
+        val letter = loaded.second
+        if (letter == null) {
+            AlertDialog(onDismissRequest = onBack, title = { Text("这封信已不存在") }, confirmButton = { TextButton(onClick=onBack) { Text("返回") } })
+            return
+        }
+        if (letter.sourceType == LetterEntity.INSTANT) {
+            InstantLetterDialog(letter.companionId, letterId = id, onDismiss = onBack)
+            return
+        }
+    }
+    LegacyLetterScreen(id, onBack)
+}
+
+@Composable
+private fun LegacyLetterScreen(id: Long, onBack: () -> Unit) {
     val vm = appViewModel(key = "letter-$id") { LetterViewModel(it, id) }
     val c = appContainer()
     val palette = LocalGlassPalette.current

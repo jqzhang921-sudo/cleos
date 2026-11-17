@@ -10,7 +10,8 @@ import kotlinx.serialization.Serializable
     ForeignKey(entity = CompanionEntity::class, parentColumns = ["id"], childColumns = ["companionId"], onDelete = ForeignKey.CASCADE),
 ])
 data class WorldAlbumPhotoEntity(@PrimaryKey(autoGenerate = true) val id: Long = 0, val companionId: Long,
-    val file: String, val width: Int, val height: Int, val sha256: String, val caption: String = "", val createdAt: Long)
+    val file: String, val width: Int, val height: Int, val sha256: String, val caption: String = "", val createdAt: Long,
+    @ColumnInfo(defaultValue = "0") val fromGallery: Boolean = false)
 
 @Serializable
 @Entity(tableName = "world_album_looks", indices = [Index("companionId"), Index("photoId"), Index(value = ["runId"], unique = true)], foreignKeys = [

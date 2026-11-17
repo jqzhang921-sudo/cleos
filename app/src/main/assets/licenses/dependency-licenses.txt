@@ -162,3 +162,16 @@
 | Gradle Wrapper | Apache-2.0 | 构建工具；保留现有脚本版权头及上游声明 |
 
 AGP、Kotlin、KSP 等构建工具不因为在开发缓存中存在就成为安装包内容。若单独再发行这些工具或测试依赖，应一并核对并保留其发行包声明。
+
+
+## 0.42.16 message rendering increment
+
+This is a scoped increment to the historical inventory above, not a new audit of all resolved dependencies.
+
+| Published artifact | License | Shipping notice/source |
+| --- | --- | --- |
+| io.noties.markwon:core:4.6.2 | Apache-2.0 | message-rendering/markwon-LICENSE.txt |
+| com.atlassian.commonmark:commonmark:0.13.0 | BSD-2-Clause | message-rendering/commonmark-LICENSE.txt |
+| ru.noties:jlatexmath-android:0.2.0 | GPL-2.0-or-later with upstream linking exception; bundled font licenses separate | message-rendering/jlatexmath-LICENSE.txt, jlatexmath-COPYING.txt, font license texts, PROVENANCE.txt and full v0.2.0 corresponding-source archive |
+
+The JLaTeXMath source archive preserves the upstream source, resources, build and license files. Cleos does not include the optional Greek/Cyrillic font artifacts. No ext-latex, WebView, HTML execution or remote-image plugin is added.

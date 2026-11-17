@@ -47,7 +47,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -118,6 +117,13 @@ internal fun ChatPage(vm: SettingsViewModel) {
     }
 
     Section("消息间距") { MessageSpacingControls(settings.messageSpacing, vm::setMessageSpacing) }
+
+    ListCard("消息排版") {
+        ExplainedSwitch("公式与基础排版", "显示数学公式、加粗、列表和代码", "默认开启，只改变显示，不改写聊天记录。兼容常见 LaTeX 文字颜色、粗体和三档字号，中文也能显示。回复生成时先显示原文，完成后排版；公式点开可左右查看，长按消息仍可复制原文。不支持的公式保留原样。", settings.messageRichText, vm::setMessageRichText)
+        if (settings.messageRichText) {
+            ExplainedSwitch("允许文字颜色", "默认关闭，文字跟随当前主题", "开启后显示消息中明确指定的颜色，并调整为适合当前主题的深浅。不执行网页或脚本，不加载远程字体、图片；不改变模型设置或用量。", settings.messageColors, vm::setMessageColors)
+        }
+    }
 
     ListCard("用量显示") {
         ExplainedSwitch(
@@ -209,15 +215,11 @@ internal fun VoiceInputPage(vm: SettingsViewModel) {
         }
         Field("接口地址", vm.voiceBaseUrl, { vm.voiceBaseUrl = it }, keyboardType = KeyboardType.Uri)
         Field("模型", vm.voiceModel, { vm.voiceModel = it })
-        OutlinedTextField(
+        SecretKeyField(
             value = vm.voiceKeyInput,
             onValueChange = { vm.voiceKeyInput = it },
-            label = { Text("API Key") },
-            placeholder = { if (hasVoiceKey) Text("已保存（不再显示）；要换就重新填") },
-            visualTransformation = PasswordVisualTransformation(),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.fillMaxWidth(),
+            hasSavedKey = hasVoiceKey,
+            contextKey = vm.voiceBaseUrl,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             if (vm.voiceKeyInput.isNotBlank()) Chip("保存 Key", selected = true) { vm.saveVoiceKey() }

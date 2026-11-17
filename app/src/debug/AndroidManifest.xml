@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:networkSecurityConfig="@xml/network_security_config" />
+    <application android:networkSecurityConfig="@xml/network_security_config">
+        <activity android:name=".qa.MemoryMaintenanceQaActivity" android:exported="true" />
+        <activity android:name=".qa.MemoryQaActivity" android:exported="true" />
+        <activity android:name=".qa.AlbumGalleryQaActivity" android:exported="true" />
+        <activity android:name=".qa.WorldAlbumQaActivity" android:exported="true" />
+        <activity android:name=".qa.PhoneAppUsageQaActivity" android:exported="true" />
+        <activity android:name=".qa.MessageRenderingQaActivity" android:exported="true" />
+        <activity android:name=".qa.InstantLetterQaActivity" android:exported="true" />
+        <activity android:name=".qa.EnvelopePreviewQaActivity" android:exported="true" />
+        <activity android:name=".qa.SecretKeyQaActivity" android:exported="true" />
+        <activity android:name=".qa.WorldReadingQaActivity" android:exported="true" />
+        <activity android:name=".qa.FeedThreadQaActivity" android:exported="true" />
+    </application>
 </manifest>

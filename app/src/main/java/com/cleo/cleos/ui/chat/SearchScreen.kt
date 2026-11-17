@@ -116,6 +116,7 @@ fun SearchScreen(onBack: () -> Unit, onFound: () -> Unit) {
     fun open(m: MessageEntity) {
         scope.launch {
             c.chat.show(m)
+            c.opening.value = com.cleo.cleos.Opening.Chat(m.conversationId)
             onFound()
         }
     }
@@ -128,7 +129,7 @@ fun SearchScreen(onBack: () -> Unit, onFound: () -> Unit) {
             return@LaunchedEffect
         }
         delay(250)
-        results = c.db.messages().search(id, ChatSearch.pattern(query), side.role, ChatSearch.LIMIT)
+        results = com.cleo.cleos.data.InstantLetterData.resolve(c.db.messages().search(id, ChatSearch.pattern(query), side.role, ChatSearch.LIMIT), c.db.letters().allFor(id), id)
     }
     LaunchedEffect(byDate, ta?.id) {
         val id = ta?.id ?: return@LaunchedEffect
@@ -163,7 +164,9 @@ fun SearchScreen(onBack: () -> Unit, onFound: () -> Unit) {
                     scope.launch {
                         val from = day.atStartOfDay(zone).toInstant().toEpochMilli()
                         val to = day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-                        c.db.messages().firstSaidBetween(id, from, to)?.let { c.chat.show(it); onFound() }
+                        c.db.messages().firstSaidBetween(id, from, to)?.let {
+                            c.chat.show(it); c.opening.value = com.cleo.cleos.Opening.Chat(it.conversationId); onFound()
+                        }
                     }
                 },
             )

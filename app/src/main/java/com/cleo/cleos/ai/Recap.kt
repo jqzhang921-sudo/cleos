@@ -205,7 +205,7 @@ class Recaps(
             if (batch.isEmpty()) return
             val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: return
             val text = StringBuilder()
-            client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), Recap.request(ta, s.userName, conversation.recap, batch, zone()))
+            client.stream(ApiEndpoint(ta.apiBaseUrl, key, ta.apiModel), Recap.request(ta, s.userName, conversation.recap, com.cleo.cleos.data.InstantLetterData.resolve(batch, db.letters().allFor(ta.id), ta.id), zone()))
                 .collect { if (it is ChatEvent.Delta) text.append(it.text) }
             val recap = Recap.clean(text.toString()) ?: return
             val last = batch.last()

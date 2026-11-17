@@ -10,6 +10,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipFile
 
 class ImportFailure(message: String) : Exception(message)
+internal const val SUPPORTED_MOBILE_BACKUP = 35L
 internal fun importCheck(value: Boolean, message: String = "备份中的记录不完整，未导入。") { if (!value) throw ImportFailure(message) }
 internal fun JsonObject.word(key: String, default: String = ""): String {
     val v = this[key] ?: return default
@@ -105,7 +106,7 @@ class MobileBackupImporter(
                 val jsonBytes = java.io.ByteArrayOutputStream().also { copyChecked(zip, files.first { e -> e.name == "backup.json" }, it) }.toByteArray()
                 val root = diskJson.parseToJsonElement(jsonBytes.toString(Charsets.UTF_8)) as? JsonObject ?: throw ImportFailure("这不是有效的 Cleos 备份。")
                 importCheck(root.word("format") == "cleos-backup", "这不是 Cleos 手机备份。")
-                val version = root.number("version"); importCheck(version in 1..15, "暂时支持手机备份格式 1–15；请更新电脑版后再导入更高版本。")
+                val version = root.number("version"); importCheck(version in 1..SUPPORTED_MOBILE_BACKUP, "暂时支持手机备份格式 1–35；请更新电脑版后再导入更高版本。")
                 val exportedAt = root.number("exportedAt"); importCheck(exportedAt >= 0)
                 val available = files.filter { !it.isDirectory && it.name.startsWith("images/") }.map { it.name.removePrefix("images/") }.toSet()
                 val converted = convert(root, available)
@@ -117,7 +118,7 @@ class MobileBackupImporter(
                 val origin = ImportOrigin(digest, version.toInt(), exportedAt, System.currentTimeMillis(), counts, converted.second)
                 val warnings = buildList {
                     add("手机 API Key 不在备份中；不会开启手机的主动消息、来电或 HTTP 权限。")
-                    add("日记和待办可从原始手机快照中只读查看，TA 未分享的小秘密继续隐藏；信件、收藏、动态及完整工具记录仍保存在原始归档中。")
+                    add("日记、待办、已送达信件及收藏可只读查看；即时信保留寄出时的信封。TA 未分享的小秘密继续隐藏，动态及完整工具记录保存在原始归档中。")
                     add("图片可查看，录音可本地播放；发送图片需在对应 TA 的模型设置中确认并开启看图。录音不会发送给模型。")
                     if (converted.second.isNotEmpty()) add("${converted.second.size} 个被引用的媒体文件不在备份里，将保留缺失提示。")
                     if (converted.first.conversations.any { it.readOnly }) add("有群聊已没有可用成员，保留为只读历史，不会重新激活已离开的 TA。")
@@ -186,9 +187,24 @@ class MobileBackupImporter(
         }
         val taIds = sources.map { it.number("id") }.toSet()
         importCheck((memories + lore).all { it.number("companionId") in taIds })
+        val mobileLetters=root.rows("letters").mapNotNull {importedInstantLetter(it,root.number("exportedAt"),taIds)}
+        importCheck(mobileLetters.map{it.id}.distinct().size==mobileLetters.size,"即时信件编号重复，原资料未更改。")
+        val byLetter=mobileLetters.associateBy{it.id}
         fun message(row: JsonObject, prefix: String, taId: Long?, group: Boolean): Message {
             val role = row.word("role"); val user = role == "user"; val context = role in setOf("user", "assistant")
             val who = if (user) Message.USER else if (context) "mobile-ta-${taId ?: throw ImportFailure("消息缺少发言者。")}" else "activity"
+            val ref=if(row["letterId"]==null || row["letterId"] is JsonNull)null else {
+                val value=row["letterId"] as? JsonPrimitive
+                importCheck(value!=null && !value.isString && value.longOrNull!=null,"信件关联格式无效。")
+                value!!.longOrNull!!
+            }
+            val attachments=images(row["images"])+audio(row["audio"])
+            if(ref!=null) {
+                val letter=byLetter[ref]
+                importCheck(!group && context && letter!=null && letter.ownerId=="mobile-ta-$taId" && letter.mine==user &&
+                    row.word("content").isEmpty() && attachments.isEmpty() && row.word("note").isEmpty() && nested(row["toolCalls"])==null,
+                    "聊天引用了缺失、未送达或不属于这位 TA 的信件，原资料未更改。")
+            }
             val error = row.word("error")
             val oldStatus = row.word("status", "sent")
             val status = when { oldStatus in setOf("running", "pending", "cancelled", "interrupted") -> "interrupted"; oldStatus == "failed" || error.isNotBlank() -> "error"; else -> "complete" }
@@ -197,7 +213,7 @@ class MobileBackupImporter(
             return Message("$prefix-${row.number("id")}", who,
                 if (context) row.word("content") else row.word("note").ifBlank { when (role) { "call" -> "手机通话记录（原始记录已归档）"; "tool" -> "手机工具记录（详细结果已归档）"; "request" -> "小秘密请求记录（原始记录已归档）"; else -> "手机活动记录（原始记录已归档）" } },
                 reasoning, status, if (status == "interrupted") "手机上未完成的回复已保留，不会自动续发。" else error, row.number("createdAt"),
-                row.word("speakerName"), asset(optional(row, "speakerAvatar")), images(row["images"]) + audio(row["audio"]), context, !context)
+                row.word("speakerName"), asset(optional(row, "speakerAvatar")), attachments, context, !context,ref)
         }
         val chats = root.rows("conversations", true); unique(chats)
         val privateMessages = root.rows("messages", true); unique(privateMessages)
@@ -231,6 +247,6 @@ class MobileBackupImporter(
         val userAvatar = asset(optional(settings, "userAvatar"))
         val missing = references.filter { it !in media }
         return DesktopData(userName = settings.word("userName").ifBlank { "我" }, companions = tas, conversations = conversations,
-            selectedId = conversations.maxByOrNull { it.messages.lastOrNull()?.at ?: 0 }?.id.orEmpty(), userAvatar = userAvatar) to missing
+            selectedId = conversations.maxByOrNull { it.messages.lastOrNull()?.at ?: 0 }?.id.orEmpty(), userAvatar = userAvatar,mobileLetters=mobileLetters) to missing
     }
 }

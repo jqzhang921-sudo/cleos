@@ -61,19 +61,73 @@ class WorldReaderCompatibilityTest {
         { _, _ -> 200 to response(good.replace("wind", "UNSEEN_QUOTE")) },
     ) { reader, endpoint, requests ->
         try { reader.read(endpoint, ta(), article, text.length); fail() }
-        catch (e: WorldReplyException) { assertEquals("invalid_note", e.code) }
-        assertEquals(1, requests.size)
+        catch (e: WorldReplyException) { assertEquals("reading_quote", e.code) }
+        assertEquals(2, requests.size)
+        assertEquals(listOf("event=world_reading_retry route=world stage=read reason=reading_quote"), diagnostics)
         assertNull(WorldReader.jsonObjectText("I thought about this: $good")); assertNull(WorldReader.jsonObjectText("<think>$good</think>")); assertNull(WorldReader.jsonObjectText("[$good]"))
     }
-    private fun toolResponse(arguments: String) = "data: " + buildJsonObject {
+    private fun toolResponse(arguments: String, name: String = "world_choose_article") = "data: " + buildJsonObject {
         putJsonArray("choices") { addJsonObject { putJsonObject("delta") {
             put("reasoning_content", "PRIVATE_CANARY")
             putJsonArray("tool_calls") { addJsonObject {
                 put("index", 0); put("id", "choose"); put("type", "function")
-                putJsonObject("function") { put("name", "world_choose_article"); put("arguments", arguments) }
+                putJsonObject("function") { put("name", name); put("arguments", arguments) }
             } }
         }; put("finish_reason", "tool_calls") } }
     } + "\n\ndata: [DONE]\n\n"
+    @Test fun russianQuoteCanBeRepairedOnTheSameSegmentWithoutEchoOrTranslation() = testServer(
+        { n, _ -> 200 to if (n == 1) toolResponse("""{"action":"read","note":"FAILED_NOTE_CANARY","question":"","quote":"The English asked"}""", "world_finish_reading")
+            else response("""{"action":"read","note":"一段公开感想","question":"","quote":"Англичане попросили"}""") },
+    ) { reader, endpoint, requests ->
+        val previous = "PREVIOUS_PASSAGE_CANARY. "
+        val passage = "Англичане попросили, чтобы им серебром отпустили."
+        val source = previous + passage + " NEXT_PASSAGE_CANARY"
+        val book = article.copy(content = source, readOffset = previous.length, fingerprint = WorldReading.fingerprint(source))
+        val note = reader.read(endpoint.copy(model = "glm-5.3-flash"), ta(), book, previous.length + passage.length)!!
+        assertEquals("Англичане попросили", note.quote); assertEquals(0, note.quoteOffset)
+        assertEquals(2, requests.size); assertNull(requests[1]["tools"])
+        assertEquals(requests[0]["messages"]!!.jsonArray.take(2), requests[1]["messages"]!!.jsonArray.take(2))
+        val repair = requests[1].toString()
+        assertTrue(repair.contains(passage)); assertTrue(repair.contains("不引用上次片段"))
+        for (canary in listOf("PRIVATE_CANARY", "FAILED_NOTE_CANARY", "PREVIOUS_PASSAGE_CANARY", "NEXT_PASSAGE_CANARY")) assertFalse(repair.contains(canary))
+    }
+    @Test fun invalidReadingFieldsAndTypesGetOneRepairAndSpecificFailures() {
+        for ((raw, code) in listOf(
+            "{}" to "reading_fields",
+            good.replace("\"question\":\"\"", "\"question\":null") to "reading_type",
+            good.replace("\"read\"", "\"done\"") to "reading_action",
+            good.replace("\"read\"", "\"pause\"") to "reading_pause",
+            good.replace("A public note.", "n".repeat(4001)) to "reading_length",
+            good.replace("A public note.", "") to "reading_note",
+            """{"action":"read","note":"half""" to "reading_json",
+        )) testServer({ _, _ -> 200 to toolResponse(raw, "world_finish_reading") }) { reader, endpoint, requests ->
+            try { reader.read(endpoint, ta(), article, text.length); fail(code) }
+            catch (e: WorldReplyException) { assertEquals(code, e.code); assertFalse(e.message!!.contains("PRIVATE_CANARY")) }
+            assertEquals(2, requests.size); assertNull(requests[1]["tools"])
+        }
+    }
+    @Test fun repairedQuoteMayBeExplicitlyEmptyButReadMustRemainExplicit() {
+        for (action in listOf("read", "pause")) testServer(
+            { n, _ -> 200 to response(if (n == 1) good.replace("wind", "wrong") else """{"action":"$action","note":"","question":"","quote":""}""") },
+        ) { reader, endpoint, requests ->
+            val result = reader.read(endpoint, ta(), article, text.length)
+            if (action == "pause") assertNull(result) else { assertNotNull(result); assertEquals("", result!!.quote); assertNull(result.quoteOffset) }
+            assertEquals(2, requests.size)
+        }
+    }
+    @Test fun schemaFallbackWithBadReadingDoesNotStartAThirdRequest() = testServer(
+        { n, _ -> if (n == 1) 400 to """{"error":{"message":"unsupported tools"}}""" else 200 to response(good.replace("wind", "wrong")) },
+    ) { reader, endpoint, requests ->
+        try { reader.read(endpoint, ta(), article, text.length); fail() }
+        catch (e: WorldReplyException) { assertEquals("reading_quote", e.code) }
+        assertEquals(2, requests.size)
+    }
+    @Test fun wrongReadingToolCanRepairOnceWithoutExecutingIt() = testServer(
+        { n, _ -> 200 to if (n == 1) toolResponse(good, "send_message") else response(good) },
+    ) { reader, endpoint, requests ->
+        assertNotNull(reader.read(endpoint, ta(), article, text.length)); assertEquals(2, requests.size)
+        assertTrue(diagnostics.single().endsWith("reason=invalid_tool"))
+    }
     @Test fun invalidSelectionFieldsGetOneRepairWithMatchingCatalogueAndNoOutputEcho() = testServer(
         { n, _ -> 200 to if (n == 1) toolResponse("""{"title":"Wind","reasoning":"FAILED_SELECTION_CANARY"}""") else response("""{"article_id":7}""") },
     ) { reader, endpoint, requests ->

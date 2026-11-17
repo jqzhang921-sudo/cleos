@@ -132,7 +132,7 @@ fun DesktopApp(vm: DesktopController, libraryName: String = "我的空间", choo
                                 else LazyColumn(state = scroll, modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp).testTag("聊天消息列表"), contentPadding = PaddingValues(vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(22.dp)) {
                                     items(chat.messages, key = { it.id }) { message ->
                                         Box(Modifier.fillMaxWidth().testTag("消息-${message.id}").background(if (message.id == highlighted) Accent.copy(alpha = .14f) else Color.Transparent, RoundedCornerShape(20.dp)).padding(4.dp)) {
-                                        MessageRow(message, vm.data, message.id == chat.messages.lastOrNull()?.id && vm.busyThread == null && !chat.readOnly, { vm.retry(message.id) }, if (!chat.group) members.firstOrNull()?.userAvatar ?: vm.data.userAvatar else vm.data.userAvatar)
+                                        MessageRow(message, vm.data, chat, message.mobileLetterId==null && message.id == chat.messages.lastOrNull()?.id && vm.busyThread == null && !chat.readOnly, { vm.retry(message.id) }, if (!chat.group) members.firstOrNull()?.userAvatar ?: vm.data.userAvatar else vm.data.userAvatar)
                                         }
                                     }
                                 }
@@ -282,7 +282,7 @@ fun DesktopApp(vm: DesktopController, libraryName: String = "我的空间", choo
                         Column(Modifier.weight(1f)) {
                             Text(vm.data.title(c), color = Ink, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Spacer(Modifier.height(4.dp))
-                            Text(c.messages.lastOrNull()?.let { if (it.text.isBlank()) "回复未完成" else it.text.replace('\n', ' ') } ?: if (c.group) "${c.memberIds.size} 位 TA · 一起聊聊" else "从一句问候开始", color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(c.messages.lastOrNull()?.let { if(it.mobileLetterId!=null)vm.data.letterFor(c,it)?.title?.ifBlank{"一封信"} ?: "手机信件" else if (it.text.isBlank()) "回复未完成" else it.text.replace('\n', ' ') } ?: if (c.group) "${c.memberIds.size} 位 TA · 一起聊聊" else "从一句问候开始", color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -322,7 +322,7 @@ fun DesktopApp(vm: DesktopController, libraryName: String = "我的空间", choo
     }
 }
 
-@Composable private fun MessageRow(m: Message, data: DesktopData, retryable: Boolean, retry: () -> Unit, userAvatar: String?) {
+@Composable private fun MessageRow(m: Message, data: DesktopData, chat:Conversation, retryable: Boolean, retry: () -> Unit, userAvatar: String?) {
     if (m.notice) { Text(m.text, color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(10.dp)); return }
     val user = m.speakerId == Message.USER
     val ta = data.companions.find { it.id == m.speakerId }
@@ -332,7 +332,10 @@ fun DesktopApp(vm: DesktopController, libraryName: String = "我的空间", choo
         if (!user) { Avatar(ta, 32, file = m.speakerAvatar ?: ta?.avatar, fallback = m.speakerName.ifBlank { "TA" }); Spacer(Modifier.width(10.dp)) }
         Column(Modifier.widthIn(max = 560.dp).fillMaxWidth(if (user) .88f else .94f), horizontalAlignment = if (user) Alignment.End else Alignment.Start) {
             Text(if (user) data.userName else m.speakerName.ifBlank { ta?.name ?: "TA" }, color = Muted, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp))
-            ContextMenuArea(items = { listOf(ContextMenuItem("复制正文") { clipboard.setText(AnnotatedString(m.text)) }) }) {
+            val letter=data.letterFor(chat,m)
+            if(letter!=null) MobileLetterCard(letter)
+            else if(m.mobileLetterId!=null) Text("手机信件暂不可用",color=Muted,fontSize=12.sp)
+            else ContextMenuArea(items = { listOf(ContextMenuItem("复制正文") { clipboard.setText(AnnotatedString(m.text)) }) }) {
                 Column(Modifier.clip(RoundedCornerShape(22.dp)).background(if (user) Color(0xffe1d6ed).copy(alpha = .7f) else Color.White.copy(alpha = .65f)).border(1.dp, SoftLine, RoundedCornerShape(22.dp)).padding(18.dp, 14.dp)) {
                     if (m.reasoning.isNotEmpty()) {
                         TextButton({ thought = !thought }, contentPadding = PaddingValues(0.dp)) { Text(if (thought) "✦  收起思考  ⌃" else "✦  思考  ⌄", color = Muted, fontSize = 11.sp) }
@@ -437,7 +440,7 @@ fun DesktopApp(vm: DesktopController, libraryName: String = "我的空间", choo
             searching = true
             delay(150)
             val context = currentCoroutineContext()
-            hits = withContext(Dispatchers.Default) { searchConversation(chat, query) { context.ensureActive() } }
+            hits = withContext(Dispatchers.Default) { searchConversation(chat, query,data=data) { context.ensureActive() } }
         }
         searching = false
     }

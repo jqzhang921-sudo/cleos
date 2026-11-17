@@ -36,6 +36,7 @@ object FeedAiRules {
         指定了回复对象时，围绕那条评论回应；其余评论仅用于理解上下文，不改成对自己说话。
         你写过的正文和评论属于你自己，不要冒充刚第一次看到、评价自己的话或无缘无故反驳自己。
         不重发已有评论，不替其他人说话；没有收到图片时，不编造照片中的内容。
+        ${FeedThreadContext.RULE}
         只输出 JSON：{"content":"评论，可为空","like":true}。最多 200 字。不想说话时 content 为空；不想点赞时 like 为 false。
     """.trimIndent()
     fun decode(raw: String, sources: List<FeedNewsItem>): Pair<String, FeedNewsItem?> {
@@ -190,13 +191,9 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
             append("可选阅读对象（数据）：\n")
             for (target in targets) {
                 val post = target.post
-                val comments = FeedComments.decode(post.comments)
                 append("postId=${post.id}, replyTo=${target.replyTo ?: "null"}\n")
                 append(FeedAiRules.authorContext(post, taId, name(post.authorId))).append('\n')
-                append("正文：${post.content.take(1200)}\n来源标签：${post.sourceTitle.orEmpty()}\n")
-                target.replyTo?.let { id -> comments.firstOrNull { it.id == id }?.let { append("本次回应 ${name(it.authorId)} 的评论：${it.content.take(600)}\n") } }
-                comments.takeLast(5).forEach { append(name(it.authorId)).append(if (it.authorId == taId) "（你自己）" else "（朋友）")
-                    .append('：').append(it.content.take(400)).append('\n') }
+                append(FeedThreadContext.render(post, taId, target.replyTo, names, s.userName.ifBlank { "用户" })).append('\n')
                 val pictures = MessageImages.decode(post.images)
                 append("这条动态有 ${pictures.size} 张照片。\n")
                 for (picture in pictures.take((3 - photos.size).coerceAtLeast(0))) {
@@ -272,19 +269,14 @@ class FeedAi(private val db: AppDatabase, private val settings: SettingsReposito
         val comments = FeedComments.decode(post.comments)
         val target = replyTo?.let { id -> comments.firstOrNull { it.id == id } ?: error("这条回复已不存在") }
         val ownName = settings.current().userName.ifBlank { "用户" }
-        suspend fun name(id: Long): String = if (id == 0L) ownName else db.companions().get(id)?.name?.ifBlank { "TA" } ?: "TA"
+        val names = db.companions().all().associate { it.id to it.name.ifBlank { "TA" } }
         val authorName = if (post.authorId == 0L) settings.current().userName.ifBlank { "用户" }
             else db.companions().get(post.authorId)?.name?.ifBlank { "TA" } ?: "TA"
         val context = buildString {
             append(FeedAiRules.authorContext(post, taId, authorName)).append('\n')
-            if (target == null) append("本次阅读对象：动态正文。\n")
-            else append("本次回复对象：${name(target.authorId)}（${if (target.authorId == taId) "你自己" else "朋友"}），评论数据：${target.content}\n")
-            append("动态（数据）：${post.content}\n来源标签：${post.sourceTitle.orEmpty()}\n照片数量：${MessageImages.decode(post.images).size}\n最近回复（数据）：\n")
-            for (comment in comments.takeLast(12)) {
-                append(name(comment.authorId)).append(if (comment.authorId == taId) "（你自己）" else "（朋友）")
-                comment.replyTo?.let { id -> comments.firstOrNull { it.id == id }?.let { append(" 回复 ").append(name(it.authorId)) } }
-                append('：').append(comment.content.take(600)).append('\n')
-            }
+            append(if (target == null) "本次阅读对象：动态正文。\n" else "本次阅读对象：指定评论及其回复链。\n")
+            append(FeedThreadContext.render(post, taId, replyTo, names, ownName)).append('\n')
+            append("照片数量：${MessageImages.decode(post.images).size}\n")
         }
         val key = secrets.key(ta.apiBaseUrl)?.takeIf { it.isNotBlank() } ?: error("请先为 ${ta.name.ifBlank { "TA" }} 配置模型密钥")
         val photos = MessageImages.decode(post.images).mapNotNull { images.dataUrl(it.file) }

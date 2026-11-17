@@ -14,7 +14,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-const val DESKTOP_VERSION = "0.13.0-preview.1"
+const val DESKTOP_VERSION = "0.14.1-preview.1"
 
 /** Leave Compose's frame dispatcher before entering AWT's nested modal event loop. */
 internal suspend fun chooseMobileBackup(owner: Frame): Path? = suspendCancellableCoroutine { continuation ->

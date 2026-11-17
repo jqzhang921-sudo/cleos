@@ -72,7 +72,7 @@ class PhoneNotebookTest {
         val (root,data)=imported();val expected=readPhoneNotebook(root,data)
         val archive=DesktopBackupArchive();val file=temp.newFolder().toPath().resolve("notebook-desktop.zip")
         val preview=archive.export(root,data,"test",file);val target=temp.newFolder().toPath();archive.write(preview,target)
-        assertEquals(4,preview.data.version);assertEquals(expected,readPhoneNotebook(target,preview.data))
+        assertEquals(5,preview.data.version);assertEquals(expected,readPhoneNotebook(target,preview.data))
     }
     @Test fun `invalid visibility unknown authors duplicate ids and impossible dates are skipped with counts`() {
         val source=notebookFixture(temp.newFolder().toPath())

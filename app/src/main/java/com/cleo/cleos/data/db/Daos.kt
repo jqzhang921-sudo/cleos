@@ -128,6 +128,8 @@ interface ConversationDao {
 
 @Dao
 interface MessageDao {
+    @Query("UPDATE messages SET toolCalls = :calls WHERE id = :id")
+    suspend fun setToolCalls(id: Long, calls: String)
     @Query("UPDATE messages SET toolCalls = NULL, reasoning = NULL WHERE id IN (:ids)")
     suspend fun clearToolCalls(ids: List<Long>)
 
@@ -228,12 +230,35 @@ interface MessageDao {
 
     /** Those with [pattern] in them (a LIKE pattern, \ escaping), newest first; [role] null for both sides. */
     @Query(
-        "SELECT m.* FROM messages m JOIN conversations c ON c.id = m.conversationId " +
+        "SELECT m.* FROM messages m JOIN conversations c ON c.id = m.conversationId LEFT JOIN letters l ON l.id = m.letterId AND l.companionId = c.companionId AND l.deliverAt IS NOT NULL " +
             "WHERE c.companionId = :companionId AND m.role IN ('user', 'assistant') AND m.note IS NULL " +
-            "AND m.error IS NULL AND m.content LIKE :pattern ESCAPE '\\' AND (:role IS NULL OR m.role = :role) " +
+            "AND m.error IS NULL AND (m.content LIKE :pattern ESCAPE '\\' OR l.content LIKE :pattern ESCAPE '\\' OR l.title LIKE :pattern ESCAPE '\\') AND (:role IS NULL OR m.role = :role) " +
             "ORDER BY m.createdAt DESC, m.id DESC LIMIT :limit",
     )
     suspend fun search(companionId: Long, pattern: String, role: String?, limit: Int): List<MessageEntity>
+
+    /** Tool retrieval: bounded, dated, private and scoped by the actual conversation owner. */
+    @Query("SELECT m.* FROM messages m JOIN conversations c ON c.id = m.conversationId " +
+        "WHERE c.companionId = :owner AND m.role IN ('user','assistant') AND m.note IS NULL AND m.error IS NULL " +
+        "AND m.letterId IS NULL AND m.content != '' AND m.content LIKE :pattern ESCAPE '\\' " +
+        "AND m.createdAt >= :from AND m.createdAt < :until AND (:role IS NULL OR m.role = :role) " +
+        "ORDER BY m.createdAt DESC, m.id DESC LIMIT :limit")
+    suspend fun recall(owner: Long, pattern: String, from: Long, until: Long, role: String?, limit: Int): List<MessageEntity>
+
+    @Query("SELECT m.* FROM messages m JOIN conversations c ON c.id = m.conversationId " +
+        "WHERE c.companionId = :owner AND m.id = :id AND m.role IN ('user','assistant') AND m.note IS NULL " +
+        "AND m.error IS NULL AND m.letterId IS NULL AND m.content != ''")
+    suspend fun recallMessage(owner: Long, id: Long): MessageEntity?
+
+    @Query("SELECT * FROM messages WHERE conversationId = :conversation AND role IN ('user','assistant') " +
+        "AND note IS NULL AND error IS NULL AND letterId IS NULL AND content != '' " +
+        "AND (createdAt < :at OR (createdAt = :at AND id < :id)) ORDER BY createdAt DESC, id DESC LIMIT 2")
+    suspend fun recallBefore(conversation: Long, at: Long, id: Long): List<MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE conversationId = :conversation AND role IN ('user','assistant') " +
+        "AND note IS NULL AND error IS NULL AND letterId IS NULL AND content != '' " +
+        "AND (createdAt > :at OR (createdAt = :at AND id > :id)) ORDER BY createdAt, id LIMIT 2")
+    suspend fun recallAfter(conversation: Long, at: Long, id: Long): List<MessageEntity>
 
     /** When each of them was said: the days a calendar marks. */
     @Query(
@@ -265,14 +290,14 @@ interface MessageDao {
     /** What the TA said on its own here from [since] on, oldest first: what a wake just sent. */
     @Query(
         "SELECT * FROM messages WHERE conversationId = :conversationId AND role = 'assistant' AND proactive = 1 " +
-            "AND error IS NULL AND content != '' AND createdAt >= :since ORDER BY createdAt, id",
+            "AND error IS NULL AND (content != '' OR letterId IS NOT NULL) AND createdAt >= :since ORDER BY createdAt, id",
     )
     suspend fun proactiveSince(conversationId: Long, since: Long): List<MessageEntity>
 
     /** What the TA said here from [since] on, oldest first: a reply just written, for its notification. */
     @Query(
         "SELECT * FROM messages WHERE conversationId = :conversationId AND role = 'assistant' " +
-            "AND error IS NULL AND content != '' AND createdAt >= :since ORDER BY createdAt, id",
+            "AND error IS NULL AND (content != '' OR letterId IS NOT NULL) AND createdAt >= :since ORDER BY createdAt, id",
     )
     suspend fun repliedSince(conversationId: Long, since: Long): List<MessageEntity>
 
@@ -565,6 +590,19 @@ interface WakeDao {
 
 @Dao
 interface LetterDao {
+    @Query("UPDATE letters SET replyTo = NULL WHERE sourceType = 'instant' AND replyTo = :letterId")
+    suspend fun detachReplies(letterId: Long)
+    @Query("SELECT * FROM letters WHERE companionId = :companionId AND sourceType = 'instant' AND author = 'me' AND deliverAt IS NULL ORDER BY createdAt DESC, id DESC LIMIT 1")
+    suspend fun instantDraft(companionId: Long): LetterEntity?
+
+    @Query("UPDATE letters SET readAt = :at WHERE id = :id AND author = 'ai' AND readAt IS NULL")
+    suspend fun markRead(id: Long, at: Long)
+
+    @Query("SELECT * FROM messages WHERE letterId = :letterId ORDER BY id LIMIT 1")
+    suspend fun linkedMessage(letterId: Long): MessageEntity?
+
+    @Query("UPDATE messages SET letterId = NULL, role = 'note', content = '信件已删除', note = '信件已删除' WHERE letterId = :letterId")
+    suspend fun unlink(letterId: Long)
     @Query("SELECT * FROM letters WHERE companionId = :companionId ORDER BY createdAt DESC, id DESC")
     fun observeFor(companionId: Long): Flow<List<LetterEntity>>
 
@@ -583,8 +621,8 @@ interface LetterDao {
 
     /** The person's sent letters that no letter answers yet: replies still to write. */
     @Query(
-        "SELECT * FROM letters l WHERE author = 'me' AND deliverAt IS NOT NULL " +
-            "AND NOT EXISTS (SELECT 1 FROM letters r WHERE r.replyTo = l.id) ORDER BY deliverAt",
+        "SELECT * FROM letters l WHERE sourceType = 'retrospective' AND author = 'me' AND deliverAt IS NOT NULL " +
+            "AND NOT EXISTS (SELECT 1 FROM letters r WHERE r.replyTo = l.id AND r.sourceType = 'retrospective' AND r.author = 'ai') ORDER BY deliverAt",
     )
     suspend fun unanswered(): List<LetterEntity>
 

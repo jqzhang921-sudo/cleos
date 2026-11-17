@@ -64,4 +64,28 @@ class WorldAlbumReaderTest {
         assertEquals(1L, reader.chooseAlbum(endpoint, ta, listOf(photo)));assertEquals(2,requests.size)
         assertFalse(requests.last().toString().contains("REASONING_CANARY"));assertNull(requests.last()["tools"])
     }
+    @Test fun manualRevisitOnlyCarriesBoundedSameOwnerSamePixelHistory() = server({ 200 to good }) { reader, endpoint, requests ->
+        val previous = (1..4).map { WorldAlbumLookEntity(it.toLong(), ta.id, photo.id, photo.sha256, "run-$it",
+            "SAME_PHOTO_$it " + "n".repeat(1000), "q".repeat(800), it.toLong()) }
+        val excluded = listOf(previous.last().copy(companionId = 99, content = "OTHER_OWNER_CANARY"),
+            previous.last().copy(photoSha256 = "9".repeat(64), content = "OTHER_PIXELS_CANARY"))
+        assertNotNull(reader.lookAlbum(endpoint, ta, photo, pixels, previous + excluded))
+        val request = requests.single(); checkPhoto(request)
+        val text = request["messages"]!!.jsonArray.flatMap { (it.jsonObject["content"] as? JsonArray).orEmpty() }
+            .single { it.jsonObject["type"]!!.jsonPrimitive.content == "text" && it.jsonObject["text"]!!.jsonPrimitive.content.contains("previous_views") }
+            .jsonObject["text"]!!.jsonPrimitive.content
+        val data = Json.parseToJsonElement(text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1)).jsonObject
+        val history = data["previous_views"]!!.jsonArray
+        assertEquals(3, history.size)
+        assertTrue(history.first().jsonObject["note"]!!.jsonPrimitive.content.startsWith("SAME_PHOTO_4"))
+        assertTrue(history.all { it.jsonObject["note"]!!.jsonPrimitive.content.length <= 600 && it.jsonObject["question"]!!.jsonPrimitive.content.length <= 200 })
+        assertFalse(text.contains("SAME_PHOTO_1")); assertFalse(text.contains("OTHER_OWNER_CANARY")); assertFalse(text.contains("OTHER_PIXELS_CANARY"))
+        assertFalse(text.contains(photo.file)); assertFalse(text.contains(photo.sha256))
+    }
+    @Test fun revisitRepairRetainsHistoryAndExactlyOneImage() = server({ n -> 200 to if(n==1) "BAD_PROSE_CANARY" else good }) { reader, endpoint, requests ->
+        val look = WorldAlbumLookEntity(1, ta.id, photo.id, photo.sha256, "old", "PREVIOUS_VIEW_CANARY", "", 1)
+        assertNotNull(reader.lookAlbum(endpoint, ta, photo, pixels, listOf(look)))
+        assertEquals(2, requests.size)
+        requests.forEach { checkPhoto(it); assertTrue(it.toString().contains("PREVIOUS_VIEW_CANARY")) }
+    }
 }

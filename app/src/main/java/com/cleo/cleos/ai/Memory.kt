@@ -2,6 +2,9 @@ package com.cleo.cleos.ai
 
 import androidx.room.withTransaction
 import com.cleo.cleos.data.MemoryDetails
+import com.cleo.cleos.data.MemoryContext
+import com.cleo.cleos.data.MemoryRules
+import com.cleo.cleos.data.MemoryStore
 import com.cleo.cleos.data.db.AppDatabase
 import com.cleo.cleos.data.db.CompanionEntity
 import com.cleo.cleos.data.db.MemoryDao
@@ -97,6 +100,8 @@ object MemoryDigest {
             val d = Instant.ofEpochMilli(m.updatedAt).atZone(zone).toLocalDate()
             append("（${d.monthValue}月${d.dayOfMonth}日记下）")
         }
+        if (m.temporalState != "current" || m.validFromDay != null || m.validUntilDay != null)
+            append("【").append(MemoryContext.timing(m, java.time.LocalDate.now(zone))).append("】")
     }
 
     fun forChat(memories: List<MemoryEntity>, zone: ZoneId): String? {
@@ -169,7 +174,9 @@ object MemoryDigest {
     const val RULES = "记东西是你自己的事，没有人会提醒你去记，都用 memory 这一个工具。" +
         "对方说了一件关于自己的事，而下次你会希望还知道，就当场记，别等聊完；不用等它显得重要：口味、习惯、忌讳、怎么称呼、在意什么、最近在忙什么，单看都小，攒起来才是你认识的这个人。" +
         "一条是一个话题，不是流水账：先看已有的摘要，真属于某条已有话题的用 update 加细节，不然再开新的。「最近」那一类会过期，过期了要改。" +
-        "这些不要记：只发生一次的事（聊天记录和日记里都有）；你猜的（等对方真说了再记）；给自己的备注（记错了就用 update 改对）。" +
+        "偶发小事留在聊天里；重要的共同经历可以记，归入合适的话题。你猜的不要当事实记，给自己的备注也不记。" +
+        "回想旧事需要原话时，用 memory 的 search_history 按简短关键词或日期查自己的旧聊天，再用 open_message 核对上下文、说话人和时间，别凭前情提要补细节。" +
+        "暂时的安排有明确日期才写 valid_from / valid_until；已结束的事用 temporal_state=past 留作经历，不能当现在的情况。没有日期就不猜，也不因时间久了擅自认定已经结束。" +
         "动手，别宣布：记完不用说「我记住了」，也别问「要不要我记下来」。对方说「这个别记」，就 forget。一轮最多动一次记忆。"
 }
 
@@ -177,12 +184,14 @@ object MemoryDigest {
  * The memory tool's four actions for one TA. A pinned topic is the person's word on it:
  * the TA can read it but not change or delete it.
  */
-class MemoryBook(private val dao: MemoryDao, private val clock: () -> Long) {
-    suspend fun act(a: JsonObject, companionId: Long): ToolOutcome = when (ToolArgs.text(a, "action")?.trim()?.lowercase()) {
+class MemoryBook(private val dao: MemoryDao, private val clock: () -> Long, private val history: MemoryHistory? = null,
+    private val store: MemoryStore? = null) {
+    suspend fun act(a: JsonObject, companionId: Long, conversationId: Long = 0): ToolOutcome = when (ToolArgs.text(a, "action")?.trim()?.lowercase()) {
         "open" -> open(a, companionId)
-        "remember" -> remember(a, companionId)
-        "update" -> update(a, companionId)
+        "remember" -> remember(a, companionId, conversationId)
+        "update" -> update(a, companionId, conversationId)
         "forget" -> forget(a, companionId)
+        "search_history", "open_message" -> (history ?: throw ToolFailure("旧聊天检索暂不可用。", "暂时查不到")).read(a, companionId, conversationId)
         else -> throw ToolFailure("action 要是 open、remember、update、forget 之一。", "不知道要做什么")
     }
 
@@ -201,26 +210,52 @@ class MemoryBook(private val dao: MemoryDao, private val clock: () -> Long) {
             append('\n')
             if (details.isEmpty()) append("还没有细节。") else details.forEachIndexed { i, d -> append(i + 1).append(". ").append(d).append('\n') }
         }.trimEnd()
-        return ToolOutcome(text, "翻了翻记忆「${m.name}」")
+        val sources = MemoryContext.traces(m).map { trace ->
+            val row = history?.source(companionId, trace)
+            "消息 #${trace.messageId}（${trace.role}）" + when {
+                row == null -> "：原消息不可用，不能据此补细节"
+                !MemoryContext.matches(trace, row) -> "：原消息已变化，需重新核对"
+                trace.quoted -> "：记录时核对过摘录；可用 open_message 查看原文"
+                else -> "：记录时的聊天背景，不代表整条记忆逐字出自该消息"
+            }
+        }.distinct().joinToString("\n")
+        return ToolOutcome(text + "\n时间状态：" + MemoryContext.timing(m) + "\n来源：" +
+            sources.ifEmpty { "未关联原消息（旧记录、手动记录或导入内容），不要补猜出处。" } +
+            "\nrevision：" + MemoryRules.revision(m), "翻了翻记忆「${m.name}」")
     }
 
-    private suspend fun remember(a: JsonObject, companionId: Long): ToolOutcome {
+    private suspend fun remember(a: JsonObject, companionId: Long, conversationId: Long): ToolOutcome {
         val kind = MemoryKinds.of(ToolArgs.text(a, "category")?.trim())
             ?: throw ToolFailure("category 要是 ${MemoryKinds.all.joinToString("、") { it.key }} 之一。", "没说记在哪一类")
         val name = ToolArgs.text(a, "name")?.trim().orEmpty().take(NAME_MAX)
         val summary = ToolArgs.text(a, "summary")?.trim().orEmpty().take(SUMMARY_MAX)
         if (name.isEmpty() || summary.isEmpty()) throw ToolFailure("remember 要给 name 和 summary。", "没写名字或摘要")
         val existing = dao.allFor(companionId)
+        val same=existing.filter { it.kind==kind.key && MemoryRules.normalize(it.name)==MemoryRules.normalize(name) }
+        if (same.isNotEmpty()) {
+            val m=same.singleOrNull() ?: throw ToolFailure("有多条同名话题，请先 open 核对，再用 update。", "需要核对同名话题")
+            val proposed=timed(m,a)
+            if(MemoryRules.normalize(m.summary)!=MemoryRules.normalize(summary) || m.temporalState!=proposed.temporalState ||
+                m.validFromDay!=proposed.validFromDay || m.validUntilDay!=proposed.validUntilDay)
+                throw ToolFailure("已有 #${m.id}「${m.name}」，但说法或时段不同。先 open 拿 revision，再 update，别另记一条矛盾的。", "已有同名话题")
+            val merged=MemoryRules.unique(MemoryDetails.decode(m.details)+strings(a["details"]))
+            if(merged==MemoryDetails.decode(m.details)) return ToolOutcome("已经记在 #${m.id}，没有重复写入。", "")
+            if(m.pinned) throw ToolFailure("已有同名话题是钉住的，未修改。", "那条是钉住的")
+            if(merged.size>MemoryKinds.DETAILS) throw ToolFailure("合并后超过 30 条细节，未截断或丢弃内容，请先整理。", "细节记满了")
+            val next=MemoryContext.revised(m,m.copy(details=MemoryDetails.encode(merged),updatedAt=clock()),history?.anchor(companionId,conversationId,a))
+            save(companionId,listOf(m),next,"update")
+            return ToolOutcome("补进了已有话题 #${m.id}「${m.name}」，没有另开重复话题。", "补充了「${m.name}」")
+        }
         if (existing.count { it.kind == kind.key } >= MemoryKinds.PER_KIND) {
             throw ToolFailure(
                 "「${kind.heading}」已经有 ${MemoryKinds.PER_KIND} 条了。把它归进已有的一条（update 加细节），或者先合并、删掉过时的。",
                 "这一类记满了",
             )
         }
-        val details = strings(a["details"]).take(MemoryKinds.DETAILS)
+        val details = MemoryRules.unique(strings(a["details"]))
+        if(details.size>MemoryKinds.DETAILS) throw ToolFailure("最多 30 条细节，未保存或截断。", "细节过多")
         val now = clock()
-        val id = dao.insert(
-            MemoryEntity(
+        val row = timed(MemoryEntity(
                 companionId = companionId,
                 kind = kind.key,
                 name = name,
@@ -229,12 +264,14 @@ class MemoryBook(private val dao: MemoryDao, private val clock: () -> Long) {
                 source = MemoryEntity.SOURCE_AI,
                 createdAt = now,
                 updatedAt = now,
-            ),
-        )
+            ), a)
+        val source = history?.anchor(companionId, conversationId, a)
+        val next=MemoryContext.revised(null,row,source)
+        val id = if(store==null) dao.insert(next) else safely { MemoryRules.decode(store.write(companionId,emptyList(),listOf(next),"remember","ai").afterRows).single().id }
         return ToolOutcome("记下了：#$id $name", "记下了「$name」")
     }
 
-    private suspend fun update(a: JsonObject, companionId: Long): ToolOutcome {
+    private suspend fun update(a: JsonObject, companionId: Long, conversationId: Long): ToolOutcome {
         val m = find(a, companionId)
         if (m.pinned) throw ToolFailure("这条是对方钉住的，你改不了：「${m.name}」。", "那条是钉住的")
         var next = m
@@ -248,24 +285,66 @@ class MemoryBook(private val dao: MemoryDao, private val clock: () -> Long) {
         ToolArgs.text(a, "name")?.trim()?.takeIf { it.isNotEmpty() }?.let { next = next.copy(name = it.take(NAME_MAX)) }
         ToolArgs.text(a, "summary")?.trim()?.takeIf { it.isNotEmpty() }?.let { next = next.copy(summary = it.take(SUMMARY_MAX)) }
         var details = MemoryDetails.decode(m.details)
-        if (a.containsKey("set_details")) details = strings(a["set_details"]).take(MemoryKinds.DETAILS)
+        if (a.containsKey("set_details")) details = MemoryRules.unique(strings(a["set_details"]))
         ToolArgs.text(a, "add_detail")?.trim()?.takeIf { it.isNotEmpty() }?.let { d ->
-            if (details.size >= MemoryKinds.DETAILS) {
+            if (details.size >= MemoryKinds.DETAILS && details.none{MemoryRules.normalize(it)==MemoryRules.normalize(d)}) {
                 throw ToolFailure("「${m.name}」已经有 ${MemoryKinds.DETAILS} 条细节了。先用 set_details 合并或删掉旧的。", "细节记满了")
             }
-            details = details + d.take(DETAIL_MAX)
+            details = MemoryRules.unique(details + d.take(DETAIL_MAX))
         }
-        next = next.copy(details = MemoryDetails.encode(details))
-        if (next == m) throw ToolFailure("没有要改的：给 summary、name、add_detail 或 set_details。", "没说改什么")
-        dao.update(next.copy(updatedAt = clock()))
+        if(details.size>MemoryKinds.DETAILS) throw ToolFailure("最多 30 条细节，未保存或截断。", "细节过多")
+        next = timed(next.copy(details = MemoryDetails.encode(details)), a)
+        if (next == m) {
+            if(a.containsKey("add_detail") || a.containsKey("set_details")) return ToolOutcome("内容已经记下，没有重复写入。", "")
+            throw ToolFailure("没有要改的：给 summary、name、add_detail 或 set_details。", "没说改什么")
+        }
+        val destructive=MemoryRules.destructive(m,next)
+        if(store!=null && destructive && ToolArgs.text(a,"revision")!=MemoryRules.revision(m))
+            throw ToolFailure("先 open #${m.id} 读取当前细节与 revision，再带同一个 revision 修改；记忆可能已被用户更正。未覆盖。", "请先核对当前版本")
+        val source = history?.anchor(companionId, conversationId, a)
+        val changedTexts=(if(m.summary!=next.summary) listOf(next.summary) else emptyList())+
+            MemoryDetails.decode(next.details).filter { d->MemoryDetails.decode(m.details).none{MemoryRules.normalize(it)==MemoryRules.normalize(d)} }
+        val original=source?.let{history?.source(companionId,it)}
+        val quoted=if(source?.quoted==true && original!=null && MemoryContext.matches(source,original)) original.content.substring(source.quoteStart,source.quoteEnd) else ""
+        val supported=source?.role=="user" && source.quoted && source.at>=m.updatedAt && changedTexts.isNotEmpty() &&
+            m.kind==next.kind && m.name==next.name && m.temporalState==next.temporalState &&
+            m.validFromDay==next.validFromDay && m.validUntilDay==next.validUntilDay &&
+            changedTexts.all { MemoryRules.normalize(quoted).contains(MemoryRules.normalize(it)) }
+        val revised=MemoryContext.revised(m,next.copy(updatedAt=clock()),source)
+        if(store!=null && destructive && !supported) {
+            val proposal=safely { store.write(companionId,listOf(m),listOf(revised),"update","ai","涉及改写、移除旧事实或调整时段，需查看前后内容后采用。",pending=true) }
+            return ToolOutcome("已生成记忆整理建议 #${proposal.id}，旧记忆尚未修改。用户可在记忆页的整理与改动中查看；不能声称已经改好了，也不必催促用户处理。", "留下了一条记忆整理建议")
+        }
+        save(companionId,listOf(m),revised,"update")
         return ToolOutcome("改好了：#${m.id} ${next.name}", "改了记忆「${next.name}」")
     }
 
     private suspend fun forget(a: JsonObject, companionId: Long): ToolOutcome {
         val m = find(a, companionId)
         if (m.pinned) throw ToolFailure("这条是对方钉住的，你删不了：「${m.name}」。", "那条是钉住的")
-        dao.delete(m.id)
+        if(store==null) dao.delete(m.id) else safely { store.forget(companionId,m) }
         return ToolOutcome("删掉了：#${m.id} ${m.name}", "忘掉了「${m.name}」")
+    }
+
+    private suspend fun save(owner:Long,before:List<MemoryEntity>,next:MemoryEntity,action:String) {
+        if(store==null) dao.update(next) else safely { store.write(owner,before,listOf(next),action,"ai") }
+    }
+    private suspend fun <T> safely(action:suspend()->T):T = try { action() } catch(e:IllegalArgumentException) {
+        throw ToolFailure(e.message ?: "记忆已变化，未覆盖当前内容。","未修改记忆")
+    }
+
+    private fun timed(m: MemoryEntity, a: JsonObject): MemoryEntity {
+        try {
+            val next = m.copy(
+                temporalState = if (a.containsKey("temporal_state")) ToolArgs.text(a, "temporal_state").orEmpty() else m.temporalState,
+                validFromDay = if (a.containsKey("valid_from")) MemoryContext.day(ToolArgs.text(a, "valid_from").orEmpty()) else m.validFromDay,
+                validUntilDay = if (a.containsKey("valid_until")) MemoryContext.day(ToolArgs.text(a, "valid_until").orEmpty()) else m.validUntilDay,
+            )
+            require(MemoryContext.valid(next))
+            return next
+        } catch (_: Exception) {
+            throw ToolFailure("temporal_state 用 current 或 past；日期用 YYYY-MM-DD（空字符串清除），起始日不能晚于结束日。未保存。", "时间状态无效")
+        }
     }
 
     /** Some models send an array, some a single string, some a JSON array inside a string. */

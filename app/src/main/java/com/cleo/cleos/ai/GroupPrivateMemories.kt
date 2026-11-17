@@ -24,7 +24,12 @@ object GroupPrivateMemories {
     private val digestPattern = Regex("[0-9a-f]{64}")
 
     fun fingerprint(memory: MemoryEntity): String = MessageDigest.getInstance("SHA-256")
-        .digest(json.encodeToString(MemoryEntity.serializer(), memory).toByteArray(Charsets.UTF_8))
+        .digest(JsonObject(json.encodeToJsonElement(MemoryEntity.serializer(), memory).jsonObject.filterNot { (key, value) ->
+            // Preserve existing grants when a schema upgrade only adds default metadata.
+            (key == "temporalState" && value == JsonPrimitive("current")) ||
+                (key in setOf("validFromDay", "validUntilDay") && value == JsonNull) ||
+                (key == "provenance" && value == JsonPrimitive("[]"))
+        }).toString().toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it) }
 
     fun grant(memory: MemoryEntity) = GroupMemoryGrant(memory.id, fingerprint(memory))
@@ -65,7 +70,7 @@ object GroupPrivateMemories {
         if (memory.id <= 0 || memory.companionId <= 0 || MemoryKinds.of(memory.kind) == null ||
             memory.name.isBlank() || memory.name.length > MemoryKinds.NAME_MAX ||
             memory.summary.length > MemoryKinds.SUMMARY_MAX || memory.details.length > 20_000 ||
-            memory.createdAt < 0 || memory.updatedAt < 0) return false
+            memory.createdAt < 0 || memory.updatedAt < 0 || !com.cleo.cleos.data.MemoryContext.valid(memory)) return false
         val details = runCatching { json.parseToJsonElement(memory.details) }.getOrNull() as? JsonArray ?: return false
         return details.size <= MemoryKinds.DETAILS && details.all { it is JsonPrimitive && it.isString && it.content.length <= MemoryKinds.DETAIL_MAX }
     }
@@ -103,6 +108,7 @@ object GroupPrivateMemories {
                 put("细节", JsonArray(MemoryDetails.decode(memory.details).map(::JsonPrimitive)))
                 put("记下时间", Instant.ofEpochMilli(memory.updatedAt).atZone(zone).toString())
                 put("记录者", when (memory.source) { MemoryEntity.SOURCE_AI -> "你自己"; MemoryEntity.SOURCE_ME -> "用户"; else -> "导入记录" })
+                put("时间状态", com.cleo.cleos.data.MemoryContext.timing(memory))
             }
             // Include whole topics: never cut away a correction at the end of a detail.
             if (HEADER.length + JsonArray(entries + entry).toString().length <= MAX_CONTEXT) entries += entry

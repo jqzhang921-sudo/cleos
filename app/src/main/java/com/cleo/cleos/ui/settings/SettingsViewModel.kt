@@ -92,6 +92,10 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
     var freeTopicEnabled by mutableStateOf(false)
     var incomingCallsEnabled by mutableStateOf(false)
         private set
+    var incomingCallMode by mutableStateOf(com.cleo.cleos.ai.IncomingCallRules.LIMITED)
+        private set
+    var instantLetterMode by mutableStateOf("requested")
+        private set
     var incomingCallIntervalMinutes by mutableIntStateOf(com.cleo.cleos.ai.IncomingCallRules.DEFAULT_INTERVAL_MINUTES)
         private set
     var incomingCallDailyMax by mutableIntStateOf(com.cleo.cleos.ai.IncomingCallRules.DAILY_MAX)
@@ -299,6 +303,8 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         followUpDelaySeconds = com.cleo.cleos.ai.FollowUpRules.seconds(ta.followUpDelaySeconds)
         freeTopicEnabled = ta.freeTopicEnabled
         incomingCallsEnabled = ta.incomingCallsEnabled
+        incomingCallMode = com.cleo.cleos.ai.IncomingCallRules.mode(ta.incomingCallMode)
+        instantLetterMode = com.cleo.cleos.ai.InstantLetterRules.mode(ta.instantLetterMode)
         incomingCallIntervalMinutes = com.cleo.cleos.ai.IncomingCallRules.intervalMinutes(ta.incomingCallIntervalMinutes)
         incomingCallDailyMax = com.cleo.cleos.ai.IncomingCallRules.dailyMax(ta.incomingCallDailyMax)
         freeTopicLevel = com.cleo.cleos.ai.FreeTopicRules.level(ta.freeTopicLevel).id
@@ -395,6 +401,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
             c.worldPictureScheduler.forget(id)
             c.worldPictures.forget(id)
             c.worldAlbumScheduler.forget(id)
+            c.worldAlbumGallery.forget(id)
             c.worldAlbum.forget(id)
             c.companions.delete(id)
             then()
@@ -632,6 +639,20 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         val value = com.cleo.cleos.ai.IncomingCallRules.intervalMinutes(minutes)
         incomingCallIntervalMinutes = value
         changeIncomingLimit { it.copy(incomingCallIntervalMinutes = value) }
+    }
+
+    fun chooseIncomingCallMode(raw: String) {
+        val value = com.cleo.cleos.ai.IncomingCallRules.mode(raw)
+        incomingCallMode = value
+        changeIncomingLimit { it.copy(incomingCallMode = value) }
+    }
+
+    fun chooseInstantLetterMode(raw: String) {
+        val value = com.cleo.cleos.ai.InstantLetterRules.mode(raw)
+        instantLetterMode = value
+        if (!loaded || deleted) return
+        val id = companionId
+        c.appScope.launch { c.companions.update(id) { it.copy(instantLetterMode = value) } }
     }
 
     fun chooseIncomingCallDailyMax(count: Int) {
@@ -898,6 +919,12 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         viewModelScope.launch { c.settings.update { it.copy(showThought = on) } }
     }
 
+    fun setMessageRichText(on: Boolean) {
+        viewModelScope.launch { c.settings.update { it.copy(messageRichText = on) } }
+    }
+    fun setMessageColors(on: Boolean) {
+        viewModelScope.launch { c.settings.update { it.copy(messageColors = on) } }
+    }
     fun setShowTokenUsage(on: Boolean) {
         viewModelScope.launch { c.settings.update { it.copy(showTokenUsage = on) } }
     }

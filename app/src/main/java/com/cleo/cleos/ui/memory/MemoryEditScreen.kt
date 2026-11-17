@@ -1,5 +1,9 @@
 package com.cleo.cleos.ui.memory
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.rememberCoroutineScope
+import com.cleo.cleos.data.MemoryRules
+import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -55,6 +59,7 @@ import androidx.lifecycle.viewModelScope
 import com.cleo.cleos.AppContainer
 import com.cleo.cleos.ai.MemoryKinds
 import com.cleo.cleos.data.MemoryDetails
+import com.cleo.cleos.data.MemoryContext
 import com.cleo.cleos.data.db.MemoryEntity
 import com.cleo.cleos.glass.GlassIconButton
 import com.cleo.cleos.glass.GlassShape
@@ -81,10 +86,17 @@ class MemoryEditViewModel(private val c: AppContainer, startId: Long) : ViewMode
     var summary by mutableStateOf("")
     val details = mutableStateListOf<String>()
     var pinned by mutableStateOf(false)
+    var temporalState by mutableStateOf("current")
+    var validFrom by mutableStateOf("")
+    var validUntil by mutableStateOf("")
     var loaded by mutableStateOf(false)
         private set
     private var original: MemoryEntity? = null
     private var deleted = false
+    var busy by mutableStateOf(false)
+        private set
+    var problem by mutableStateOf<String?>(null)
+        private set
 
     init {
         viewModelScope.launch {
@@ -99,56 +111,71 @@ class MemoryEditViewModel(private val c: AppContainer, startId: Long) : ViewMode
                 summary = m.summary
                 details.addAll(MemoryDetails.decode(m.details))
                 pinned = m.pinned
+                temporalState = m.temporalState
+                validFrom = MemoryContext.date(m.validFromDay)
+                validUntil = MemoryContext.date(m.validUntilDay)
             }
             loaded = true
         }
     }
 
     fun delete(then: () -> Unit) {
-        deleted = true
-        val gone = id
-        c.appScope.launch { if (gone != 0L) c.db.memories().delete(gone) }
-        then()
-    }
-
-    override fun onCleared() {
-        if (!loaded || deleted) return
-        val n = name.trim()
-        val s = summary.trim()
-        if (n.isEmpty() || s.isEmpty()) return
-        val kept = details.map { it.trim() }.filter { it.isNotEmpty() }.take(MemoryKinds.DETAILS)
-        val o = original
-        val to = companionId
-        val k = kind
-        val p = pinned
-        c.appScope.launch {
-            val now = System.currentTimeMillis()
-            if (o == null) {
-                c.db.memories().insert(
-                    MemoryEntity(
-                        companionId = to,
-                        kind = k,
-                        name = n,
-                        summary = s,
-                        details = MemoryDetails.encode(kept),
-                        pinned = p,
-                        source = MemoryEntity.SOURCE_ME,
-                        createdAt = now,
-                        updatedAt = now,
-                    ),
-                )
-            } else {
-                val next = o.copy(kind = k, name = n, summary = s, details = MemoryDetails.encode(kept), pinned = p)
-                if (next != o) c.db.memories().update(next.copy(updatedAt = now))
-            }
+        if(busy || !loaded)return
+        busy=true;problem=null
+        viewModelScope.launch {
+            try {
+                original?.let { c.memoryStore.forget(companionId,it) }
+                deleted=true;then()
+            } catch(e:CancellationException) {throw e}
+            catch(e:Exception) {problem=e.message ?: "未删除记忆"}
+            finally {busy=false}
         }
     }
+
+    fun draft(): MemoryEntity {
+        val base = original ?: MemoryEntity(companionId = companionId, kind = kind, name = name, summary = summary, createdAt = 0, updatedAt = 0)
+        val next = base.copy(kind = kind, name = name, summary = summary,
+            details = MemoryDetails.encode(details.map(String::trim).filter(String::isNotEmpty)), pinned = pinned, temporalState = temporalState)
+        val dated = runCatching { next.copy(validFromDay = MemoryContext.day(validFrom), validUntilDay = MemoryContext.day(validUntil)) }
+            .getOrNull()?.takeIf(MemoryContext::valid)
+        return MemoryContext.revised(original, dated ?: next)
+    }
+    fun dateProblem(): Boolean = runCatching {
+        val from = MemoryContext.day(validFrom); val until = MemoryContext.day(validUntil)
+        from != null && until != null && from > until
+    }.getOrDefault(true)
+
+    fun save(then:()->Unit) {
+        if(busy || !loaded || deleted)return
+        if(original==null && id!=0L) {then();return}
+        val n=name.trim();val line=summary.trim()
+        if(original==null && n.isEmpty() && line.isEmpty()) {then();return}
+        if(n.isEmpty() || line.isEmpty()) {problem="话题和一句话不能为空";return}
+        val base=draft().copy(name=n,summary=line,details=MemoryDetails.encode(MemoryRules.unique(details.toList())))
+        val previous=original
+        if(previous!=null && base==previous) {then();return}
+        busy=true;problem=null
+        viewModelScope.launch {
+            try {
+                val now=System.currentTimeMillis()
+                val next=base.copy(source=MemoryEntity.SOURCE_ME,createdAt=previous?.createdAt ?: now,updatedAt=now)
+                val event=c.memoryStore.write(companionId,listOfNotNull(previous),listOf(next),"manual","user")
+                original=MemoryRules.decode(event.afterRows).single();id=original!!.id
+                then()
+            } catch(e:CancellationException) {throw e}
+            catch(e:Exception) {problem=e.message ?: "未保存记忆"}
+            finally {busy=false}
+        }
+    }
+
 }
 
 @Composable
-fun MemoryEditScreen(id: Long, onBack: () -> Unit) {
+fun MemoryEditScreen(id: Long, onBack: () -> Unit, onFound: () -> Unit = {}) {
     val vm = appViewModel(key = "memory-$id") { MemoryEditViewModel(it, id) }
     val c = appContainer()
+    val scope = rememberCoroutineScope()
+    BackHandler { vm.save(onBack) }
     val palette = LocalGlassPalette.current
     val density = LocalDensity.current
     val companions by remember { c.companions.all }.collectAsStateWithLifecycle(emptyList())
@@ -163,9 +190,9 @@ fun MemoryEditScreen(id: Long, onBack: () -> Unit) {
         overlay = { page ->
             GlassTopBar(
                 title = if (id == 0L) "自己加一条" else vm.name.ifBlank { "记忆" },
-                subtitle = if (id == 0L) "要有名字和一句话才会存" else "离开时自动存",
+                subtitle = vm.problem ?: if (id == 0L) "要有名字和一句话才会存" else if(vm.busy) "正在保存…" else "离开时保存",
                 backdrop = page,
-                leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
+                leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", { vm.save(onBack) }, page) },
                 trailing = {
                     if (id != 0L) GlassIconButton(Icons.Rounded.DeleteOutline, "删除", { confirmDelete = true }, page)
                 },
@@ -180,6 +207,10 @@ fun MemoryEditScreen(id: Long, onBack: () -> Unit) {
                 .padding(start = 14.dp, end = 14.dp, top = statusTop + TopBarHeight + 10.dp, bottom = bottom + 24.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            vm.problem?.let { problem ->
+                Text(problem,color=palette.error,fontSize=13.sp)
+                TextButton(onClick=onBack,enabled=!vm.busy) {Text("放弃本页未保存修改")}
+            }
             GlassSurface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = GlassShape.Rounded(24.dp),
@@ -240,6 +271,34 @@ fun MemoryEditScreen(id: Long, onBack: () -> Unit) {
                 shape = GlassShape.Rounded(24.dp),
                 contentPadding = PaddingValues(16.dp),
             ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("时间与来源", color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Pill("当前情况", vm.temporalState == "current") { vm.temporalState = "current" }
+                        Pill("过去经历", vm.temporalState == "past") { vm.temporalState = "past" }
+                    }
+                    Text("已结束的事情可以留作经历；有明确日期再填写，到期后作为历史参考。", color = palette.contentSecondary, fontSize = 12.sp)
+                    OutlinedTextField(vm.validFrom, { vm.validFrom = it.take(10) }, label = { Text("适用起始日（可空）") },
+                        placeholder = { Text("YYYY-MM-DD") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(vm.validUntil, { vm.validUntil = it.take(10) }, label = { Text("适用结束日（含当天，可空）") },
+                        placeholder = { Text("YYYY-MM-DD") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (vm.dateProblem()) Text("日期格式或先后顺序有误，离开时会保留原日期。", color = palette.error, fontSize = 12.sp)
+                    Text(MemoryContext.timing(vm.draft()), color = palette.contentSecondary, fontSize = 12.sp)
+                    MemorySources(vm.draft()) { message -> vm.save {
+                        scope.launch {
+                            c.settings.setCurrentCompanion(vm.companionId)
+                            c.chat.show(message)
+                            c.opening.value=com.cleo.cleos.Opening.Chat(message.conversationId)
+                            onFound()
+                        }
+                    } }
+                }
+            }
+            GlassSurface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = GlassShape.Rounded(24.dp),
+                contentPadding = PaddingValues(16.dp),
+            ) {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -272,7 +331,7 @@ fun MemoryEditScreen(id: Long, onBack: () -> Unit) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             title = { Text("删掉这条记忆？") },
-            text = { Text("$ta 就不再记得这件事了。") },
+            text = { Text("会删除这条记忆及相关改动历史，防止相同内容原样自动写回；聊天原文保留。删除后不能从改动记录撤销。") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = false

@@ -94,6 +94,6 @@ class DesktopImagesTest {
     }
     @Test fun `old schema migrates without inventing image permissions`() {
         val old=DesktopData.fresh().copy(version=2).checked()
-        assertEquals(4,old.version);assertFalse(old.companions.first().endpoint.supportsImages);assertTrue(old.conversations.first().draftImages.isEmpty())
+        assertEquals(5,old.version);assertFalse(old.companions.first().endpoint.supportsImages);assertTrue(old.conversations.first().draftImages.isEmpty())
     }
 }

@@ -6,6 +6,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WorldReadingTest {
+    @Test fun chosenSpanAdvancesPastOldPlateauWithoutSkippingTextOrSplittingUnicode() {
+        val body = "x".repeat(11340) + "y".repeat(17999) + "😺" + "z".repeat(40000)
+        val end = WorldReading.end(body, 11340, 18000)
+        assertEquals(29339, end); assertTrue(WorldReading.boundary(body, end))
+        assertEquals(18000, WorldReading.end("a".repeat(50000), 0, 18000))
+        assertEquals(500, WorldReading.end("a".repeat(500), 0, 18000))
+        assertEquals(10001, WorldReading.end("a".repeat(10000) + "\n" + "b".repeat(15000), 0, 18000))
+        for (size in listOf(0, 1499, 18001, Int.MAX_VALUE)) {
+            try { WorldReading.end(body, 0, size); fail() } catch (_: IllegalArgumentException) { }
+        }
+    }
     private val text = "春天的树。\n风吹过窗外。"
     private val article = WorldArticleEntity(1, 10, "小文章", "合成作者", text, WorldReading.fingerprint(text), 1, text.length, 2)
     private val note = WorldNoteEntity(1, 10, 1, "run-one", "想留下一句风。", "风从哪里来？", "树", 3, 0, text.length, 2)

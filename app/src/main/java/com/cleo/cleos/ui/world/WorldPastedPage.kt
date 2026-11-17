@@ -1,7 +1,7 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
@@ -30,7 +30,7 @@ internal fun WorldPastedPage(ta: CompanionEntity, navigation: WorldNavigationMod
     val list = rememberLazyListState()
     LaunchedEffect(preview) { list.scrollToItem(0) }
     fun edited() { preview = false; error = null }
-    LazyColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    TabScrollColumn(Modifier.fillMaxSize().imePadding().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         item { Text(if (preview) "确认这篇正文" else "把找到的正文带回来", color = p.content, fontSize = 19.sp) }
         item { Text("在浏览器选中并复制文章正文，再粘贴到这里。保存后放在${ta.name.ifBlank { "TA" }}的「书房 → 文章」，阅读笔记进入随手本。这里只保存你提供的文字，不会抓取链接或图片。", color = p.contentSecondary, fontSize = 13.sp, lineHeight = 22.sp) }
         if (!preview) {
