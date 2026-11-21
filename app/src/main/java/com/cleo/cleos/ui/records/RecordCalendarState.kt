@@ -11,7 +11,7 @@ internal class RecordCalendarState(today: LocalDate) {
     var dayEpoch by mutableLongStateOf(TodoCalendarModel.ALL)
     var monthEpoch by mutableLongStateOf(today.withDayOfMonth(1).toEpochDay())
     var focusEpoch by mutableLongStateOf(today.toEpochDay())
-    var collapsed by mutableStateOf(false)
+    var collapsed by mutableStateOf(true)
     var undated by mutableStateOf(false)
     // Keep the unsent composer with the explicit records saver, rather than only
     // inside a section's transient content tree.

@@ -38,7 +38,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -81,14 +80,13 @@ data class CallState(
     val muted: Boolean = false,
     /** Another app has the sound (a phone call coming in, a video): the call waits until it is given back. */
     val held: Boolean = false,
-    /** What the person said last, as it was made out. */
-    val heard: String? = null,
-    /** What the TA is saying right now. */
-    val saying: String? = null,
+    val captions: List<CallCaption> = emptyList(),
     /** Something that went wrong, in a line, for a few seconds. */
     val problem: String? = null,
     val session: Long = 0,
     val incoming: Boolean = false,
+    val typing: Boolean = false,
+    val canInterrupt: Boolean = false,
 )
 
 /**
@@ -97,8 +95,8 @@ data class CallState(
  *
  * The two take turns, the way a call on speaker goes: while the TA talks the microphone isn't
  * listened to, or the TA would hear itself from the speaker and answer that. The person's turn
- * ends when they have been quiet for a moment (TurnDetector), and a tap cuts the TA off. What
- * they said goes through the voice-to-text service of 发语音; the TA's answer is written like a
+ * ends after a pause (TurnDetector) or when they send a typed reply. The interrupt button cuts the
+ * TA off. Speech goes through the voice-to-text service of 发语音; the TA's answer is written like a
  * reply (ChatRepository.callReply) and spoken in pieces with the voice from TA 的声音, each piece
  * made while the one before plays, so the first words come long before the answer is done.
  *
@@ -128,12 +126,14 @@ class Calls(
 
     private var job: Job? = null
 
-    /** The TA's turn under way, which a tap cuts off. */
+    /** The TA's turn under way, which the interrupt button cuts off. */
     @Volatile
     private var turn: Job? = null
 
     @Volatile
     private var mic: CallMic? = null
+    @Volatile
+    private var callInput: CallInput? = null
 
     @Volatile
     private var player: CallPlayer? = null
@@ -156,7 +156,7 @@ class Calls(
             _state.value = CallState(conversationId, session = session, incoming = invitation != null)
             job = ownedCallJob(scope, CallAudioOwnership.slot, this, finished = {
                 _state.update { if (it?.session == session) it.copy(phase = CallPhase.Ended,
-                    endedAt = it.endedAt ?: System.currentTimeMillis(), saying = null) else it }
+                    endedAt = it.endedAt ?: System.currentTimeMillis()) else it }
                 scope.launch {
                     delay(ENDED_SHOWN_MS)
                     _state.update { if (it?.session == session && it.phase == CallPhase.Ended) null else it }
@@ -189,7 +189,7 @@ class Calls(
         player?.stop()
         mic?.muted = true
         _state.update {
-            if (it == null || it.phase == CallPhase.Ended) it else it.copy(phase = CallPhase.Ended, endedAt = System.currentTimeMillis(), saying = null)
+            if (it == null || it.phase == CallPhase.Ended) it else it.copy(phase = CallPhase.Ended, endedAt = System.currentTimeMillis())
         }
         j.cancel()
     }
@@ -204,6 +204,31 @@ class Calls(
     fun mute(on: Boolean) {
         mic?.muted = on
         _state.update { it?.copy(muted = on) }
+    }
+
+    @Synchronized
+    fun setTyping(session: Long, typing: Boolean) {
+        val st = _state.value ?: return
+        val input = callInput ?: return
+        if (st.session != session || st.answeredAt == null || st.phase == CallPhase.Ended) return
+        input.mic.typing = typing
+        _state.update { if (it?.session == session) it.copy(typing = typing) else it }
+    }
+
+    @Synchronized
+    fun sendText(session: Long, text: String): Boolean {
+        val words = text.trim()
+        val input = callInput ?: return false
+        if (words.isEmpty() || words.length > CallInput.MAX_TEXT) return false
+        while (true) {
+            val st = _state.value ?: return false
+            if (st.session != session || !st.typing || st.held || st.phase != CallPhase.Listening) return false
+            val thinking = st.copy(phase = CallPhase.Thinking, problem = null)
+            if (!_state.compareAndSet(st, thinking)) continue
+            if (input.send(words)) return true
+            _state.compareAndSet(thinking, st)
+            return false
+        }
     }
 
     private suspend fun run(conversationId: Long, invitation: com.cleo.cleos.data.db.IncomingCallEntity?) {
@@ -225,8 +250,9 @@ class Calls(
         // Whole or not at all: a call row left half made would keep the conversation busy.
         val callId = withContext(NonCancellable) { chat.beginCall(conversationId,invitation?.recordId) }
         CallService.start(appContext)
-        val heard = Channel<MicHeard>(Channel.UNLIMITED)
-        val mic = CallMic(micSource()) { heard.trySend(it) }.also { it.muted = _state.value?.muted == true }
+        val input = CallInput(micSource(), keepPauses = true)
+        val mic = input.mic.also { it.muted = _state.value?.muted == true }
+        callInput = input
         val player = CallPlayer()
         this.mic = mic
         this.player = player
@@ -276,21 +302,29 @@ class Calls(
                     var words: Words? = null
                     var turnEnded = 0L
                     while (words == null) {
-                        val event = withTimeoutOrNull(QUIET_CHECK_MS) { heard.receive() }
+                        val utterance = input.receive(QUIET_CHECK_MS)
+                        if (utterance is CallUtterance.Text) {
+                            early?.cancel()
+                            mic.pause()
+                            turnEnded = SystemClock.elapsedRealtime()
+                            words = Words(utterance.words)
+                            continue
+                        }
+                        val event = (utterance as? CallUtterance.Audio)?.event
                         if (event != null && !mic.accepts(event)) {
                             early?.cancel()
                             early = null
-                            while (heard.tryReceive().isSuccess) { /* Drop this abandoned interval before listening again. */ }
                             mic.listen()
                             continue
                         }
                         when (val e = event?.heard) {
                             null -> {
                                 // Muted, someone else's sound, or talking: not quiet on the line.
-                                if (mic.muted || mic.held || mic.hearing) quietSince = SystemClock.elapsedRealtime()
+                                if (mic.muted || mic.held || mic.hearing || mic.typing) quietSince = SystemClock.elapsedRealtime()
                                 val quiet = SystemClock.elapsedRealtime() - quietSince
                                 if (!asked && quiet >= QUIET_ASK_MS) {
                                     asked = true
+                                    mic.pause()
                                     talk(conversationId, callId, s, name, player, null, SystemClock.elapsedRealtime(), Prompt.CALL_QUIET)
                                     phase(CallPhase.Listening)
                                     mic.listen()
@@ -318,7 +352,10 @@ class Calls(
                     words.problem?.let(::problem)
                     val text = words.text ?: continue
                     asked = false
-                    _state.update { it?.copy(heard = text) }
+                    _state.update { state ->
+                        if (state == null || state.phase == CallPhase.Ended) state
+                        else state.copy(captions = state.captions.withCaption(text, fromUser = true))
+                    }
                     chat.callLine(conversationId, callId, "user", text)
                     talk(conversationId, callId, s, name, player, null, turnEnded)
                 }
@@ -326,16 +363,17 @@ class Calls(
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
                 this@Calls.mic = null
+                callInput = null
                 this@Calls.player = null
                 runCatching { mic.stop() }
                 runCatching { player.release() }
                 focus.give()
-                heard.close()
+                input.close()
                 try { chat.endCall(conversationId, callId) }
                 finally {
                     CallService.stop(appContext)
                     _level.value = 0f
-                    _state.update { it?.copy(phase = CallPhase.Ended, endedAt = it.endedAt ?: System.currentTimeMillis(), saying = null) }
+                    _state.update { it?.copy(phase = CallPhase.Ended, endedAt = it.endedAt ?: System.currentTimeMillis()) }
                     Log.i(TAG, "call put away")
                 }
             }
@@ -343,7 +381,7 @@ class Calls(
     }
 
     /**
-     * The TA's turn, as a job of its own that a tap can cut off. [ringing]: the first turn, the TA
+     * The TA's turn, as a job of its own that can be interrupted. [ringing]: the first turn, the TA
      * picking up: the ringing goes on until its first words are ready. It has picked up once the
      * turn is over, whatever came of it: the person can talk now. [since]: when the call began
      * (picking up), else when the person's turn ended; how long things took is logged from then.
@@ -365,9 +403,12 @@ class Calls(
         coroutineScope {
             val t = launch { speak(conversationId, callId, s, name, player, ringing, since, instruction, greeting) }
             turn = t
+            _state.update { it?.copy(canInterrupt = true) }
             if (mic?.held == true) t.cancel()
-            t.join()
-            turn = null
+            try { t.join() } finally {
+                turn = null
+                _state.update { it?.copy(canInterrupt = false) }
+            }
         }
         if (ringing != null) {
             ringing.cancelAndJoin()
@@ -446,7 +487,10 @@ class Calls(
                         player.stop()
                         answered(callId)
                     }
-                    _state.update { it?.copy(phase = CallPhase.Speaking, saying = piece.words) }
+                    _state.update { state ->
+                        if (state == null || state.phase == CallPhase.Ended) state
+                        else state.copy(phase = CallPhase.Speaking, captions = state.captions.withCaption(piece.words, fromUser = false))
+                    }
                     CallSpeech.join(said, piece.words)
                     val pcm = piece.pcm
                     if (pcm != null) {
@@ -467,7 +511,6 @@ class Calls(
                 player.stop()
                 val line = said.toString().trim()
                 if (line.isNotEmpty()) chat.callLine(conversationId, callId, "assistant", if (whole) line else "$line……")
-                _state.update { it?.copy(saying = null) }
             }
         }
     }
@@ -561,7 +604,7 @@ class Calls(
             val talking = mic.hearing
             _state.update {
                 when {
-                    it?.phase == CallPhase.Listening && talking -> it.copy(phase = CallPhase.Hearing)
+                    it?.phase == CallPhase.Listening && talking && !it.typing -> it.copy(phase = CallPhase.Hearing)
                     it?.phase == CallPhase.Hearing && !talking -> it.copy(phase = CallPhase.Listening)
                     else -> it
                 }

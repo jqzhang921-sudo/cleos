@@ -73,9 +73,15 @@ object Prompt {
      * is in them. "Not every time" because a model told it can send stickers sends one with every
      * message; the person's are written the same way, so it reads them the way it writes its own.
      */
-    internal const val STICKER_RULE =
-        "你可以发表情包：单独写一行 [[sticker:名字]]，对方看到的就是那张图。名字照下面的一字不差地写，别编没有的；" +
-            "必须保留 sticker: 前缀。一次最多发一张，不用每次都发，想发的时候再发。找不到合适的就用普通文字，不用描述或编造图片冒充表情包。[摸摸]这种方括号文字只是动作描述，不会变成图片，不能当作发出了表情包。对方发来的表情包也是这样写的。你的表情包（名字：图里是什么）："
+    internal fun stickerRule(stickers: List<StickerEntity>, hasSendMessage: Boolean = false): String = buildString {
+        append("本轮可以发下面列出的表情包。即使接口只返回文字，Cleos 也会把单独一行的 [[sticker:名字]] 显示为真实贴纸图片，无需专门的工具。")
+        if (hasSendMessage) append("标记可以放在普通回复里，也可以放在 send_message 的 text 里。")
+        append("例如 ${StickerText.token(stickers.first().name)}。保留双层方括号和 sticker: 前缀，名字照列表逐字填写，其他语言的回复也保留贴纸原名。")
+        append("对方明确请你发一次且有合适的贴纸时，直接输出标记，不用说明能力或请对方代发。以本轮列表为准，不沿用历史回复里关于能否发送的判断。")
+        append("一次最多发一张，平时按语境偶尔使用。找不到合适的就用普通文字，不编造图片。[摸摸]这种方括号文字只是动作描述。对方发来的表情包也使用同样的标记。\n")
+        append("本轮可用表情包（名字：图里是什么）：\n")
+        append(StickerText.menu(stickers))
+    }
 
     /**
      * On the phone (ai/Call.kt), at the end of the person's last turn: what the TA writes is read out
@@ -132,7 +138,7 @@ object Prompt {
         if ((instantLetters || ToolGroup.Letters in tools) && !(instantLetters && ToolGroup.Letters in tools)) add("本次未提供即时寄信工具，可以正常聊天；不要声称已经生成新信封或寄出即时信。")
         add(FORMAT_RULE)
         add(CONTEXT_RULE)
-        if (stickers.isNotEmpty()) add(STICKER_RULE + "\n" + StickerText.menu(stickers))
+        if (stickers.isNotEmpty()) add(stickerRule(stickers, hasSendMessage = ToolGroup.Messages in tools))
         else add("本次没有可发送的表情包，请用普通文字表达，不编造或声称发出了表情包图片。[摸摸]这种方括号文字只是动作描述，不会变成图片。")
         if (ToolGroup.Memory in tools) MemoryDigest.forChat(memories, zone)?.let(::add)
         if (ToolGroup.Lore in tools) LoreDigest.forChat(lore)?.let(::add)
@@ -259,6 +265,7 @@ object Prompt {
         val withTools = tools.isNotEmpty() || outside.isNotEmpty()
         val attached = if (images) attachedPictures(history) else emptySet()
         val words: (String) -> String = { text -> StickerText.forHistory(text, stickers, sendStickers) }
+        val assistantWords: (String) -> String = { text -> words(StickerText.normalizeModelTokens(text, stickers)) }
         val reacted = reactions(history)
         // Each call's last row here, and how long the calls whose row is here went on.
         val lastInCall = HashMap<Long, Long>()
@@ -273,7 +280,8 @@ object Prompt {
                 else if(record?.incoming==true && record.endedAt!=null) converted += m.id to ApiMessage("user","（${CallRecords.label(record)}）")
                 continue
             }
-            m.toApi(withTools, images, attached, words, reacted)?.let { converted += m.id to it }
+            m.toApi(withTools, images, attached, if (m.role == "assistant") assistantWords else words, reacted)
+                ?.let { converted += m.id to it }
             val inCall = m.call
             if (inCall != null && inCall != call && lastInCall[inCall] == m.id) {
                 converted += m.id to ApiMessage("user", callEnded(records[inCall]?.talkedMs))
@@ -456,6 +464,11 @@ object Prompt {
 
     /** How the model is told which message the person is answering. */
     private fun quoteLine(q: MessageQuote): String {
+        if (q.fromAlbum) {
+            val words = q.text.replace('\n', ' ')
+            val excerpt = if (words.length <= 1000) words else "${words.take(720)}…${words.takeLast(279)}"
+            return "（回复你之前在共享相册里留下的留言，这张引用卡只有文字：「$excerpt」）"
+        }
         val words = q.text.replace('\n', ' ').take(QUOTE_SHOWN)
         return if (q.role == "assistant") "（回复你说的：「$words」）" else "（接着自己说的：「$words」）"
     }

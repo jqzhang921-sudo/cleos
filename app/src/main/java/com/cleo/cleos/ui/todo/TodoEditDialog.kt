@@ -40,8 +40,9 @@ fun TodoEditDialog(
     todo: TodoEntity,
     onDismiss: () -> Unit,
     onSave: (TodoEntity) -> Unit,
-    onDelete: () -> Unit,
-    onFocus: (TodoEntity) -> Unit,
+    onDelete: (() -> Unit)? = null,
+    onFocus: ((TodoEntity) -> Unit)? = null,
+    onTitleChange: (String) -> Unit = {},
 ) {
     var title by remember { mutableStateOf(todo.title) }
     var note by remember { mutableStateOf(todo.note) }
@@ -50,12 +51,12 @@ fun TodoEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("编辑") },
+        title = { Text(if (todo.id == 0L) "新建待办" else "编辑待办") },
         text = {
             Column {
                 OutlinedTextField(
                     value = title,
-                    onValueChange = { title = it },
+                    onValueChange = { title = it; onTitleChange(it) },
                     label = { Text("要做的事") },
                     modifier = Modifier.fillMaxWidth(),
                 )
@@ -68,7 +69,10 @@ fun TodoEditDialog(
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                TextButton(enabled = title.isNotBlank(), onClick = { onFocus(todo.copy(title = title.trim(), note = note.trim(), dueDay = due?.toEpochDay())) }) { Text("为这件事专注") }
+                if (onFocus != null) TextButton(enabled = title.isNotBlank(),
+                    onClick = { onFocus(todo.copy(title = title.trim(), note = note.trim(), dueDay = due?.toEpochDay())) }) {
+                    Text("为这件事专注")
+                }
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Rounded.Event, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -90,7 +94,7 @@ fun TodoEditDialog(
         },
         dismissButton = {
             Row {
-                TextButton(onClick = onDelete) { Text("删除", color = LocalGlassPalette.current.error) }
+                if (onDelete != null) TextButton(onClick = onDelete) { Text("删除", color = LocalGlassPalette.current.error) }
                 TextButton(onClick = onDismiss) { Text("取消") }
             }
         },

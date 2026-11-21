@@ -1,11 +1,9 @@
 package com.cleo.cleos.ui.world
 
 import com.cleo.cleos.ui.common.TabScrollColumn
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -19,6 +17,8 @@ import com.cleo.cleos.data.WorldBookCatalog
 import com.cleo.cleos.data.db.*
 import com.cleo.cleos.glass.LocalGlassPalette
 import com.cleo.cleos.ui.common.appContainer
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -61,9 +61,7 @@ internal fun WorldWishlist(ta: CompanionEntity?, wishes: List<WorldWishEntity>, 
             }
         }
         item {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("待添加", "以后再说", "已处理").forEachIndexed { i, label -> FilterChip(selected = filter == i, onClick = { filter = i }, label = { Text(label) }) }
-            }
+            SlidingCapsuleTabs(listOf("待添加", "以后再说", "已处理"), filter, systemMotionEnabled()) { filter = it }
             if (working) Text("正在处理…", color = p.contentSecondary, fontSize = 13.sp)
             error?.let { Text(it, color = p.error, fontSize = 13.sp) }
         }

@@ -8,18 +8,19 @@ enum class GlassPart(val label: String) {
     Bubble("聊天气泡"),
     Card("卡片"),
     TopBar("顶栏"),
+    TopBarTitle("标题胶囊"),
     TabBar("Tab 栏"),
     Input("输入框"),
+    ChatJump("回底按钮"),
 
-    /** The piece of glass over the selected tab; what is tuned is how it rests, held follows (GlassPalettes.heldFrom). */
+    /** The selected tab's glass behind its icon and label. */
     Lens("Tab 透镜"),
 }
 
 /**
  * What the glass lab saves for one part: the physical knobs, not colours.
  *
- * The tint *colour* stays with the palette (white on light glass, dark on dark glass,
- * the accent on the user's own bubbles), so a part tuned while the glass was light
+ * The tint *colour* stays with the palette, so a part tuned while the glass was light
  * still looks right after the wallpaper turns the glass dark. Only how strong the tint
  * is travels with the tuning.
  */

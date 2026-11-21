@@ -1,11 +1,10 @@
 package com.cleo.cleos.ui.todo
 
 import com.cleo.cleos.ui.common.tabBarScroll
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ai.CalEvent
 import android.animation.ValueAnimator
 import com.cleo.cleos.ui.records.LocalRecordCalendar
-import com.cleo.cleos.ui.records.RecordViewButton
-import com.cleo.cleos.ui.records.RecordsCalendar
-import com.cleo.cleos.ui.records.RecordViewContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -24,7 +23,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -36,28 +34,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Event
-import androidx.compose.material.icons.rounded.ViewList
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
 import androidx.compose.material3.SnackbarDuration
@@ -69,39 +65,27 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -110,18 +94,16 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.cleo.cleos.AppContainer
 import com.cleo.cleos.data.db.TodoEntity
-import com.cleo.cleos.glass.Backdrop
 import com.cleo.cleos.glass.GlassIconButton
 import com.cleo.cleos.glass.GlassShape
 import com.cleo.cleos.glass.GlassSurface
 import com.cleo.cleos.glass.LocalGlassPalette
-import com.cleo.cleos.glass.liquidGlass
 import com.cleo.cleos.ui.common.Dates
 import com.cleo.cleos.ui.common.GlassPage
+import com.cleo.cleos.ui.common.GlassFloatingPanel
 import com.cleo.cleos.ui.common.GlassTopBar
 import com.cleo.cleos.ui.records.recordTopBarHeight
 import com.cleo.cleos.ui.common.appViewModel
-import com.cleo.cleos.ui.common.fadeUnderTopBar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -129,6 +111,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
 data class TodoState(val pending: List<TodoEntity> = emptyList(), val done: List<TodoEntity> = emptyList(), val loaded: Boolean = false)
@@ -143,14 +127,9 @@ class TodoViewModel(private val c: AppContainer) : ViewModel() {
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TodoState())
 
-    val calendar = c.settings.todoCalendar.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-    fun setCalendar(enabled: Boolean) { c.appScope.launch { c.settings.setTodoCalendar(enabled) } }
-
-    fun add(title: String, dueDay: Long? = null) {
-        val t = title.trim()
-        if (t.isEmpty()) return
+    fun add(todo: TodoEntity) {
         c.appScope.launch {
-            c.db.todos().insert(TodoEntity(title = t, dueDay = dueDay, createdAt = System.currentTimeMillis()))
+            c.db.todos().insert(todo.copy(createdAt = System.currentTimeMillis()))
         }
     }
 
@@ -177,8 +156,22 @@ class TodoViewModel(private val c: AppContainer) : ViewModel() {
 /** A finished row kept on screen for one more beat, so the tick is seen before it folds away. */
 private data class LeavingTodo(val todo: TodoEntity, val index: Int)
 
-/** Sentinel for the saved filter: no day chosen, the whole list. */
-private const val NO_DAY = Long.MIN_VALUE
+private enum class TodoSection { Agenda, All, Undated }
+
+@Composable
+private fun TodoMenuItem(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+    val palette = LocalGlassPalette.current
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(18.dp))
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(20.dp), tint = if (enabled) palette.accentContent else palette.contentSecondary)
+        Text(label, color = if (enabled) palette.content else palette.contentSecondary, fontSize = 15.sp)
+    }
+}
 
 @Composable
 fun TodoTab(bottomInset: Dp, sectionHeader: @Composable () -> Unit = {}) {
@@ -186,378 +179,288 @@ fun TodoTab(bottomInset: Dp, sectionHeader: @Composable () -> Unit = {}) {
     val focusActive by remember { c.focus.active }.collectAsStateWithLifecycle(null)
     val vm = appViewModel { TodoViewModel(it) }
     val state by vm.state.collectAsStateWithLifecycle()
-    val control = LocalRecordCalendar.current
-    val calendar = control.calendar == true
-    val dates = control.dates
+    val dates = LocalRecordCalendar.current.dates
     val palette = LocalGlassPalette.current
-    val density = LocalDensity.current
+    val motion = remember { ValueAnimator.areAnimatorsEnabled() }
+    val pager = rememberPagerState { TodoSection.entries.size }
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
-    val listScroll = rememberScrollState()
-    val calendarScroll = rememberScrollState()
-    val scroll = if (calendar) calendarScroll else listScroll
-    val input = dates.todoDraft
-    var showDone by rememberSaveable { mutableStateOf(false) }
-    var editing by remember { mutableStateOf<TodoEntity?>(null) }
-    var barHeight by remember { mutableIntStateOf(0) }
-    // A checked row stays put while the tick is visible, then collapses out of the list.
-    var leaving by remember { mutableStateOf<List<LeavingTodo>>(emptyList()) }
-    var hiding by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    // Compose already honours the system animation scale; the short hold below is ours to skip.
-    val motion = remember { ValueAnimator.areAnimatorsEnabled() }
-
-    // The date strip: the centred day and, when one is picked, the day the list is filtered to.
-    // "全部" is the default and keeps the page exactly as before.
     val today = Dates.today()
-
-    val filterDay = TodoCalendarModel.addDay(dates.filterEpoch)?.let(LocalDate::ofEpochDay)
-
+    val selected = dates.day ?: today
+    val zone = ZoneId.systemDefault()
+    val month = YearMonth.from(selected)
+    val first = TodoAgenda.week(month.atDay(1)).first()
+    val last = TodoAgenda.week(month.atEndOfMonth()).last()
+    val access = todoCalendarAccess(first, last.plusDays(1), zone)
+    val tasks = remember(state.pending, state.done) { state.pending + state.done }
+    val entries = remember(first, last, zone, tasks, access.events) {
+        generateSequence(first) { day -> day.plusDays(1).takeUnless { it.isAfter(last) } }
+            .associateWith { day -> TodoAgenda.items(day, zone, tasks, access.events) }
+    }
+    val chosenRows = entries[selected].orEmpty()
+    var calendarLevel by key("agendaCalendarLevel") { rememberSaveable { mutableStateOf(AgendaCalendarLevel.Week) } }
+    var detailDay by rememberSaveable { mutableStateOf<Long?>(null) }
+    var eventDetail by remember { mutableStateOf<Pair<CalEvent, LocalDate>?>(null) }
+    var editing by remember { mutableStateOf<TodoEntity?>(null) }
+    var creating by rememberSaveable { mutableStateOf(false) }
+    var newDue by rememberSaveable { mutableStateOf<Long?>(null) }
+    var more by remember { mutableStateOf(false) }
+    var moreAnchor by remember { mutableStateOf<Rect?>(null) }
     val statusTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val topBarHeight = recordTopBarHeight()
-    val imeBottom = with(density) { WindowInsets.ime.getBottom(this).toDp() }
-    val barBottom = if (imeBottom > bottomInset) imeBottom + 8.dp else bottomInset
-    val barTop = barBottom + with(density) { barHeight.toDp() }
-
-    // The one id that just appeared, to fade it in; comparing against the previous emission
-    // rather than the previous composition keeps it stable across unrelated recompositions.
-    val pendingIds = state.pending.map { it.id }
-    val lastPendingIds = remember { arrayOfNulls<List<Long>>(1) }
-    val freshId = remember(pendingIds) {
-        val previous = lastPendingIds[0]
-        val added = if (previous != null && pendingIds.size > previous.size) {
-            pendingIds.toSet() - previous.toSet()
-        } else {
-            emptySet()
-        }
-        lastPendingIds[0] = pendingIds
-        added.singleOrNull()
-    }
-
-    // What the page shows: everything by default, or one day's tasks when a date is picked.
-    val visiblePending = remember(state.pending, dates.filterEpoch) {
-        state.pending.filter { TodoCalendarModel.matches(it, dates.filterEpoch) }
-    }
-    val visibleDone = remember(state.done, dates.filterEpoch) {
-        state.done.filter { TodoCalendarModel.matches(it, dates.filterEpoch) }
-    }
-    // The little "how many" line under each date in the strip.
-    val dayCounts = remember(state.pending) {
-        state.pending.mapNotNull { it.dueDay }.groupingBy { it }.eachCount()
-    }
-
-    // Rows that already left the database but are still on screen, put back where they were.
-    val displayPending = remember(visiblePending, leaving, dates.filterEpoch) {
-        val rows = visiblePending.toMutableList()
-        for (item in leaving.filter { TodoCalendarModel.matches(it.todo, dates.filterEpoch) }) {
-            val at = rows.indexOfFirst { it.id == item.todo.id }
-            if (at >= 0) rows[at] = item.todo else rows.add(item.index.coerceIn(0, rows.size), item.todo)
-        }
-        rows
-    }
-    val leavingIds = remember(leaving) { leaving.mapTo(mutableSetOf()) { it.todo.id } }
-
-    // After adding, bring the new item (the last undated one) into view.
-    var lastCount by remember { mutableIntStateOf(-1) }
-    LaunchedEffect(state.pending.size, state.loaded) {
-        if (!state.loaded) return@LaunchedEffect
-        val grew = lastCount >= 0 && state.pending.size > lastCount
-        lastCount = state.pending.size
-        if (grew) {
-            withFrameNanos { }
-            withFrameNanos { }
-            scroll.animateScrollTo(scroll.maxValue)
-        }
-    }
-
-    // A different day means a different list; start it from the top so the strip stays in view.
-    val viewportKey = "${dates.filterEpoch}"
-    var previousViewportKey by rememberSaveable { mutableStateOf(viewportKey) }
-    LaunchedEffect(viewportKey) {
-        leaving = emptyList()
-        hiding = emptySet()
-        if (previousViewportKey != viewportKey) {
-            listScroll.scrollTo(0)
-            calendarScroll.scrollTo(0)
-            previousViewportKey = viewportKey
-        }
-    }
+    val undatedCount = state.pending.count { it.dueDay == null }
 
     fun deleteWithUndo(todo: TodoEntity) {
         vm.delete(todo)
         scope.launch {
-            // An explicit duration: with an action button the default is "until dismissed".
-            val result = snackbar.showSnackbar(
-                "删掉了「${todo.title}」",
-                actionLabel = "撤销",
-                withDismissAction = false,
-                duration = SnackbarDuration.Short,
-            )
+            val result = snackbar.showSnackbar("删掉了「${todo.title}」", actionLabel = "撤销",
+                duration = SnackbarDuration.Short)
             if (result == SnackbarResult.ActionPerformed) vm.restore(todo)
         }
     }
 
-    fun toggleFromPending(todo: TodoEntity) {
-        if (todo.id in leavingIds || todo.id in hiding) return
-        val index = displayPending.indexOfFirst { it.id == todo.id }
-        if (index < 0) return
-        // Commit immediately, then hold the checked row in place: if the user leaves the
-        // page mid-animation the database is already right.
-        vm.toggle(todo)
-        leaving = leaving + LeavingTodo(todo.copy(done = true), index)
-        scope.launch {
-            delay(if (motion) 200L else 0L)
-            hiding = hiding + todo.id
-            delay(if (motion) 220L else 0L)
-            leaving = leaving.filterNot { it.todo.id == todo.id }
-            hiding = hiding - todo.id
+    fun openAgendaItem(item: AgendaItem, day: LocalDate) {
+        detailDay = null
+        when (item) {
+            is AgendaItem.Event -> eventDetail = item.event to day
+            is AgendaItem.Task -> editing = item.todo
         }
     }
 
-    fun toggleFromDone(todo: TodoEntity) {
-        vm.toggle(todo)
-    }
-
-    GlassPage(
-        overlay = { page ->
-            GlassTopBar(
-                barHeight = topBarHeight,
-                title = "待办",
-                subtitle = when {
-                    !state.loaded -> null
-                    dates.filterEpoch == TodoCalendarModel.UNDATED -> "未安排 · ${visiblePending.size} 件待办"
-                    filterDay != null -> {
-                        val date = Dates.monthDay(filterDay)
-                        when {
-                            visiblePending.isNotEmpty() -> "$date · 还有 ${visiblePending.size} 件"
-                            visibleDone.isNotEmpty() -> "$date · 都做完了"
-                            else -> "$date · 没有待办"
-                        }
-                    }
-                    state.pending.isEmpty() && state.done.isEmpty() -> null
-                    state.pending.isEmpty() -> "都做完了"
-                    else -> "还有 ${state.pending.size} 件"
-                },
+    GlassPage(overlay = { page ->
+        GlassTopBar(
+            barHeight = topBarHeight,
+            title = "待办",
+            subtitle = if (state.loaded && state.pending.isNotEmpty()) "还有 ${state.pending.size} 件" else null,
+            backdrop = page,
+            trailing = {
+                GlassIconButton(Icons.Rounded.Timer, if (focusActive != null) "回到专注" else "专注",
+                    { c.opening.value = com.cleo.cleos.Opening.Focus() }, page)
+                GlassIconButton(Icons.Rounded.Add, "新建待办", {
+                    newDue = selected.toEpochDay().takeIf { pager.currentPage == TodoSection.Agenda.ordinal }
+                    creating = true
+                }, page)
+                GlassIconButton(Icons.Rounded.MoreVert, "日程选项", { more = true }, page,
+                    modifier = Modifier.onGloballyPositioned { moreAnchor = it.boundsInRoot() })
+            },
+        )
+        SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(horizontal = 8.dp)
+            .padding(bottom = bottomInset))
+        moreAnchor?.let { anchor ->
+            GlassFloatingPanel(
+                visible = more,
                 backdrop = page,
-                trailing = {
-                    GlassIconButton(Icons.Rounded.Timer, if (focusActive != null) "回到专注" else "专注",
-                        { c.opening.value = com.cleo.cleos.Opening.Focus() }, page)
-                    RecordViewButton(page)
-                },
-            )
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = barBottom)
-                    .onSizeChanged { barHeight = it.height },
+                title = "日程选项",
+                onDismiss = { more = false },
+                modifier = Modifier.matchParentSize(),
+                anchor = anchor,
+                alignToEnd = true,
             ) {
-                SnackbarHost(snackbar, Modifier.padding(horizontal = 8.dp))
-                AddBar(
-                    backdrop = page,
-                    text = input,
-                    placeholder = if (dates.filterEpoch == TodoCalendarModel.UNDATED) "添加未安排的事…" else if (filterDay != null) "添加到 ${Dates.monthDay(filterDay)}…" else "添加一件事…",
-                    onTextChange = { dates.todoDraft = it },
-                    onAdd = {
-                        // A new task written while a day is picked belongs to that day.
-                        vm.add(input, TodoCalendarModel.addDay(dates.filterEpoch))
-                        dates.todoDraft = ""
-                    },
-                )
-            }
-        },
-    ) {
-        Column(Modifier.fillMaxSize().padding(top = statusTop + topBarHeight + 10.dp)) {
-            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                sectionHeader()
-                TodoScopeChips(
-                    filter = dates.filterEpoch,
-                    undatedCount = state.pending.count { it.dueDay == null },
-                    onAll = { dates.filterEpoch = NO_DAY },
-                    onUndated = { dates.filterEpoch = TodoCalendarModel.UNDATED },
-                )
-                Spacer(Modifier.height(0.dp))
-            }
-            RecordViewContent(calendar, Modifier.weight(1f)) { calendar ->
-                val contentScroll = if (calendar) calendarScroll else listScroll
-                if (!calendar && state.loaded && state.pending.isEmpty() && state.done.isEmpty()) {
-                    GlassSurface(
-                        modifier = Modifier.align(Alignment.Center),
-                        style = palette.notice,
-                        shape = GlassShape.Rounded(22.dp),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp),
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("还没有待办", color = palette.content, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                            Spacer(Modifier.size(6.dp))
-                            Text("在下面写一件要做的事", color = palette.contentSecondary, fontSize = 14.sp)
-                        }
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    TodoMenuItem(Icons.Rounded.Refresh, if (access.canRead) "刷新手机日历" else "显示手机日历", more) {
+                        more = false
+                        access.connect()
+                    }
+                    TodoMenuItem(Icons.Rounded.UploadFile, if (access.busy) "正在读取课表…" else "导入课表（.ics）", more && !access.busy) {
+                        more = false
+                        scope.launch { pager.scrollToPage(TodoSection.Agenda.ordinal) }
+                        access.pickCourseFile()
                     }
                 }
-
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .fadeUnderTopBar(0.dp, bottom = barTop)
-                        .tabBarScroll(contentScroll)
-                        .verticalScroll(contentScroll)
-                        .padding(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 0.dp,
-                            bottom = barTop + 20.dp,
-                        ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    if (calendar) {
-                        RecordsCalendar(tasks = state.pending + state.done, onEdit = { editing = it })
-                    }
-                    if (calendar || dates.filterEpoch == TodoCalendarModel.UNDATED) {
-                        Text(
-                            when {
-                                filterDay != null -> "${Dates.monthDay(filterDay)}的待办"
-                                dates.filterEpoch == TodoCalendarModel.UNDATED -> "未安排的待办"
-                                else -> "全部待办"
-                            },
-                            color = palette.content, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                    // The strip filters the page; "全部" keeps everything on one list.
-                    if (!calendar && dates.filterEpoch != TodoCalendarModel.UNDATED && (state.pending.isNotEmpty() || state.done.isNotEmpty())) {
-                        DateStrip(
-                            today = today,
-                            focused = LocalDate.ofEpochDay(dates.focusEpoch),
-                            selected = filterDay,
-                            counts = dayCounts,
-                            onFocus = { day -> dates.focusEpoch = day.toEpochDay() },
-                            onPick = { day ->
-                                dates.filterEpoch = day.toEpochDay()
-                                dates.focusEpoch = day.toEpochDay()
-                            },
-                            onAll = { dates.filterEpoch = NO_DAY },
-                        )
-                    }
-
-                    // Keep the rail above optional progress so empty dates never move the selection control.
-                    val total = visiblePending.size + visibleDone.size
-                    if (total > 0) {
-                        ProgressCard(done = visibleDone.size, total = total)
-                    }
-
-                    if ((calendar || dates.filterEpoch != NO_DAY) && total == 0) {
-                        GlassSurface(
-                            modifier = Modifier.fillMaxWidth(),
-                            style = palette.notice,
-                            shape = GlassShape.Rounded(20.dp),
-                            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 16.dp),
-                        ) {
-                            Column {
-                                Text(if (dates.filterEpoch == TodoCalendarModel.UNDATED) "没有未安排的待办" else if (filterDay != null) "这天没有待办" else "还没有待办", color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                                Spacer(Modifier.height(4.dp))
-                                Text(if (filterDay != null) "在下面添加一件，会记到这一天" else "在下面添加一件要做的事", color = palette.contentSecondary, fontSize = 13.sp)
+            }
+        }
+    }) {
+        Column(Modifier.fillMaxSize().padding(top = statusTop + topBarHeight + 8.dp)) {
+            Box(Modifier.padding(horizontal = 16.dp)) { sectionHeader() }
+            SlidingCapsuleTabs(listOf("日程", "全部", "未安排 · $undatedCount"), pager, motion)
+            access.notice?.let { notice ->
+                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(notice, Modifier.weight(1f), color = palette.contentSecondary, fontSize = 12.sp)
+                    TextButton(onClick = access.clearNotice) { Text("关闭", fontSize = 12.sp) }
+                }
+            }
+            HorizontalPager(state = pager, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
+                val scroll = rememberScrollState()
+                val visibleScroll = if (pager.settledPage == page) Modifier.tabBarScroll(scroll) else Modifier
+                Column(Modifier.fillMaxSize().then(visibleScroll).verticalScroll(scroll)
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomInset + 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    when (TodoSection.entries[page]) {
+                        TodoSection.Agenda -> {
+                            AgendaCalendar(
+                                focused = selected, today = today, level = calendarLevel, entries = entries,
+                                motion = motion, onLevelChange = { calendarLevel = it },
+                                onStep = { direction ->
+                                    val next = if (calendarLevel == AgendaCalendarLevel.Week) selected.plusWeeks(direction.toLong())
+                                    else selected.plusMonths(direction.toLong())
+                                    if (next.year in 1..9999) dates.pick(next)
+                                },
+                                onPick = dates::pick,
+                                onOverflow = { day -> dates.pick(day); detailDay = day.toEpochDay() },
+                            )
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(if (selected == today) "今天的安排" else "${Dates.monthDay(selected)}的安排",
+                                    Modifier.weight(1f), color = palette.content, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                                if (chosenRows.isNotEmpty()) Text("${chosenRows.size} 项", color = palette.contentSecondary, fontSize = 12.sp)
                             }
+                            chosenRows.forEach { item -> AgendaRow(item, selected, zone, vm::toggle) { openAgendaItem(item, selected) } }
+                            if (state.loaded && chosenRows.isEmpty()) TodoEmpty("这天没有安排")
+                            if (!access.canRead) TextButton(onClick = access.connect) { Text("显示手机日历") }
                         }
-                    }
-
-                    if (displayPending.isNotEmpty()) {
-                        GlassSurface(
-                            modifier = Modifier.fillMaxWidth(),
-                            style = palette.card,
-                            shape = GlassShape.Rounded(24.dp),
-                        ) {
-                            Column {
-                                displayPending.forEachIndexed { index, todo ->
-                                    key(todo.id) {
-                                        AnimatedVisibility(
-                                            visible = todo.id !in hiding,
-                                            exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) +
-                                                fadeOut(tween(140)),
-                                        ) {
-                                            Column {
-                                                TodoRow(
-                                                    todo = todo,
-                                                    onToggle = {
-                                                        when {
-                                                            todo.id in leavingIds -> Unit
-                                                            todo.done -> toggleFromDone(todo)
-                                                            else -> toggleFromPending(todo)
-                                                        }
-                                                    },
-                                                    onClick = { editing = todo },
-                                                    onLongClick = { deleteWithUndo(todo) },
-                                                    enter = todo.id == freshId,
-                                                )
-                                                if (index < displayPending.lastIndex) TodoDivider()
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (visibleDone.isNotEmpty()) {
-                        // A just-checked row is still folding out of the pending list; don't show its
-                        // finished copy here at the same time.
-                        val shownDone = visibleDone.filterNot { it.id in leavingIds }
-                        Column {
-                            DoneHeader(visibleDone.size, showDone) { showDone = !showDone }
-                            AnimatedVisibility(
-                                visible = showDone,
-                                enter = expandVertically(tween(240, easing = FastOutSlowInEasing)) + fadeIn(tween(200)),
-                                exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) + fadeOut(tween(140)),
-                            ) {
-                                Column {
-                                    Spacer(Modifier.height(10.dp))
-                                    GlassSurface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        style = palette.card,
-                                        shape = GlassShape.Rounded(20.dp),
-                                    ) {
-                                        Column {
-                                            shownDone.forEachIndexed { index, todo ->
-                                                key(todo.id) {
-                                                    TodoRow(
-                                                        todo = todo,
-                                                        onToggle = { toggleFromDone(todo) },
-                                                        onClick = { editing = todo },
-                                                        onLongClick = { deleteWithUndo(todo) },
-                                                        enter = false,
-                                                    )
-                                                    if (index < shownDone.lastIndex) TodoDivider()
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        TodoSection.All, TodoSection.Undated -> {
+                            val undated = page == TodoSection.Undated.ordinal
+                            TodoTaskList(
+                                state.pending.filter { !undated || it.dueDay == null },
+                                state.done.filter { !undated || it.dueDay == null },
+                                state.loaded, undated, motion, vm::toggle,
+                                onEdit = { editing = it }, onDelete = ::deleteWithUndo,
+                            )
                         }
                     }
                 }
             }
-
         }
     }
 
+    detailDay?.let { epoch ->
+        val day = LocalDate.ofEpochDay(epoch)
+        AgendaDaySheet(day, entries[day].orEmpty(), zone, onDismiss = { detailDay = null }, onToggle = vm::toggle) {
+            openAgendaItem(it, day)
+        }
+    }
+    eventDetail?.let { (event, day) ->
+        AlertDialog(onDismissRequest = { eventDetail = null },
+            title = { Text(event.title.ifBlank { "未命名日程" }) },
+            text = {
+                Column(Modifier.heightIn(max = 340.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("${Dates.full(day)} · ${TodoAgenda.time(event, day, zone)}")
+                    if (event.location.isNotBlank()) Text(event.location)
+                    if (event.notes.isNotBlank()) Text(event.notes)
+                    if (event.calendar.isNotBlank()) Text(event.calendar, color = palette.contentSecondary, fontSize = 12.sp)
+                }
+            },
+            confirmButton = { TextButton(onClick = { eventDetail = null }) { Text("完成") } })
+    }
+    if (creating) {
+        TodoEditDialog(
+            todo = TodoEntity(title = dates.todoDraft, dueDay = newDue, createdAt = 0L),
+            onTitleChange = { dates.todoDraft = it },
+            onDismiss = { creating = false },
+            onSave = {
+                vm.add(it)
+                dates.todoDraft = ""
+                creating = false
+            },
+        )
+    }
     editing?.let { todo ->
         TodoEditDialog(
             todo = todo,
-            onFocus = { draft -> editing = null; c.appScope.launch { c.db.todos().upsert(draft); c.opening.value = com.cleo.cleos.Opening.Focus(todo.id) } },
+            onFocus = { draft ->
+                editing = null
+                c.appScope.launch {
+                    c.db.todos().upsert(draft)
+                    c.opening.value = com.cleo.cleos.Opening.Focus(todo.id)
+                }
+            },
             onDismiss = { editing = null },
-            onSave = {
-                vm.save(it)
-                editing = null
-            },
-            onDelete = {
-                editing = null
-                deleteWithUndo(todo)
-            },
+            onSave = { vm.save(it); editing = null },
+            onDelete = { editing = null; deleteWithUndo(todo) },
         )
     }
 }
 
-/**
- * How much of the list is finished. Sits a step below the task glass: it carries a few
- * words and a line, so it uses the bar family rather than the card family.
- */
+@Composable
+private fun TodoEmpty(label: String) {
+    val palette = LocalGlassPalette.current
+    GlassSurface(Modifier.fillMaxWidth(), style = palette.notice, shape = GlassShape.Rounded(18.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+        Text(label, color = palette.contentSecondary, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun TodoTaskList(
+    pending: List<TodoEntity>,
+    done: List<TodoEntity>,
+    loaded: Boolean,
+    undated: Boolean,
+    motion: Boolean,
+    onToggle: (TodoEntity) -> Unit,
+    onEdit: (TodoEntity) -> Unit,
+    onDelete: (TodoEntity) -> Unit,
+) {
+    val palette = LocalGlassPalette.current
+    val scope = rememberCoroutineScope()
+    var showDone by rememberSaveable { mutableStateOf(false) }
+    var leaving by remember { mutableStateOf<List<LeavingTodo>>(emptyList()) }
+    var hiding by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    val displayPending = pending.toMutableList().apply {
+        for (item in leaving) {
+            val index = indexOfFirst { it.id == item.todo.id }
+            if (index >= 0) this[index] = item.todo else add(item.index.coerceIn(0, size), item.todo)
+        }
+    }
+    val leavingIds = leaving.mapTo(mutableSetOf()) { it.todo.id }
+    val visibleDone = done.filterNot { it.id in leavingIds }
+    if (loaded && pending.isEmpty() && done.isEmpty()) {
+        TodoEmpty(if (undated) "没有未安排的待办" else "还没有待办")
+    }
+    if (pending.isNotEmpty() || done.isNotEmpty()) ProgressCard(done.size, pending.size + done.size)
+    if (displayPending.isNotEmpty()) {
+        GlassSurface(Modifier.fillMaxWidth(), style = palette.card, shape = GlassShape.Rounded(20.dp)) {
+            Column {
+                displayPending.forEachIndexed { index, todo ->
+                    key(todo.id) {
+                        AnimatedVisibility(visible = todo.id !in hiding,
+                            exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) + fadeOut(tween(140))) {
+                            Column {
+                                TodoRow(todo,
+                                    onToggle = {
+                                        if (todo.id !in leavingIds && todo.id !in hiding) {
+                                            onToggle(todo)
+                                            leaving = leaving + LeavingTodo(todo.copy(done = true), index)
+                                            scope.launch {
+                                                delay(if (motion) 200L else 0L)
+                                                hiding = hiding + todo.id
+                                                delay(if (motion) 220L else 0L)
+                                                leaving = leaving.filterNot { it.todo.id == todo.id }
+                                                hiding = hiding - todo.id
+                                            }
+                                        }
+                                    },
+                                    onClick = { onEdit(todo) }, onLongClick = { onDelete(todo) }, enter = false)
+                                if (index < displayPending.lastIndex) TodoDivider()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (done.isNotEmpty()) {
+        Column {
+            DoneHeader(done.size, showDone) { showDone = !showDone }
+            AnimatedVisibility(showDone,
+                enter = expandVertically(tween(240, easing = FastOutSlowInEasing)) + fadeIn(tween(200)),
+                exit = shrinkVertically(tween(200, easing = FastOutSlowInEasing)) + fadeOut(tween(140))) {
+                GlassSurface(Modifier.fillMaxWidth().padding(top = 8.dp), style = palette.card,
+                    shape = GlassShape.Rounded(20.dp)) {
+                    Column {
+                        visibleDone.forEachIndexed { index, todo ->
+                            key(todo.id) {
+                                TodoRow(todo, { onToggle(todo) }, { onEdit(todo) }, { onDelete(todo) }, enter = false)
+                                if (index < visibleDone.lastIndex) TodoDivider()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun ProgressCard(done: Int, total: Int) {
     val palette = LocalGlassPalette.current
@@ -569,7 +472,7 @@ private fun ProgressCard(done: Int, total: Int) {
     )
     GlassSurface(
         modifier = Modifier.fillMaxWidth(),
-        style = palette.bar,
+        style = palette.card,
         shape = GlassShape.Rounded(20.dp),
         contentPadding = PaddingValues(horizontal = 18.dp, vertical = 14.dp),
     ) {
@@ -617,231 +520,6 @@ private fun ProgressLine(progress: Float) {
 /** How far either side of today the strip can travel. */
 private const val DAYS_AROUND = 365
 private val DayTileWidth = 50.dp
-
-/**
- * A swipeable day strip: [全部] on the left, then a rail of dates that dissolves into the glass
- * at both ends. Whatever day comes to rest in the middle becomes the day the page is filtered
- * to, so a swipe and a tap mean the same thing. It filters rather than pages, so tasks without
- * a date still live on the "全部" list.
- */
-@Composable
-private fun DateStrip(
-    today: LocalDate,
-    focused: LocalDate,
-    selected: LocalDate?,
-    counts: Map<Long, Int>,
-    onFocus: (LocalDate) -> Unit,
-    onPick: (LocalDate) -> Unit,
-    onAll: () -> Unit,
-) {
-    val palette = LocalGlassPalette.current
-    val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
-    val pick by rememberUpdatedState(onPick)
-    val focus by rememberUpdatedState(onFocus)
-    val all by rememberUpdatedState(onAll)
-    var baseEpoch by rememberSaveable { mutableLongStateOf(today.toEpochDay() - DAYS_AROUND) }
-    fun dayAt(page: Int): LocalDate = LocalDate.ofEpochDay(baseEpoch + page)
-    fun pageOf(day: LocalDate): Int = (day.toEpochDay() - baseEpoch).coerceIn(0, (DAYS_AROUND * 2).toLong()).toInt()
-    val pager = rememberPagerState(initialPage = pageOf(focused)) { DAYS_AROUND * 2 + 1 }
-    val selection = remember { DateRailSelection(selected?.toEpochDay()) }
-    var synchronizing by remember { mutableStateOf(false) }
-    val centerDay = dayAt(pager.currentPage)
-    fun deliver(day: LocalDate) {
-        focus(day)
-        pick(day)
-        haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-    }
-
-    // External calendar/diary changes align the rail silently, including dates outside its old range.
-    LaunchedEffect(pager, selected, focused) {
-        selection.external(selected?.toEpochDay())
-        val requested = selected ?: focused
-        synchronizing = true
-        try {
-            if (requested.toEpochDay() !in baseEpoch..(baseEpoch + DAYS_AROUND * 2)) {
-                baseEpoch = requested.toEpochDay() - DAYS_AROUND
-            }
-            val target = pageOf(requested)
-            if (pager.currentPage != target) pager.scrollToPage(target)
-        } finally { synchronizing = false }
-    }
-    LaunchedEffect(pager) {
-        // currentPage is the snapped centre at rest; settledPage may update in a later snapshot.
-        snapshotFlow { Triple(pager.currentPage, pager.isScrollInProgress, synchronizing) }
-            .collect { (page, scrolling, aligning) ->
-                selection.frame(baseEpoch + page, scrolling, aligning)?.let { deliver(LocalDate.ofEpochDay(it)) }
-            }
-    }
-
-    GlassSurface(
-        modifier = Modifier.fillMaxWidth(),
-        style = palette.bar,
-        shape = GlassShape.Rounded(20.dp),
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 5.dp),
-    ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
-                    Text("${centerDay.year}年${Dates.monthDay(centerDay)} ${Dates.weekday(centerDay)}", color = palette.content,
-                        fontSize = 13.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Text(when {
-                        pager.isScrollInProgress -> "滑动中 · 停下选中"
-                        selected == null -> "全部待办 · 中间为日期预览"
-                        else -> "已选日期"
-                    }, color = palette.contentSecondary, fontSize = 10.sp, lineHeight = 14.sp)
-                }
-                Text("今天", color = palette.accentContent, fontSize = 12.sp, fontWeight = FontWeight.Medium,
-                    modifier = Modifier.clip(RoundedCornerShape(12.dp))
-                        .clickable(onClickLabel = "回到今天") {
-                            scope.launch {
-                                // Also recenters a rail rebased around a distant diary/calendar date.
-                                synchronizing = true
-                                try {
-                                    if (today.toEpochDay() !in baseEpoch..(baseEpoch + DAYS_AROUND * 2)) {
-                                        baseEpoch = today.toEpochDay() - DAYS_AROUND
-                                    }
-                                    pager.scrollToPage(pageOf(today))
-                                    if (selection.choose(today.toEpochDay())) deliver(today)
-                                } finally { synchronizing = false }
-                            }
-                        }.padding(horizontal = 10.dp, vertical = 10.dp))
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                AllDaysChip(selected == null) { selection.external(null); all() }
-                BoxWithConstraints(Modifier.weight(1f).height(46.dp)) {
-                    val side = ((maxWidth - DayTileWidth) / 2).coerceAtLeast(0.dp)
-                    // A stationary window makes the centre explicit even while the dates are moving.
-                    Box(Modifier.align(Alignment.Center).size(DayTileWidth, 46.dp)
-                        .border(1.5.dp, palette.accent.copy(alpha = .55f), RoundedCornerShape(13.dp)))
-                    HorizontalPager(
-                        state = pager,
-                        modifier = Modifier.fillMaxSize().edgeFade(64.dp),
-                        contentPadding = PaddingValues(horizontal = side),
-                        pageSize = PageSize.Fixed(DayTileWidth),
-                        pageSpacing = 4.dp,
-                        beyondViewportPageCount = 2,
-                    ) { page ->
-                        val day = dayAt(page)
-                        DayTile(
-                            day = day,
-                            today = today,
-                            selected = selected != null && !pager.isScrollInProgress && day == selected,
-                            centered = day == centerDay,
-                            count = counts[day.toEpochDay()] ?: 0,
-                        ) {
-                            scope.launch {
-                                pager.animateScrollToPage(page, animationSpec = tween(240, easing = FastOutSlowInEasing))
-                                val chosen = dayAt(pager.currentPage)
-                                if (selection.choose(chosen.toEpochDay())) deliver(chosen)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** Both ends of the rail dissolve into the glass instead of being cut off. */
-private fun Modifier.edgeFade(width: Dp): Modifier = this
-    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-    .drawWithContent {
-        drawContent()
-        val edge = width.toPx().coerceAtMost(size.width / 2f)
-        if (edge <= 0f) return@drawWithContent
-        drawRect(
-            brush = Brush.horizontalGradient(
-                0f to Color.Transparent,
-                edge / size.width to Color.Black,
-                1f - edge / size.width to Color.Black,
-                1f to Color.Transparent,
-            ),
-            blendMode = BlendMode.DstIn,
-        )
-    }
-
-@Composable
-private fun AllDaysChip(on: Boolean, onClick: () -> Unit) {
-    val palette = LocalGlassPalette.current
-    val fill by animateColorAsState(
-        targetValue = if (on) palette.accent else Color.Transparent,
-        animationSpec = tween(180, easing = FastOutSlowInEasing),
-        label = "allDaysChip",
-    )
-    Box(
-        modifier = Modifier
-            .height(46.dp)
-            .clip(RoundedCornerShape(13.dp))
-            .background(fill)
-            .clickable(interactionSource = null, indication = null, onClick = onClick)
-            .padding(horizontal = 9.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            "全部",
-            color = if (on) Color.White else palette.content,
-            fontSize = 12.sp,
-            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-        )
-    }
-}
-
-@Composable
-private fun DayTile(day: LocalDate, today: LocalDate, selected: Boolean, centered: Boolean, count: Int, onClick: () -> Unit) {
-    val palette = LocalGlassPalette.current
-    val fill by animateColorAsState(
-        targetValue = if (selected) palette.accent else Color.Transparent,
-        animationSpec = tween(180, easing = FastOutSlowInEasing),
-        label = "dayTile",
-    )
-    Box(
-        modifier = Modifier
-            .size(width = DayTileWidth, height = 46.dp)
-            .clip(RoundedCornerShape(13.dp))
-            .background(fill)
-            .clickable(
-                interactionSource = null,
-                indication = null,
-                onClickLabel = "查看 ${Dates.monthDay(day)} 的待办",
-                onClick = onClick,
-            ),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                if (day == today) "今天" else "${day.monthValue}月",
-                color = when {
-                    selected -> Color.White.copy(alpha = 0.92f)
-                    centered -> palette.accentContent
-                    day == today -> palette.accentContent
-                    else -> palette.contentSecondary
-                },
-                fontSize = 10.sp,
-                lineHeight = 12.sp,
-                fontWeight = if (day == today) FontWeight.SemiBold else FontWeight.Normal,
-            )
-            Text(
-                "${day.dayOfMonth}",
-                color = if (selected) Color.White else if (centered) palette.accentContent else palette.content,
-                fontSize = 16.sp,
-                lineHeight = 18.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Box(Modifier.height(11.dp), contentAlignment = Alignment.Center) {
-                if (count > 0) {
-                    Text(
-                        "· $count",
-                        color = if (selected) Color.White.copy(alpha = 0.8f) else palette.contentSecondary,
-                        fontSize = 9.sp,
-                        lineHeight = 11.sp,
-                    )
-                }
-            }
-        }
-    }
-}
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -992,7 +670,7 @@ private fun DoneHeader(count: Int, expanded: Boolean, onToggle: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clickable(interactionSource = null, indication = null, onClick = onToggle),
-        style = palette.bar,
+        style = palette.topBar,
         shape = GlassShape.Rounded(16.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 12.dp, top = 11.dp, bottom = 11.dp),
     ) {
@@ -1008,43 +686,5 @@ private fun DoneHeader(count: Int, expanded: Boolean, onToggle: () -> Unit) {
                 modifier = Modifier.size(20.dp).rotate(rotation),
             )
         }
-    }
-}
-
-@Composable
-private fun AddBar(backdrop: Backdrop, text: String, placeholder: String, onTextChange: (String) -> Unit, onAdd: () -> Unit) {
-    val palette = LocalGlassPalette.current
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(
-            Modifier
-                .weight(1f)
-                .heightIn(min = 50.dp)
-                .liquidGlass(backdrop, palette.input, GlassShape.Capsule)
-                .padding(horizontal = 18.dp),
-            contentAlignment = Alignment.CenterStart,
-        ) {
-            if (text.isEmpty()) Text(placeholder, color = palette.contentSecondary, fontSize = 16.sp)
-            BasicTextField(
-                value = text,
-                onValueChange = onTextChange,
-                singleLine = true,
-                textStyle = TextStyle(color = palette.content, fontSize = 16.sp),
-                cursorBrush = SolidColor(palette.accentContent),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { if (text.isNotBlank()) onAdd() }),
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "添加待办" },
-            )
-        }
-        Spacer(Modifier.width(8.dp))
-        GlassIconButton(
-            Icons.Rounded.Add,
-            "添加",
-            onAdd,
-            backdrop,
-            style = palette.accentSurface,
-            tint = Color.White,
-            enabled = text.isNotBlank(),
-            size = 50.dp,
-        )
     }
 }

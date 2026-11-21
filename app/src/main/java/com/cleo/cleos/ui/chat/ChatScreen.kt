@@ -1,7 +1,6 @@
 package com.cleo.cleos.ui.chat
 
 import com.cleo.cleos.data.FavoriteContent
-import androidx.compose.material3.Checkbox
 import android.Manifest
 import android.os.SystemClock
 import android.content.ClipData
@@ -67,7 +66,6 @@ import androidx.compose.material.icons.rounded.MailOutline
 import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Call
-import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
@@ -77,14 +75,12 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.PersonAdd
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.AlertDialog
 import com.cleo.cleos.data.MessageEdits
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -113,12 +109,15 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
@@ -208,9 +207,8 @@ private data class Faces(val me: Face, val ai: Face)
 private val LocalFaces = compositionLocalOf<Faces?> { null }
 
 /** The chat's text: its size from settings, and the line height that goes with it. */
-private val LocalChatType = compositionLocalOf { ChatType(ChatType.DEFAULT) }
-private val AvatarSize = 34.dp
-private val AvatarGap = 8.dp
+internal val AvatarSize = 34.dp
+internal val AvatarGap = 8.dp
 
 /** What a row gives up on the avatar's side, so lines without one still line up. */
 private val AvatarSlot = AvatarSize + AvatarGap
@@ -287,6 +285,8 @@ fun ChatTab(
     }
     val words = barSong?.words ?: fetched
     var switching by remember { mutableStateOf(false) }
+    var switcherAnchor by remember { mutableStateOf<Rect?>(null) }
+    LaunchedEffect(pageShown) { if (!pageShown) switching = false }
     var readingRecap by remember { mutableStateOf(false) }
     val context = LocalContext.current
     // Voice messages: the recording under way, what the indicator shows, and the one playing.
@@ -301,6 +301,8 @@ fun ChatTab(
     var savingFavorite by remember { mutableStateOf(false) }
     var deletingSelected by remember { mutableStateOf<Set<Long>?>(null) }
     var deletingMessages by remember { mutableStateOf(false) }
+    val messageVersions = remember(state.versions) { state.versions.associateBy { it.displayId } }
+    var versionPicker by remember(state.conversationId) { mutableStateOf<Long?>(null) }
     BackHandler(enabled = selecting && pageShown) { selecting = false; selected = emptySet() }
     fun toggleFavorite(id: Long) { selected = if (id in selected) selected - id else selected + id }
     fun saveFavorite(ids: Set<Long>) {
@@ -528,7 +530,9 @@ fun ChatTab(
     }
     var diaryRequestId by rememberSaveable(state.conversationId) { mutableStateOf<Long?>(null) }
     val secretDraft by c.chat.secretDraft.collectAsStateWithLifecycle()
+    val albumReplyDraft by c.chat.albumReplyDraft.collectAsStateWithLifecycle()
     val feedDraft by c.chat.feedDraft.collectAsStateWithLifecycle()
+    var openAlbumQuote by remember(state.conversationId) { mutableStateOf<MessageQuote?>(null) }
     var inputHeight by remember { mutableIntStateOf(0) }
     var pickingAttachment by remember { mutableStateOf(false) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_ATTACHMENTS)) {
@@ -649,6 +653,25 @@ fun ChatTab(
         c.chat.secretDraft.compareAndSet(draft, null)
         inputFocus.requestFocus()
     }
+    LaunchedEffect(albumReplyDraft, state.conversationId, pageShown, editSaving, recording) {
+        val draft = albumReplyDraft ?: return@LaunchedEffect
+        if (!pageShown || editSaving || recording || state.conversationId != draft.conversationId) return@LaunchedEffect
+        if (!vm.acceptAlbumQuote(draft)) return@LaunchedEffect
+        if (editingMessage != null) cancelEditing()
+        diaryRequestId = null
+        selecting = false
+        selected = emptySet()
+        drawerOpen = false
+        extrasOpen = false
+        scope.launch {
+            withFrameNanos { }
+            if (vm.quoting == draft.quote) {
+                inputFocus.requestFocus()
+                keyboard?.show()
+                listState.animateScrollToItem(0)
+            }
+        }
+    }
     // A feed share is editable input, not a sent message or a request to reveal a diary.
     LaunchedEffect(feedDraft, state.conversationId, pageShown, editSaving) {
         val draft = feedDraft ?: return@LaunchedEffect
@@ -675,8 +698,15 @@ fun ChatTab(
     }
 
     fun quoteLabel(q: MessageQuote): String {
+        if (q.fromAlbum) return q.text
         val who = if (q.role == "user") state.userName.ifBlank { "我" } else state.aiName.ifBlank { "TA" }
         return "$who：${q.text}"
+    }
+    val albumQuoteTitle = "${state.aiName.ifBlank { "TA" }}的相册留言"
+    val inputQuote = when {
+        editingMessage != null -> MessageQuotes.decode(editingMessage?.quote)
+        diaryRequestId != null -> null
+        else -> vm.quoting
     }
 
     /** Where message [id] is drawn: its own row, or the card of the call it was said in. */
@@ -733,29 +763,12 @@ fun ChatTab(
                     if (!selecting) GlassIconButton(Icons.Rounded.Call, "打电话", { startCall() }, page)
                     if (!selecting) GlassIconButton(Icons.Rounded.DynamicFeed, "动态", onOpenFeed, page)
                 },
-                onTitleClick = { if (!selecting) switching = true },
-                titleMenu = {
-                    DropdownMenu(expanded = switching, onDismissRequest = { switching = false }) {
-                        companions.forEach { ta ->
-                            val here = ta.id == state.companionId
-                            DropdownMenuItem(
-                                text = { Text(ta.name.ifBlank { "TA" }, fontWeight = if (here) FontWeight.SemiBold else FontWeight.Normal) },
-                                leadingIcon = { Avatar(ta.avatar, ta.avatarEmoji ?: avatarLetter(ta.name, "TA"), 28.dp) },
-                                trailingIcon = if (here) ({ Icon(Icons.Rounded.Check, contentDescription = "正在聊") }) else null,
-                                onClick = {
-                                    switching = false
-                                    if (!here) vm.switchTo(ta.id)
-                                },
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("添加一个 TA") },
-                            leadingIcon = { Icon(Icons.Rounded.PersonAdd, contentDescription = null) },
-                            onClick = {
-                                switching = false
-                                vm.addCompanion(onOpenSettings)
-                            },
-                        )
+                titleModifier = Modifier.onGloballyPositioned { switcherAnchor = it.boundsInRoot() },
+                onTitleClick = {
+                    if (!selecting) {
+                        focusManager.clearFocus()
+                        keyboard?.hide()
+                        switching = true
                     }
                 },
             )
@@ -804,6 +817,8 @@ fun ChatTab(
                     MessageImages.decode(m.images).filterNot { it.file in cardFiles }
                 } ?: vm.attachments,
                 attaching = editingMessage == null && vm.attaching,
+                attachmentProblem = vm.attachmentProblem.takeIf { editingMessage == null },
+                onDismissAttachmentProblem = vm::dismissAttachmentProblem,
                 onPick = { pickingAttachment = true; vm.typing(true, processingMedia = true); picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 extrasOpen = extrasOpen,
                 onExtras = { extrasOpen = !extrasOpen; drawerOpen = false; keyboard?.hide() },
@@ -812,8 +827,8 @@ fun ChatTab(
                     com.cleo.cleos.ai.InstantLetterRules.mode(it.instantLetterMode) != com.cleo.cleos.ai.InstantLetterRules.OFF } == true,
                 onRequestLetter = { extrasOpen = false; if (vm.requestLetter()) sentCount++ },
                 onRemove = vm::detach,
-                quote = if (editingMessage != null) MessageQuotes.decode(editingMessage?.quote)?.let { quoteLabel(it) }
-                    else if (diaryRequestId != null) "询问 TA 的这篇小秘密" else vm.quoting?.let { quoteLabel(it) },
+                quote = if (editingMessage == null && diaryRequestId != null) "询问 TA 的这篇小秘密" else inputQuote?.let { quoteLabel(it) },
+                quoteTitle = albumQuoteTitle.takeIf { inputQuote?.fromAlbum == true },
                 onDropQuote = { diaryRequestId = null; vm.unquote() },
                 share = if (editingMessage != null) FeedShares.decode(editingMessage?.feedShare) else pendingShare,
                 onRemoveShare = if (editingMessage == null) ({
@@ -825,8 +840,8 @@ fun ChatTab(
                 focus = inputFocus,
                 busy = state.replying || editSaving,
                 editing = editingMessage != null,
-                editHint = editProblem ?: if (editSaving) "正在修改…" else "正在编辑 · 发送后从这里重新回答",
-                onCancelEdit = { if (!editSaving) cancelEditing() },
+                editHint = editProblem ?: if (editSaving) "正在生成编辑版…" else "正在编辑 · 发送后从这里重新回答",
+                onCancelEdit = { if (editSaving) vm.stop() else cancelEditing() },
                 sendEnabled = !editSaving && (editingMessage?.let {
                     val shared = FeedShares.decode(it.feedShare)
                     (input.isNotBlank() || shared != null) && input.trim() != (shared?.caption ?: it.content) && !state.replying && state.hasApiKey
@@ -879,7 +894,8 @@ fun ChatTab(
                 GlassIconButton(Icons.Rounded.ArrowDownward, "回到最新消息", {
                     scope.launch { listState.scrollToItem(0) }
                 }, page, modifier = Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = inputBottom + with(density) { inputHeight.toDp() } + 12.dp))
+                    .padding(bottom = inputBottom + with(density) { inputHeight.toDp() } + 12.dp),
+                    style = palette.chatJump)
             }
             if (recording || voiceHint != null) {
                 RecordingPill(
@@ -892,6 +908,25 @@ fun ChatTab(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(bottom = inputBottom + with(density) { inputHeight.toDp() } + 10.dp),
+                )
+            }
+            switcherAnchor?.let { anchor ->
+                CompanionSwitcher(
+                    visible = switching && pageShown,
+                    anchor = anchor,
+                    backdrop = page,
+                    companions = companions,
+                    currentId = state.companionId,
+                    modifier = Modifier.matchParentSize(),
+                    onDismiss = { switching = false },
+                    onSwitch = { id ->
+                        switching = false
+                        if (id != state.companionId) vm.switchTo(id)
+                    },
+                    onAdd = {
+                        switching = false
+                        vm.addCompanion(onOpenSettings)
+                    },
                 )
             }
         },
@@ -940,19 +975,20 @@ fun ChatTab(
                         ChatRow.RecapMark -> RecapMark(state.aiName) { readingRecap = true }
                         is ChatRow.Woke -> ProactiveNote(row.at, state.companionId, state.aiName)
                         is ChatRow.Live -> LiveBubble(row.reply, state.aiName, vm::answerAsk)
-                        is ChatRow.Activity -> Box(Modifier.fillMaxWidth().padding(start = if (LocalFaces.current != null) AvatarSlot else 0.dp)) {
-                            ActivityCard(
-                                events = row.events, live = row.live, identity = row.key, maxWidth = bubbleMaxWidth(),
-                                thinking = row.live && state.streaming?.thinking == true,
-                                forceOpen = flashed in row.ids && rows.none { it is ChatRow.Message && it.message.id == flashed },
-                                onOpenCall = { readingTool = it },
-                                onLongClick = { if (row.ids.isNotEmpty()) { selected = row.ids; selecting = true } },
-                            )
-                            if (selecting && row.ids.isNotEmpty()) {
-                                Box(Modifier.matchParentSize().clickable {
-                                    selected = if (selected.containsAll(row.ids)) selected - row.ids else selected + row.ids
-                                })
-                                Checkbox(row.ids.all { it in selected }, null, modifier = Modifier.align(Alignment.CenterStart))
+                        is ChatRow.Activity -> ChatSelectionRow(
+                            selecting = selecting && row.ids.isNotEmpty(),
+                            checked = selected.containsAll(row.ids),
+                            label = "选择回复过程",
+                            onToggle = { selected = if (selected.containsAll(row.ids)) selected - row.ids else selected + row.ids },
+                        ) {
+                            Box(Modifier.fillMaxWidth().padding(start = if (LocalFaces.current != null) AvatarSlot else 0.dp)) {
+                                ActivityCard(
+                                    events = row.events, live = row.live, identity = row.key, maxWidth = bubbleMaxWidth(),
+                                    thinking = row.live && state.streaming?.thinking == true,
+                                    forceOpen = flashed in row.ids && rows.none { it is ChatRow.Message && it.message.id == flashed },
+                                    onOpenCall = { readingTool = it },
+                                    onLongClick = { if (row.ids.isNotEmpty()) { selected = row.ids; selecting = true } },
+                                )
                             }
                         }
                         is ChatRow.Message -> {
@@ -979,24 +1015,29 @@ fun ChatTab(
                                         Text("查看这篇小秘密  ›", color = LocalGlassPalette.current.accentContent, fontSize = 16.sp)
                                     }
                                 }
-                                m.role == "tool" || m.role == "note" -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    if (!row.activityFolded) Box(Modifier.fillMaxWidth().combinedClickable(
-                                    onClick = { if (selecting) toggleFavorite(m.id) else if (m.role == "tool") readingTool = m.id },
-                                    onLongClick = { selected = setOf(m.id); selecting = true })) {
-                                    ToolNote(
-                                        note.orEmpty(),
-                                        if (m.role == "note") Icons.Rounded.Info else (row.tool ?: ToolKind.Other).icon(),
-                                        failed = m.role == "tool" && ToolRuns.failed(note.orEmpty()),
-                                        onClick = null,
-                                    )
-                                    if (selecting) Checkbox(m.id in selected, null, modifier = Modifier.align(Alignment.CenterStart))
-                                    }
+                                m.role == "tool" || m.role == "note" -> {
                                     val pictures = remember(m.images) { MessageImages.decode(m.images) }
-                                    if (pictures.isNotEmpty()) Box {
-                                        ToolPictureCard(pictures, onOpenImage) {
-                                            selected = setOf(m.id); selecting = true
+                                    ChatSelectionRow(
+                                        selecting = selecting && (!row.activityFolded || pictures.isNotEmpty()),
+                                        checked = m.id in selected,
+                                        label = "选择记录：${note.orEmpty().take(80)}",
+                                        onToggle = { toggleFavorite(m.id) },
+                                    ) {
+                                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                            if (!row.activityFolded) Box(Modifier.fillMaxWidth().combinedClickable(
+                                                onClick = { if (selecting) toggleFavorite(m.id) else if (m.role == "tool") readingTool = m.id },
+                                                onLongClick = { selected = setOf(m.id); selecting = true },
+                                            )) {
+                                                ToolNote(
+                                                    note.orEmpty(),
+                                                    if (m.role == "note") Icons.Rounded.Info else (row.tool ?: ToolKind.Other).icon(),
+                                                    failed = m.role == "tool" && ToolRuns.failed(note.orEmpty()),
+                                                )
+                                            }
+                                            if (pictures.isNotEmpty()) ToolPictureCard(pictures, onOpenImage) {
+                                                selected = setOf(m.id); selecting = true
+                                            }
                                         }
-                                        if (selecting) Box(Modifier.matchParentSize().clickable { toggleFavorite(m.id) })
                                     }
                                 }
                                 m.role == "request" -> RequestCard(m, state.aiName, enabled = !state.replying) { grant ->
@@ -1007,10 +1048,13 @@ fun ChatTab(
                                 m.role == "pat" -> PatLine(Pats.decode(m.content), state.aiName)
                                 else -> {
                                     val quote = remember(m.quote) { MessageQuotes.decode(m.quote) }
-                                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                        if (selecting) Checkbox(checked = m.id in selected, onCheckedChange = { toggleFavorite(m.id) }, enabled = !savingFavorite,
-                                            modifier = Modifier.semantics { contentDescription = "选择消息：" + (if (m.audio != null) "语音，" else "") + m.content.take(80) })
-                                        Box(Modifier.weight(1f)) {
+                                    ChatSelectionRow(
+                                        selecting = selecting,
+                                        checked = m.id in selected,
+                                        label = "选择消息：" + (if (m.audio != null) "语音，" else "") + m.content.take(80),
+                                        enabled = !savingFavorite,
+                                        onToggle = { toggleFavorite(m.id) },
+                                    ) {
                                     MessageBubble(
                                         message = m,
                                         reactionAvatar = if (m.role == "user") state.aiAvatar else state.userAvatar,
@@ -1021,8 +1065,15 @@ fun ChatTab(
                                         onOpenLetter = { m.letterId?.let { letterLaunch = LetterLaunch(state.companionId, state.conversationId, it) } },
                                         canRetry = row.isLast && !state.replying,
                                         translationEnabled = !state.replying,
-                                        onRetry = { vm.retry(m.id) },
-                                        onDelete = { vm.delete(m.id) },
+                                        onRetry = { vm.retry(m.id) { problem -> if (problem != null) voiceHint = problem } },
+                                        onDelete = {
+                                            if (m.id in messageVersions || state.versions.any { it.rootId == m.id })
+                                                deletingSelected = setOf(m.id)
+                                            else vm.delete(m.id)
+                                        },
+                                        onVersions = messageVersions[m.id]?.takeIf { editingMessage == null }?.let { option ->
+                                            { keyboard?.hide(); versionPicker = option.rootId }
+                                        },
                                         onEdit = if (!state.replying && !editSaving && MessageEdits.eligible(m)) ({
                                             if (editingMessage == null) beforeEditInput = input
                                             editingMessage = m; input = FeedShares.decode(m.feedShare)?.caption ?: m.content; editProblem = null; drawerOpen = false
@@ -1036,7 +1087,10 @@ fun ChatTab(
                                         onRetryVoice = { vm.retryVoice(m.id) },
                                         onVoiceText = { vm.retryVoice(m.id, answerAfter = false) },
                                         quote = quote?.let { quoteLabel(it) },
-                                        onOpenQuote = { quote?.let { jumpTo(it.id) } },
+                                        quoteTitle = albumQuoteTitle.takeIf { quote?.fromAlbum == true },
+                                        onOpenQuote = {
+                                            quote?.let { if (it.fromAlbum) openAlbumQuote = it else jumpTo(it.id) }
+                                        },
                                         onQuote = {
                                             vm.quote(m)
                                             inputFocus.requestFocus()
@@ -1055,8 +1109,6 @@ fun ChatTab(
                                             selecting = true
                                         },
                                     )
-                                    if (selecting) Box(Modifier.matchParentSize().clickable(enabled = !savingFavorite) { toggleFavorite(m.id) })
-                                        }
                                     }
                                 }
                             }
@@ -1082,6 +1134,19 @@ fun ChatTab(
                 )
             }
         }
+    }
+
+    openAlbumQuote?.let { quote ->
+        AlertDialog(
+            onDismissRequest = { openAlbumQuote = null },
+            title = { Text(albumQuoteTitle) },
+            text = {
+                SelectionContainer {
+                    Text(quote.text, Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()))
+                }
+            },
+            confirmButton = { TextButton(onClick = { openAlbumQuote = null }) { Text("关闭") } },
+        )
     }
 
     if (askVoiceSetup) {
@@ -1169,10 +1234,23 @@ fun ChatTab(
         }
     }
 
+    versionPicker?.let { root ->
+        state.versions.firstOrNull { it.rootId == root }?.let { current ->
+            ChatVersionSheet(current, state.versions.filter { it.groupId == current.groupId }, state.replying,
+                onDismiss = { versionPicker = null }, onSelect = { target ->
+                    versionPicker = null
+                    stopPlaying()
+                    vm.unquote()
+                    vm.switchVersion(root, target) { problem -> if (problem != null) voiceHint = problem }
+                })
+        }
+    }
     deletingSelected?.let { ids ->
+        val hasVersions = state.versions.any { it.rootId in ids || it.displayId in ids }
         AlertDialog(onDismissRequest = { if (!deletingMessages) deletingSelected = null },
             title = { Text("删除这 ${ids.size} 条记录？") },
-            text = { Text("相关工具请求和结果会一并清理，后续聊天保留。只删除聊天记录，不撤销工具已经完成的操作。") },
+            text = { Text(if (hasVersions) "这些消息的其他版本及其后续聊天也会删除，当前会话的其余聊天会保留。"
+                else "相关工具请求和结果会一并清理，后续聊天保留。只删除聊天记录，不撤销工具已经完成的操作。") },
             confirmButton = { TextButton(enabled = !deletingMessages, onClick = {
                 deletingMessages = true
                 scope.launch {
@@ -1249,7 +1327,6 @@ private fun TimeStamp(at: Long) {
     val palette = LocalGlassPalette.current
     Box(Modifier.fillMaxWidth().padding(vertical = 5.dp), contentAlignment = Alignment.Center) {
         GlassSurface(
-            style = palette.bar,
             shape = GlassShape.Capsule,
             contentPadding = PaddingValues(horizontal = 11.dp, vertical = 5.dp),
         ) {
@@ -1265,7 +1342,6 @@ private fun RecapMark(aiName: String, onClick: () -> Unit) {
     Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
         GlassSurface(
             modifier = Modifier.clickable(interactionSource = null, indication = null, onClick = onClick),
-            style = palette.bar,
             shape = GlassShape.Capsule,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
         ) {
@@ -1319,6 +1395,7 @@ private fun MessageBubble(
     onRetryVoice: () -> Unit = {},
     onVoiceText: () -> Unit = {},
     quote: String? = null,
+    quoteTitle: String? = null,
     onOpenQuote: () -> Unit = {},
     onQuote: () -> Unit = {},
     highlighted: Boolean = false,
@@ -1327,6 +1404,7 @@ private fun MessageBubble(
     onFavorite: () -> Unit = {},
     onSelect: () -> Unit = {},
     onEdit: (() -> Unit)? = null,
+    onVersions: (() -> Unit)? = null,
     translationEnabled: Boolean = true,
     showTokenUsage: Boolean = false,
     letter: com.cleo.cleos.data.db.LetterEntity? = null,
@@ -1353,7 +1431,10 @@ private fun MessageBubble(
     val book = LocalStickers.current
     val shared = remember(message.feedShare) { FeedShares.decode(message.feedShare) }
     val displayText = shared?.caption ?: message.content
-    val pieces = remember(displayText, book) { StickerText.split(displayText, book) }
+    val pieces = remember(displayText, book, message.role) {
+        val text = if (message.role == "assistant") StickerText.normalizeModelTokens(displayText, book) else displayText
+        StickerText.split(text, book)
+    }
     val words = remember(pieces, shared) { if (shared != null) message.content else pieces.mapNotNull {
         when (it) {
             is StickerText.Piece.Words -> it.text
@@ -1383,6 +1464,8 @@ private fun MessageBubble(
             // One menu for the whole message, so a message that is only pictures has one too.
             Box {
                 Column(
+                    modifier = if (onVersions == null) Modifier else if (mine) Modifier.padding(start = 36.dp)
+                    else Modifier.padding(end = 36.dp),
                     horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
@@ -1434,8 +1517,11 @@ private fun MessageBubble(
                     }
                     if (shared != null) FeedShareCard(shared, Modifier.widthIn(max = bubbleMaxWidth()), onLongClick = { menu = true }, onOpenImage = onOpenImage)
                     // The message this one answers, under it like in WeChat; a tap finds it.
-                    if (quote != null) QuoteBox(quote, onOpenQuote)
+                    if (quote != null) QuoteBox(quote, quoteTitle, onOpenQuote)
                     if (reactions.isNotEmpty()) ReactionChips(reactions, reactionAvatar, reactionLetter) { menu = true }
+                }
+                onVersions?.let {
+                    ChatVersionButton(Modifier.align(if (mine) Alignment.TopStart else Alignment.TopEnd), it)
                 }
                 val actions = buildList {
                     if (audio != null && (!transcribing || voiceExpanded)) {
@@ -1450,6 +1536,7 @@ private fun MessageBubble(
                     if (words.isNotBlank()) add(MessageMenuAction("选择文字") { selectingText = true })
                     if (translationEnabled && translation != null) add(MessageMenuAction("翻译") { translation.open.value = true })
                     onEdit?.let { add(MessageMenuAction("编辑", it)) }
+                    onVersions?.let { add(MessageMenuAction("消息版本", it)) }
                     if (!mine && message.error == null && audio == null && words.isNotBlank())
                         add(MessageMenuAction(if (playingFile == readingMark(message.id)) "停止朗读" else "朗读") { onRead(words) })
                     if (message.error == null && MessageQuotes.of(message) != null) add(MessageMenuAction("引用", onQuote))
@@ -1678,7 +1765,9 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
     val faces = LocalFaces.current
     // What has come in so far, stickers drawn as they complete; one still being written isn't shown yet.
     val book = LocalStickers.current
-    val pieces = remember(live.text, book) { StickerText.split(StickerText.finishedPart(live.text), book) }
+    val pieces = remember(live.text, book) {
+        StickerText.split(StickerText.normalizeModelTokens(StickerText.finishedPart(live.text), book), book)
+    }
     Column(
         Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start,
@@ -1726,24 +1815,22 @@ private fun LiveBubble(live: StreamingReply, aiName: String, onAnswer: (ChatRepo
 
 /** The message a bubble answers: who said it and what, in a grey box under the bubble. */
 @Composable
-private fun QuoteBox(label: String, onOpen: () -> Unit) {
+private fun QuoteBox(label: String, title: String?, onOpen: () -> Unit) {
     val palette = LocalGlassPalette.current
     GlassSurface(
         modifier = Modifier
             .widthIn(max = bubbleMaxWidth())
-            .clickable(interactionSource = null, indication = null, onClick = onOpen),
+            .clickable(interactionSource = null, indication = null,
+                onClickLabel = if (title != null) "查看完整相册留言" else null, onClick = onOpen),
         style = palette.notice,
         shape = GlassShape.Rounded(10.dp),
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
     ) {
-        Text(
-            label.replace('\n', ' '),
-            color = palette.contentSecondary,
-            fontSize = 13.sp,
-            lineHeight = 18.sp,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column {
+            if (title != null) Text(title, color = palette.accentContent, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label.replace('\n', ' '), color = palette.contentSecondary, fontSize = 13.sp,
+                lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -1895,7 +1982,6 @@ private fun CallNote(message: MessageEntity, said: Boolean, onOpen: () -> Unit) 
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         GlassSurface(
             modifier = Modifier.clickable(interactionSource = null, indication = null, onClick = onOpen),
-            style = palette.notice,
             shape = GlassShape.Capsule,
             contentPadding = PaddingValues(start = 12.dp, end = 14.dp, top = 7.dp, bottom = 7.dp),
         ) {
@@ -2083,6 +2169,8 @@ private fun ChatInputBar(
     onTextChange: (String) -> Unit,
     attachments: List<MessageImage>,
     attaching: Boolean,
+    attachmentProblem: String?,
+    onDismissAttachmentProblem: () -> Unit,
     onPick: () -> Unit,
     extrasOpen: Boolean,
     onExtras: () -> Unit,
@@ -2091,6 +2179,7 @@ private fun ChatInputBar(
     onRequestLetter: () -> Unit,
     onRemove: (MessageImage) -> Unit,
     quote: String?,
+    quoteTitle: String?,
     onDropQuote: () -> Unit,
     focus: FocusRequester,
     busy: Boolean,
@@ -2127,7 +2216,11 @@ private fun ChatInputBar(
         leadingLabel = "更多功能", leadingExpanded = extrasOpen, leadingEnabled = !editing,
         readOnly = editing && busy, onFieldFocus = onFieldFocus,
         drawerOpen = drawerOpen, onDrawer = onDrawer, drawerEnabled = !editing,
-        actionEnabled = action != ChatComposerAction.Send || sendEnabled && canSend,
+        actionEnabled = when (action) {
+            ChatComposerAction.Send -> sendEnabled && canSend && !attaching
+            ChatComposerAction.Mic -> !attaching
+            ChatComposerAction.Stop -> true
+        },
         actionLabel = when (action) {
             ChatComposerAction.Mic -> "按住说话"
             ChatComposerAction.Stop -> "停止"
@@ -2164,14 +2257,12 @@ private fun ChatInputBar(
                     .padding(start = 10.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    quote,
-                    color = palette.contentSecondary,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                Column(Modifier.weight(1f)) {
+                    if (quoteTitle != null) Text(quoteTitle, color = palette.accentContent, fontSize = 11.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(quote.replace('\n', ' '), color = palette.contentSecondary, fontSize = 13.sp,
+                        maxLines = if (quoteTitle == null) 1 else 2, overflow = TextOverflow.Ellipsis)
+                }
                 Box(
                     Modifier
                         .size(28.dp)
@@ -2180,6 +2271,16 @@ private fun ChatInputBar(
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Rounded.Close, contentDescription = "不引用了", tint = palette.contentSecondary, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
+        if (attachmentProblem != null) {
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(attachmentProblem, color = palette.error, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                IconButton(onClick = onDismissAttachmentProblem) {
+                    Icon(Icons.Rounded.Close, contentDescription = "关闭图片提示", tint = palette.contentSecondary,
+                        modifier = Modifier.size(18.dp))
                 }
             }
         }

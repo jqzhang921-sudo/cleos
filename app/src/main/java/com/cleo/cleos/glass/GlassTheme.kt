@@ -1,8 +1,10 @@
 package com.cleo.cleos.glass
 
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.unit.dp
 import com.cleo.cleos.ui.theme.Oklab
 
@@ -57,18 +59,19 @@ data class GlassPalette(
     val mineContent: Color = Color.White,
     /** The user's bubbles before any colour and contrast floor: what a colour being picked is tried on. */
     val mineBase: GlassStyle? = null,
-    val topBarTitleStyle: GlassStyle? = null,
     /** The lens held, following the lens as tuned; null untuned. */
     val lensHeldStyle: GlassStyle? = null,
     /** Luminance of the wallpaper's darkest / brightest patch, when known. */
     val troughLum: Float? = null,
     val peakLum: Float? = null,
+    val autoTint: Boolean = true,
 ) {
     val bubble: GlassStyle get() = parts[GlassPart.Bubble] ?: surface
     val card: GlassStyle get() = parts[GlassPart.Card] ?: surface
     val topBar: GlassStyle get() = parts[GlassPart.TopBar] ?: chrome
     val tabBar: GlassStyle get() = parts[GlassPart.TabBar] ?: chrome
     val input: GlassStyle get() = parts[GlassPart.Input] ?: bar
+    val chatJump: GlassStyle get() = parts[GlassPart.ChatJump] ?: chatJumpStyle(this)
 
     /** The tab bar's lens at rest and held, as tuned (see [GlassPart.Lens]). */
     val lens: GlassStyle get() = parts[GlassPart.Lens] ?: lensRest
@@ -77,11 +80,18 @@ data class GlassPalette(
     /** The user's own bubbles: the bubble tuning, in the accent colour. */
     val bubbleMine: GlassStyle get() = bubbleMineStyle ?: accentSurface
 
-    /** The title capsule in the top bar: the top bar's glass, but never less tinted than [bar]. */
-    val topBarTitle: GlassStyle get() = topBarTitleStyle ?: bar
+    val topBarTitle: GlassStyle get() = parts[GlassPart.TopBarTitle] ?: bar
 
     /** [style] as the app would actually draw it for [part] (with the contrast floor). */
     fun floored(part: GlassPart, style: GlassStyle): GlassStyle = GlassPalettes.floor(this, part, style)
+
+    internal fun previewTabGlass(part: GlassPart, style: GlassStyle): GlassPalette = copy(
+        parts = parts + (part to style),
+        lensHeldStyle = if (part == GlassPart.Lens) heldLensFor(style) else lensHeldStyle,
+    )
+
+    internal fun heldLensFor(rest: GlassStyle): GlassStyle =
+        if (rest == lensRest) lensHeld else GlassPalettes.heldFrom(rest, lensRest, lensHeld)
 }
 
 object GlassPalettes {
@@ -101,17 +111,24 @@ object GlassPalettes {
         peak: Float? = null,
         tuning: Map<GlassPart, GlassTuning> = emptyMap(),
         mine: Color? = null,
+        autoTint: Boolean = true,
     ): GlassPalette {
-        val b = base(dark, hue, chromaScale).copy(troughLum = trough, peakLum = peak)
+        val base = base(dark, hue, chromaScale)
+        val b = base.copy(lensRest = restingLens(base), troughLum = trough, peakLum = peak, autoTint = autoTint)
         val worst = b.worstLum
         val floored = b.copy(chrome = raise(b, b.chrome, worst, withAccent = true), bar = raise(b, b.bar, worst, withAccent = true))
 
+        val topBar = floor(floored, GlassPart.TopBar, tuning[GlassPart.TopBar]?.applyTo(b.chrome, dark) ?: b.chrome)
+        // Keep the inherited appearance for users who have only tuned the old TopBar part.
+        val titleDefault = topBar.copy(tint = topBar.tint.copy(alpha = maxOf(topBar.tint.alpha, floored.bar.tint.alpha)))
         val defaults = mapOf(
             GlassPart.Bubble to floored.surface,
             GlassPart.Card to floored.surface,
             GlassPart.TopBar to b.chrome,
+            GlassPart.TopBarTitle to titleDefault,
             GlassPart.TabBar to b.chrome,
             GlassPart.Input to b.bar,
+            GlassPart.ChatJump to chatJumpStyle(b),
             GlassPart.Lens to b.lensRest,
         )
         val parts = defaults.mapValues { (part, style) ->
@@ -120,18 +137,32 @@ object GlassPalettes {
         // The user's own bubbles take the bubble tuning, in the colour they picked or else the
         // accent (see [mine]).
         val mineBase = tuning[GlassPart.Bubble]?.applyTo(b.accentSurface, dark) ?: b.accentSurface
-        val (mineStyle, mineInk) = mineFor(mineBase, mine ?: b.accent, trough, peak, least = mine?.let(::pickedTint) ?: 0f)
-        val topBar = parts.getValue(GlassPart.TopBar)
-        val title = topBar.copy(tint = topBar.tint.copy(alpha = maxOf(topBar.tint.alpha, floored.bar.tint.alpha)))
-        val lensHeld = tuning[GlassPart.Lens]?.let { heldFrom(parts.getValue(GlassPart.Lens), b.lensRest, b.lensHeld) }
+        val (mineStyle, mineInk) = mineFor(b, mineBase, mine ?: b.accent, picked = mine != null)
+        val lensHeld = tuning[GlassPart.Lens]?.let { b.heldLensFor(parts.getValue(GlassPart.Lens)) }
+        val notice = tuning[GlassPart.Card]?.applyTo(b.notice, dark)?.let { floor(floored, GlassPart.Card, it) } ?: b.notice
         return floored.copy(
+            notice = notice,
             parts = parts,
             partDefaults = defaults,
             bubbleMineStyle = mineStyle,
             mineContent = mineInk,
             mineBase = mineBase,
-            topBarTitleStyle = title,
             lensHeldStyle = lensHeld,
+        )
+    }
+
+    private fun restingLens(palette: GlassPalette): GlassStyle {
+        val base = palette.lensRest
+        val tint = lerpColor(base.tint, palette.accentContent, if (palette.dark) 0.45f else 0.7f)
+        return base.copy(
+            tint = tint.copy(alpha = base.tint.alpha * 1.15f),
+            refraction = base.refraction * 0.25f,
+            bevel = base.bevel * 0.55f,
+            dispersion = base.dispersion * 0.35f,
+            lift = base.lift * 0.45f,
+            highlight = base.highlight * 0.27f,
+            rimWidth = base.rimWidth * 0.6f,
+            shadowAlpha = base.shadowAlpha * 0.5f,
         )
     }
 
@@ -143,15 +174,15 @@ object GlassPalettes {
      * same amount instead.
      */
     internal fun heldFrom(rest: GlassStyle, defaultRest: GlassStyle, defaultHeld: GlassStyle): GlassStyle {
-        fun follow(tuned: Float, r: Float, h: Float) = (if (r == 0f) tuned + (h - r) else tuned * (h / r)).coerceAtLeast(0f)
+        fun follow(tuned: Float, r: Float, h: Float) = if (r == 0f) tuned + (h - r) else tuned * (h / r)
         return defaultHeld.copy(
             blur = follow(rest.blur.value, defaultRest.blur.value, defaultHeld.blur.value).dp,
-            refraction = follow(rest.refraction.value, defaultRest.refraction.value, defaultHeld.refraction.value).dp,
-            bevel = follow(rest.bevel.value, defaultRest.bevel.value, defaultHeld.bevel.value).dp,
-            dispersion = follow(rest.dispersion, defaultRest.dispersion, defaultHeld.dispersion),
-            zoom = follow(rest.zoom, defaultRest.zoom, defaultHeld.zoom),
-            tint = rest.tint.copy(alpha = follow(rest.tint.alpha, defaultRest.tint.alpha, defaultHeld.tint.alpha).coerceAtMost(1f)),
-            saturation = follow(rest.saturation, defaultRest.saturation, defaultHeld.saturation),
+            refraction = follow(rest.refraction.value, defaultRest.refraction.value, defaultHeld.refraction.value).coerceIn(-40f, 40f).dp,
+            bevel = follow(rest.bevel.value, defaultRest.bevel.value, defaultHeld.bevel.value).coerceAtMost(48f).dp,
+            dispersion = follow(rest.dispersion, defaultRest.dispersion, defaultHeld.dispersion).coerceAtMost(1f),
+            zoom = follow(rest.zoom, defaultRest.zoom, defaultHeld.zoom).coerceAtMost(1.6f),
+            tint = defaultHeld.tint.copy(alpha = follow(rest.tint.alpha, defaultRest.tint.alpha, defaultHeld.tint.alpha).coerceAtMost(1f)),
+            saturation = follow(rest.saturation, defaultRest.saturation, defaultHeld.saturation).coerceAtMost(2.5f),
             highlight = follow(rest.highlight, defaultRest.highlight, defaultHeld.highlight).coerceAtMost(1.5f),
             shadowAlpha = follow(rest.shadowAlpha, defaultRest.shadowAlpha, defaultHeld.shadowAlpha).coerceAtMost(1f),
         )
@@ -159,7 +190,7 @@ object GlassPalettes {
 
     /** The user's bubbles in [color], and the text on them, as [p] would draw them: for trying a colour out. */
     fun mine(p: GlassPalette, color: Color): Pair<GlassStyle, Color> =
-        mineFor(p.mineBase ?: p.accentSurface, color, p.troughLum, p.peakLum, pickedTint(color))
+        mineFor(p, p.mineBase ?: p.accentSurface, color, picked = true)
 
     /**
      * How much of the glass a colour the user picked covers at least. The bubble tuning is shared
@@ -188,13 +219,15 @@ object GlassPalettes {
      * darkest; the tint is raised until the text clears 4.5:1 over it. With no wallpaper
      * information, the worst case: white, or black.
      */
-    private fun mineFor(base: GlassStyle, color: Color, trough: Float?, peak: Float?, least: Float): Pair<GlassStyle, Color> {
+    private fun mineFor(p: GlassPalette, base: GlassStyle, color: Color, picked: Boolean): Pair<GlassStyle, Color> {
         val l = Oklab.luminance(color.red, color.green, color.blue)
         val inkL = Oklab.luminance(INK.red, INK.green, INK.blue)
         val white = 1.05f / (l + 0.05f) >= (l + 0.05f) / (inkL + 0.05f)
         val ink = if (white) Color.White else INK
+        val least = if (p.autoTint && picked) pickedTint(color) else 0f
         val tinted = base.copy(tint = color.copy(alpha = maxOf(base.tint.alpha, least)))
-        return raiseFor(tinted, if (white) peak ?: 1f else trough ?: 0f, ink, 4.5f) to ink
+        if (!p.autoTint) return tinted to ink
+        return raiseFor(tinted, if (white) p.peakLum ?: 1f else p.troughLum ?: 0f, ink, 4.5f) to ink
     }
 
     private val GlassPalette.worstLum: Float? get() = if (dark) peakLum else troughLum
@@ -210,11 +243,11 @@ object GlassPalettes {
      */
     internal fun floor(p: GlassPalette, part: GlassPart, style: GlassStyle): GlassStyle =
         // The lens carries no words of its own: the label under it belongs to the tab bar, whose floor covers it.
-        if (part == GlassPart.Lens) style
+        if (part == GlassPart.Lens || part == GlassPart.ChatJump) style
         else raise(p, style, p.worstLum, withAccent = part == GlassPart.TopBar || part == GlassPart.TabBar)
 
     private fun raise(p: GlassPalette, style: GlassStyle, worstLum: Float?, withAccent: Boolean): GlassStyle {
-        if (worstLum == null) return style
+        if (!p.autoTint || worstLum == null) return style
         // Text at 4.5:1; accent icons and bold accent labels (the selected tab) at 3:1,
         // the level for graphics and large text.
         val needText = minTintAlpha(style.tint, worstLum, p.content, 4.5f)
@@ -344,8 +377,6 @@ object GlassPalettes {
                     tint = accent.copy(alpha = 0.9f), saturation = 1.2f, lift = 0f,
                     highlight = 0.55f, shadowAlpha = 0.08f, shadowRadius = 12.dp, shadowOffsetY = 3.dp,
                 ),
-                // The resting lens lies over the selected label, so its tint washes that
-                // label out; kept thin, with the rim highlight doing the work of showing it.
                 lensRest = GlassStyle(
                     blur = 0.dp, refraction = 10.dp, bevel = 12.dp, dispersion = 0.12f,
                     tint = Color.White.copy(alpha = 0.16f), saturation = 1.2f, lift = 0.03f,
@@ -361,7 +392,20 @@ object GlassPalettes {
     }
 }
 
+private fun chatJumpStyle(palette: GlassPalette): GlassStyle = palette.chrome.copy(
+    blur = 0.dp,
+    refraction = (-40).dp,
+    bevel = 13.dp,
+    dispersion = 0.06f,
+    zoom = 0.95f,
+    tint = palette.chrome.tint.copy(alpha = 0f),
+    saturation = 1.43f,
+    highlight = 0.32f,
+    shadowAlpha = if (palette.dark) 0f else 0.07f,
+)
+
 val LocalGlassPalette = staticCompositionLocalOf { GlassPalettes.build(dark = false) }
+internal val LocalGlassAutoTint = compositionLocalOf { true }
 
 /** The wallpaper on its own, for glass that sits inside scrolling content. */
 val LocalWallpaperBackdrop = staticCompositionLocalOf<Backdrop> {

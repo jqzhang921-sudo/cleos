@@ -1,5 +1,9 @@
 package com.cleo.cleos.ai
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
@@ -13,6 +17,38 @@ internal interface MicSource {
 
 /** A detection belongs to one uninterrupted listening interval, including queued detections. */
 internal class MicHeard internal constructor(val interval: Long, val heard: TurnDetector.Heard)
+
+internal sealed interface CallUtterance {
+    data class Audio(val event: MicHeard) : CallUtterance
+    data class Text(val words: String) : CallUtterance
+}
+
+/** One input stream per call. Only microphone input needs transcription. */
+internal class CallInput(source: MicSource, keepPauses: Boolean) {
+    private val audio = Channel<MicHeard>(if (keepPauses) Channel.UNLIMITED else 1)
+    private val text = Channel<String>(1)
+    val mic = CallMic(source) {
+        if (keepPauses || it.heard is TurnDetector.Ended) audio.trySend(it)
+    }
+
+    fun send(words: String): Boolean = text.trySend(words).isSuccess
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    suspend fun receive(timeoutMs: Long): CallUtterance? = select {
+        text.onReceive { CallUtterance.Text(it) }
+        audio.onReceive { CallUtterance.Audio(it) }
+        onTimeout(timeoutMs) { null }
+    }
+
+    fun close() {
+        text.cancel()
+        audio.cancel()
+    }
+
+    companion object {
+        const val MAX_TEXT = 2000
+    }
+}
 
 internal class CallMic(private val source: MicSource, private val onHeard: (MicHeard) -> Unit) {
     private val gate = Any()
@@ -38,6 +74,10 @@ internal class CallMic(private val source: MicSource, private val onHeard: (MicH
         set(value) = synchronized(gate) {
             if (field != value) { field = value; invalidate() }
         }
+    @Volatile var typing = false
+        set(value) = synchronized(gate) {
+            if (field != value) { field = value; invalidate() }
+        }
 
     fun start(): Boolean = synchronized(gate) {
         if (started || closed.get()) return false
@@ -59,7 +99,12 @@ internal class CallMic(private val source: MicSource, private val onHeard: (MicH
     }
 
     fun accepts(event: MicHeard): Boolean = synchronized(gate) {
-        running && !muted && !held && event.interval == interval
+        running && !muted && !held && !typing && event.interval == interval
+    }
+
+    fun pause() = synchronized(gate) {
+        listening = false
+        invalidate()
     }
 
     fun stop() {
@@ -103,7 +148,7 @@ internal class CallMic(private val source: MicSource, private val onHeard: (MicH
                 if (n == 0) continue
                 synchronized(gate) {
                     // A frame already in read when mute/focus/stop changed must not cross the boundary.
-                    if (!running || reading != interval || !listening || muted || held) return@synchronized
+                    if (!running || reading != interval || !listening || muted || held || typing) return@synchronized
                     val heard = detector.feed(frame, n)
                     level = detector.level
                     hearing = detector.speaking

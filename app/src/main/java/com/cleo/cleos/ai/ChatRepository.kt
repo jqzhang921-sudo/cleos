@@ -4,6 +4,7 @@ import com.cleo.cleos.data.AppSettings
 import kotlinx.serialization.json.jsonArray
 import com.cleo.cleos.data.CallRecord
 import com.cleo.cleos.data.CallRecords
+import com.cleo.cleos.data.ChatVersions
 import com.cleo.cleos.data.Companions
 import com.cleo.cleos.data.ImageStore
 import com.cleo.cleos.data.MessageAudio
@@ -27,6 +28,7 @@ import com.cleo.cleos.data.SettingsRepository
 import com.cleo.cleos.data.StickerBook
 import com.cleo.cleos.data.StickerText
 import com.cleo.cleos.data.db.AppDatabase
+import com.cleo.cleos.data.db.ChatVersionEntity
 import com.cleo.cleos.data.db.CompanionEntity
 import com.cleo.cleos.data.db.ConversationEntity
 import com.cleo.cleos.data.db.MessageEntity
@@ -117,6 +119,9 @@ class ChatRepository(
     private val activities: WakeActivities = WakeActivities(db),
 ) {
     private val instantLetterSender = com.cleo.cleos.data.InstantLetters(db, settings)
+    private val versions = ChatVersions(db)
+    private val _revising = MutableStateFlow<Set<Long>>(emptySet())
+    val revising: StateFlow<Set<Long>> = _revising.asStateFlow()
     /** The replies being written, by conversation. */
     private val _streaming = MutableStateFlow<Map<Long, StreamingReply>>(emptyMap())
     val streaming: StateFlow<Map<Long, StreamingReply>> = _streaming.asStateFlow()
@@ -126,6 +131,9 @@ class ChatRepository(
 
     data class SecretDraft(val conversationId: Long, val diaryId: Long, val text: String)
     val secretDraft = MutableStateFlow<SecretDraft?>(null)
+
+    internal data class AlbumReplyDraft(val conversationId: Long, val quote: MessageQuote)
+    internal val albumReplyDraft = MutableStateFlow<AlbumReplyDraft?>(null)
 
     /** A post brought from the feed, waiting for the person to send or edit it. */
     data class FeedDraft(val conversationId: Long, val share: FeedShare)
@@ -245,7 +253,7 @@ class ChatRepository(
 
     /** Whether the person is writing something in [conversationId]: a reply waits for them, a while. */
     fun typing(conversationId: Long, now: Boolean, processingMedia: Boolean = false) {
-        if (now) { cancelFollowUp(conversationId); interrupted(conversationId) }
+        if (now) { cancelFollowUp(conversationId, WakeActivityText.USER_INPUT); interrupted(conversationId) }
         if (now && processingMedia) mediaIn += conversationId else mediaIn -= conversationId
         if (now) typingIn += conversationId
         else if (typingIn.remove(conversationId)) quietSince[conversationId] = System.currentTimeMillis()
@@ -260,7 +268,7 @@ class ChatRepository(
      * for what came meanwhile.
      */
     private fun answerSoon(conversationId: Long) {
-        cancelFollowUp(conversationId)
+        cancelFollowUp(conversationId, WakeActivityText.USER_INPUT)
         interrupted(conversationId)
         synchronized(lock) {
             sends.merge(conversationId, 1L) { a, b -> a + b }
@@ -570,71 +578,182 @@ class ChatRepository(
         }
     }
 
-    /** Continue a new branch through the edited message; keep the entire original conversation. */
-    fun editMessage(original: MessageEntity, text: String, done: (Long?, String?) -> Unit) {
+    fun editMessage(original: MessageEntity, text: String, done: (String?) -> Unit) {
         val shared = FeedShares.decode(original.feedShare)?.copy(caption = text.trim())
         val content = shared?.let(FeedShares::text) ?: text.trim()
-        val accepted = start(original.conversationId) {
-            val before = sends[original.conversationId]
+        revise(original.conversationId, done) {
+            val current = db.messages().get(original.id)
+            val problem = MessageEdits.problem(current, original, content)
+            if (problem != null) return@revise problem
+            val plan = versions.prepare(original.conversationId, current!!)
+                ?: return@revise "消息已经变动，请重新打开编辑"
+            val edited = current.copy(content = content, feedShare = shared?.let(FeedShares::encode), error = null)
+            val answer = generateVersion(original.conversationId, plan.prefix + edited)
             val copied = mutableListOf<String>()
             var committed = false
             try {
-                val result = db.withTransaction {
-                    val current = db.messages().get(original.id)
-                    val problem = MessageEdits.problem(current, original, content)
-                    if (problem != null) return@withTransaction null to problem
-                    current!!
-                    val conversation = db.conversations().get(current.conversationId)
-                        ?: return@withTransaction null to "聊天已经不存在了"
-                    val at = stamp()
-                    val title = conversation.title.removePrefix("修改前 · ")
-                    val branchId = db.conversations().insert(MessageEdits.branchConversation(conversation, at))
-                    val ids = mutableMapOf<Long, Long>()
-                    val prefix = MessageEdits.prefix(db.messages().forFavorite(current.conversationId), current)
-                    fun copyFile(name: String) = MessageImageCopies.copyFile(images.dir, name).also { copied += it }
-                    for (row in prefix) {
-                        val originals = MessageImages.decode(row.images)
-                        val pictures = originals.map { it.copy(file = copyFile(it.file)) }
-                        val copiedByName = originals.map { it.file }.zip(pictures).toMap()
-                        val rowShare = (if (row.id == current.id) shared else FeedShares.decode(row.feedShare))?.let { card ->
-                            card.copy(images = card.images.mapNotNull { copiedByName[it.file] })
-                        }
-                        val audio = MessageAudios.decode(row.audio)?.let { it.copy(file = copyFile(it.file)) }
-                        val quote = MessageQuotes.decode(row.quote)?.let { it.copy(id = ids[it.id] ?: it.id) }
-                        ids[row.id] = db.messages().insert(row.copy(id = 0, conversationId = branchId,
-                            content = if (row.id == current.id) content else row.content,
-                            feedShare = rowShare?.let(FeedShares::encode),
-                            images = MessageImages.encode(pictures), audio = audio?.let(MessageAudios::encode),
-                            quote = quote?.let(MessageQuotes::encode), call = row.call?.let { ids[it] },
-                            error = if (row.id == current.id) null else row.error))
+                val originals = MessageImages.decode(edited.images)
+                val pictures = withContext(Dispatchers.IO) {
+                    originals.map { image ->
+                        val file = MessageImageCopies.copyFile(images.dir, image.file)
+                        copied += file
+                        image.copy(file = file)
                     }
-                    db.conversations().rename(conversation.id, "修改前 · $title")
-                    db.conversations().cancelFollowUp(conversation.id)
-                    branchId to null
                 }
-                committed = true
-                done(result.first, result.second)
-                result.first?.let { id -> start(id) { reply(id) } }
-            } catch (e: CancellationException) {
+                val imagesByName = originals.map { it.file }.zip(pictures).toMap()
+                val replacement = edited.copy(id = 0, images = MessageImages.encode(pictures),
+                    feedShare = shared?.copy(images = shared.images.mapNotNull { imagesByName[it.file] })?.let(FeedShares::encode))
+                withContext(NonCancellable) {
+                    committed = versions.commit(plan, listOf(replacement) + answer, ChatVersionEntity.EDIT, stamp())
+                }
+                if (committed) versionChanged(original.conversationId)
+                if (committed) null else "生成期间会话有新变化，已保留原版"
+            } finally {
                 if (!committed) images.delete(copied)
-                done(null, "编辑已取消，请重新打开查看")
-                throw e
-            } catch (e: Exception) {
-                if (!committed) images.delete(copied)
-                done(null, "保存失败，请重试")
             }
-            // Ordinary messages sent while this short edit job held the conversation still get answered.
-            if (sends[original.conversationId] != before) answerUntilQuiet(original.conversationId)
         }
-        if (!accepted) done(null, "正在回复或通话，稍后再编辑")
     }
 
-    /** Throw away [assistantMessageId] (a failed or unwanted reply) and ask again. */
-    fun retry(conversationId: Long, assistantMessageId: Long) {
-        start(conversationId) {
-            if (db.messages().get(assistantMessageId)?.letterId != null) return@start
-            db.messages().delete(assistantMessageId)
-            reply(conversationId)
+    fun retry(conversationId: Long, assistantMessageId: Long, done: (String?) -> Unit = {}) {
+        revise(conversationId, done) {
+            val current = db.messages().get(assistantMessageId)?.takeIf {
+                it.conversationId == conversationId && it.role == "assistant" && it.letterId == null && it.call == null
+            } ?: return@revise "这条消息不能重新回答"
+            val plan = versions.prepare(conversationId, current)
+                ?: return@revise "消息已经变动，请重新打开查看"
+            if (plan.tail.lastOrNull { it.role != "pat" }?.id != current.id)
+                return@revise "这条消息后面已有新内容"
+            val answer = generateVersion(conversationId, plan.prefix)
+            if (versions.commit(plan, answer, ChatVersionEntity.RETRY, stamp())) {
+                versionChanged(conversationId)
+                null
+            } else "生成期间会话有新变化，已保留原版"
+        }
+    }
+
+    fun switchVersion(conversation: Long, from: Long, to: Long, done: (String?) -> Unit) {
+        revise(conversation, done) {
+            val display = versions.switch(conversation, from, to, stamp())
+                ?: return@revise "版本已经变动，请重新打开查看"
+            versionChanged(conversation)
+            _focus.value = Focus(conversation, display)
+            null
+        }
+    }
+
+    private fun versionChanged(conversation: Long) {
+        cancelFollowUp(conversation)
+        answeredUpTo.remove(conversation)
+        recaps.foldLater(conversation)
+    }
+
+    private fun revise(conversation: Long, done: (String?) -> Unit, block: suspend () -> String?) {
+        val accepted = start(conversation) {
+            val before = sends[conversation]
+            _revising.update { it + conversation }
+            try {
+                done(block())
+            } catch (e: CancellationException) {
+                done("已取消，原来的聊天还在")
+                throw e
+            } catch (e: ChatException) {
+                done(e.message ?: "没能生成新版本，已保留原版")
+            } catch (_: Exception) {
+                done("没能保存新版本，已保留原版")
+            } finally {
+                _revising.update { it - conversation }
+            }
+            if (sends[conversation] != before) answerUntilQuiet(conversation)
+        }
+        if (!accepted) done("正在回复或通话，稍后再试")
+    }
+
+    /**
+     * Draft against the chosen prefix while the visible conversation remains intact.
+     * Message tools format the draft; this path never dispatches external or write tools.
+     */
+    private suspend fun generateVersion(conversation: Long, prefix: List<MessageEntity>): List<MessageEntity> {
+        val ta = taOf(conversation)
+        val settings = TaVoices.effective(settings.current(), ta)
+        val history = com.cleo.cleos.data.InstantLetterData.resolve(
+            Recap.sent(prefix, settings.historySize), db.letters().allFor(ta.id), ta.id,
+        )
+        val user = history.lastOrNull { it.role == "user" }
+        val route = ta.modelFor(heard = user?.audio != null)
+        val key = secrets.key(route.baseUrl)?.takeIf { it.isNotBlank() } ?: throw ChatException("还没有填写 API Key")
+        val endpoint = ApiEndpoint(route.baseUrl, key, route.model)
+        val groups = groupsFor(settings, ta)
+        val memories = if (ToolGroup.Memory in groups) db.memories().allFor(ta.id) else emptyList()
+        val lore = if (ToolGroup.Lore in groups) db.lore().allFor(ta.id) else emptyList()
+        val study = studyMemory(settings, ta)
+        val literal = WakeOutput.allowsLiteral(user?.content.orEmpty())
+        val (stickers, sendStickers) = stickersFor(settings)
+        var sendMessages = ToolGroup.Messages in groups
+        var pictures = history.any { it.role == "user" && it.images != null }
+        var thinking = ta.deepThinking
+        val usage = java.util.concurrent.atomic.AtomicReference(com.cleo.cleos.data.MessageUsage(model = route.model))
+        while (true) {
+            val specs = if (sendMessages) listOf(ToolSpecs.sendMessage) else emptyList()
+            val prompt = prepare(Prompt.messages(settings, ta, history, ZonedDateTime.now(),
+                tools = if (sendMessages) setOf(ToolGroup.Messages) else emptySet(), images = pictures,
+                memories = memories, lore = lore, studyMemory = study,
+                stickers = stickers, sendStickers = sendStickers, calls = callsOutside(history),
+                preserveReasoning = Thinking.keepsToolReasoning(route.model),
+            ))
+            val text = StringBuilder()
+            val thought = StringBuilder()
+            var thoughtStarted = 0L
+            var thoughtFinished = 0L
+            var calls = emptyList<ToolCall>()
+            try {
+                client.stream(endpoint, prompt, specs, thinking, onUsage = { step -> usage.updateAndGet { it + step } }).collect { event ->
+                    when (event) {
+                        is ChatEvent.Delta -> {
+                            if (thought.isNotEmpty() && thoughtFinished == 0L) thoughtFinished = System.currentTimeMillis()
+                            text.append(event.text)
+                        }
+                        is ChatEvent.Reasoning -> if (ta.deepThinking) {
+                            if (thoughtStarted == 0L) thoughtStarted = System.currentTimeMillis()
+                            thought.append(event.text)
+                        }
+                        is ChatEvent.ToolCalls -> calls = event.calls
+                    }
+                }
+            } catch (e: ChatException) {
+                if (text.isNotEmpty()) throw e
+                when (ChatCompatibility.fallback(e, sendMessages, pictures, thinking)) {
+                    RequestFeature.Tools -> sendMessages = false
+                    RequestFeature.Images -> pictures = false
+                    RequestFeature.Thinking -> thinking = false
+                    null -> throw e
+                }
+                continue
+            }
+            val rows = ArrayList<MessageEntity>()
+            fun line(body: String, quote: MessageQuote? = null) {
+                val words = WakeOutput.message(body, proactive = false, literalAllowed = literal) ?: return
+                if (words.isBlank() || InstantLetterRules.protocolPayload(words) && !literal) return
+                rows += MessageEntity(conversationId = conversation, role = "assistant", content = words,
+                    createdAt = maxOf(stamp(), prefix.lastOrNull()?.createdAt ?: Long.MIN_VALUE),
+                    quote = quote?.let(MessageQuotes::encode))
+            }
+            line(text.toString())
+            val said = history.filter { it.role == "user" && it.note == null }
+            calls.filter { sendMessages && it.name == ToolSpecs.sendMessage.name }.take(MAX_MESSAGES).forEach { call ->
+                val args = ToolArgs.parse(call.arguments) ?: return@forEach
+                val body = ToolArgs.text(args, "text") ?: return@forEach
+                val quote = ToolArgs.text(args, "quote")?.let { MessageQuotes.find(said, it) }?.let(MessageQuotes::of)
+                line(body, quote)
+            }
+            if (rows.isEmpty()) throw ChatException("模型没有返回可以保存的回复，已保留原版")
+            if (thought.isNotBlank()) {
+                val time = (thoughtFinished.takeIf { it > 0L } ?: System.currentTimeMillis()) - thoughtStarted
+                rows[0] = rows.first().copy(thought = MessageThoughts.encode(MessageThought(thought.toString(), time)))
+            }
+            if (usage.get().steps.isNotEmpty()) {
+                rows[rows.lastIndex] = rows.last().copy(usage = com.cleo.cleos.data.MessageUsages.encode(usage.get()))
+            }
+            return rows
         }
     }
 
@@ -655,7 +774,10 @@ class ChatRepository(
     suspend fun stopRepliesOf(companionId: Long) = stopReplies(db.conversations().idsFor(companionId))
 
     /** Before a restore replaces every conversation. */
-    suspend fun stopAll() = stopReplies(jobs.keys.toList())
+    suspend fun stopAll() {
+        albumReplyDraft.value = null
+        stopReplies(jobs.keys.toList())
+    }
 
     /** The row and the pictures sent with it: nothing else points at those files. A call goes with all that was said in it. */
     fun deleteMessage(id: Long) {
@@ -670,10 +792,13 @@ class ChatRepository(
             val plan = com.cleo.cleos.data.MessageDeletion.plan(rows, ids)
             plan.deleted.forEach { db.messages().delete(it) }
             if (plan.clearTools.isNotEmpty()) db.messages().clearToolCalls(plan.clearTools.toList())
-            conversations.forEach { db.conversations().invalidateDeletedHistory(it) }
-            rows.filter { it.id in plan.deleted }
+            val archived = conversations.flatMap {
+                db.conversations().invalidateDeletedHistory(it)
+                versions.removeForDeleted(it, plan.deleted)
+            }
+            rows.filter { it.id in plan.deleted } + archived
         }
-        images.delete(removed.flatMap { MessageImages.decode(it.images).map { image -> image.file } + listOfNotNull(MessageAudios.decode(it.audio)?.file) })
+        images.delete(ChatVersions.media(removed))
     }
 
     // Phone calls (ai/Call.kt). What the two say goes into the conversation as messages marked as
@@ -906,9 +1031,13 @@ class ChatRepository(
     fun deleteConversation(id: Long) {
         scope.launch {
             stopReplies(listOf(id))
-            val pictures = db.messages().imagesIn(id).flatMap { MessageImages.decode(it) }.map { it.file } +
-                db.messages().audioIn(id).mapNotNull { MessageAudios.decode(it)?.file }
-            db.conversations().delete(id)
+            val pictures = db.withTransaction {
+                val files = db.messages().imagesIn(id).flatMap { MessageImages.decode(it) }.map { it.file } +
+                    db.messages().audioIn(id).mapNotNull { MessageAudios.decode(it)?.file } +
+                    ChatVersions.media(db.chatVersions().archivedIn(id).map { it.message })
+                db.conversations().delete(id)
+                files
+            }
             images.delete(pictures)
         }
     }
@@ -959,7 +1088,7 @@ class ChatRepository(
         /** A reply was under way there: nothing was done. */
         data object Busy : WakeResult
 
-        class Failed(val why: String) : WakeResult
+        class Failed(val why: String, val cancellationDetail: String? = null) : WakeResult
     }
 
     /**
@@ -972,8 +1101,8 @@ class ChatRepository(
     private val followUpJobs = ConcurrentHashMap<Long, Job>()
     private val wakeJobsByTa = ConcurrentHashMap<Long, Job>()
 
-    fun cancelFollowUp(conversationId: Long) {
-        synchronized(lock) { followUpJobs.remove(conversationId)?.cancel() }
+    fun cancelFollowUp(conversationId: Long, reason: String? = null) {
+        synchronized(lock) { followUpJobs.remove(conversationId)?.cancel(reason?.let(::WakeCancelled)) }
     }
 
     suspend fun wake(conversationId: Long, instruction: String, followUp: Boolean = false,
@@ -987,11 +1116,11 @@ class ChatRepository(
             currentCoroutineContext().ensureActive()
             val result = wakeRecorded(conversationId, instruction, followUp, activity, source == com.cleo.cleos.data.db.WakeActivityEntity.FREE, allowed)
             if (result is WakeResult.Failed && result.why == STOPPED)
-                activities.cancelled(activity)
+                activities.cancelled(activity, result.cancellationDetail)
             else activities.result(activity, result)
             result
         } catch (e: CancellationException) {
-            activities.cancelled(activity)
+            activities.cancelled(activity, (e as? WakeCancelled)?.detail)
             throw e
         } catch (e: Exception) {
             activities.finish(activity, com.cleo.cleos.data.db.WakeActivityEntity.FAILED, e.message ?: "执行失败")
@@ -1010,7 +1139,7 @@ class ChatRepository(
                     try {
                         if (allowed()) wakeTurn(conversationId, instruction, activity, freeVisit, allowed) else WakeResult.Skipped("这次补充已取消")
                     } catch (e: CancellationException) {
-                        outcome.complete(WakeResult.Failed(STOPPED))
+                        outcome.complete(WakeResult.Failed(STOPPED, (e as? WakeCancelled)?.detail))
                         throw e
                     } catch (e: Exception) {
                         WakeResult.Failed(e.message ?: e.javaClass.simpleName)
@@ -1036,7 +1165,7 @@ class ChatRepository(
                 job.invokeOnCompletion { wakeJobsByTa.remove(taId, job) }
             }
             // Stopped before it began (its TA deleted meanwhile): an answer all the same.
-            job.invokeOnCompletion { outcome.complete(WakeResult.Failed(STOPPED)) }
+            job.invokeOnCompletion { cause -> outcome.complete(WakeResult.Failed(STOPPED, (cause as? WakeCancelled)?.detail)) }
             job to seen
         }
         return awaitBackgroundResult(outcome, request) {

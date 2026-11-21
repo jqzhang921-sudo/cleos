@@ -36,7 +36,7 @@ class GroupToolsHttpTest {
                     require(length in 1..100_000)
                     requests += Json.parseToJsonElement(input.readNBytes(length).toString(Charsets.UTF_8)).jsonObject
                     val sse = if (round == 0) """
-                        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"feed1","type":"function","function":{"name":"read_feed","arguments":"{\"author\":"}}]}}]}
+                        data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"feed1","type":"function","function":{"name":"read_feed","arguments":"{\"author\":"},"extra_content":{"google":{"thought_signature":"fixture+/="}}}]}}]}
 
                         data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"self\"}"}}]},"finish_reason":"tool_calls"}]}
 
@@ -77,7 +77,9 @@ class GroupToolsHttpTest {
             assertEquals("feed1", messages.last()["tool_call_id"]!!.jsonPrimitive.content)
             assertEquals("tool", messages.last()["role"]!!.jsonPrimitive.content)
             assertTrue(messages.last()["content"]!!.jsonPrimitive.content.contains("\"written_by_you\":true"))
-            assertTrue(messages[messages.lastIndex - 1]["tool_calls"]!!.jsonArray.isNotEmpty())
+            val echoed = messages[messages.lastIndex - 1]["tool_calls"]!!.jsonArray.single().jsonObject
+            assertEquals("feed1", echoed["id"]!!.jsonPrimitive.content)
+            assertEquals(Json.parseToJsonElement("""{"google":{"thought_signature":"fixture+/="}}"""), echoed["extra_content"])
             assertEquals("returned", trace.records.single().state)
         } finally {
             server.close(); worker.join(1000); http.dispatcher.executorService.shutdownNow(); http.connectionPool.evictAll()

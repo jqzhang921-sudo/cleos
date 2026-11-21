@@ -26,7 +26,7 @@ internal fun GroupCallDialog(members: List<GroupMemberEntity>, onDismiss: () -> 
         GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(22.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 Text("一起通话", color = palette.content, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-                Text("先选两位伙伴，各用自己的音色轮流接话。点一下可打断整轮；说过的话以文字留在本群。参考本群记录、小本本，以及你在成员设置里允许这位 TA 带进本群的记忆。",
+                Text("先选两位伙伴，各用自己的音色轮流接话。通话里可以说话或打字，点「打断这轮」可停止当前发言。通话文字保留在本群。参考本群记录、小本本，以及你在成员设置里允许这位 TA 带进本群的记忆。",
                     color = palette.contentSecondary, fontSize = 13.sp, lineHeight = 20.sp)
                 Text("沿用发语音的转写服务和 TA 的声音平台，会产生转写、模型与声音服务用量。当前版本需点按打断，不能在 TA 发言时直接插话。",
                     color = palette.contentSecondary, fontSize = 12.sp, lineHeight = 19.sp)

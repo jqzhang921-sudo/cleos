@@ -55,9 +55,8 @@ private val PRESETS = listOf(
 private const val TAU = (2 * PI).toFloat()
 
 /**
- * The colour of the person's own bubbles. Glass either way; a colour is only its tint (never
- * thinner than it takes to show, see [GlassPalettes.PICKED_TINT]), and the text on it turns dark
- * on a light one. [chosen] null follows the wallpaper. Sliders move a preview at once and save
+ * The colour of the person's own bubbles and their text contrast. [chosen] null follows
+ * the wallpaper. Sliders move a preview at once and save
  * when let go.
  */
 @Composable
@@ -116,8 +115,8 @@ fun MyBubbleColor(chosen: Int?, onPick: (Int?) -> Unit) {
             TrackSlider("鲜艳", c, 0f..C_MAX, listOf(Oklab.lch(l, 0f, h), Oklab.lch(l, C_MAX, h)), { c = it; trying = now() }, ::save)
         }
         Text(
-            "还是玻璃，只换颜色。浅色配深色字，深色配白字。玻璃实验室里调得再透，挑的颜色也会染到看得出来" +
-                "（白色、灰色照你调的透明度）；壁纸太花时玻璃会自己变浓一点，保证字看得清。",
+            if (palette.autoTint) "浅色配深色字，深色配白字。自动补着色会让选的颜色和文字更容易看清。"
+            else "浅色配深色字，深色配白字。着色强度沿用玻璃实验室的「聊天气泡」设置。",
             color = palette.contentSecondary,
             fontSize = 12.sp,
             lineHeight = 18.sp,

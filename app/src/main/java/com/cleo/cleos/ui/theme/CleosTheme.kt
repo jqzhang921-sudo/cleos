@@ -40,6 +40,7 @@ import com.cleo.cleos.data.ImageStore
 import com.cleo.cleos.glass.Backdrop
 import com.cleo.cleos.glass.GlassPalette
 import com.cleo.cleos.glass.GlassPalettes
+import com.cleo.cleos.glass.LocalGlassAutoTint
 import com.cleo.cleos.glass.LocalGlassPalette
 import com.cleo.cleos.glass.LocalWallpaperBackdrop
 import com.cleo.cleos.glass.WallpaperOverscan
@@ -72,6 +73,7 @@ fun CleosTheme(settings: AppSettings, images: ImageStore, content: @Composable (
     val palette = remember(
         dark, custom, settings.wallpaperHue, settings.wallpaperChroma,
         settings.wallpaperTrough, settings.wallpaperPeak, settings.glassTuning, defaultTone, settings.myBubble,
+        settings.glassAutoTint,
     ) {
         val mine = settings.myBubble?.let { Color(it) }
         if (custom != null && settings.wallpaperHue != null) {
@@ -83,6 +85,7 @@ fun CleosTheme(settings: AppSettings, images: ImageStore, content: @Composable (
                 peak = settings.wallpaperPeak,
                 tuning = settings.glassTuning,
                 mine = mine,
+                autoTint = settings.glassAutoTint,
             )
         } else {
             GlassPalettes.build(
@@ -91,6 +94,7 @@ fun CleosTheme(settings: AppSettings, images: ImageStore, content: @Composable (
                 peak = defaultTone.peak,
                 tuning = settings.glassTuning,
                 mine = mine,
+                autoTint = settings.glassAutoTint,
             )
         }
     }
@@ -110,6 +114,7 @@ fun CleosTheme(settings: AppSettings, images: ImageStore, content: @Composable (
     MaterialTheme(colorScheme = colorSchemeFor(palette)) {
         CompositionLocalProvider(
             LocalGlassPalette provides palette,
+            LocalGlassAutoTint provides palette.autoTint,
             LocalMessageRendering provides MessageRendering(settings.messageRichText, settings.messageColors),
             LocalWallpaperBackdrop provides wallpaperBackdrop,
         ) {

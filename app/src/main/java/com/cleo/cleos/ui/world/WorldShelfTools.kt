@@ -1,8 +1,6 @@
 package com.cleo.cleos.ui.world
 
 import com.cleo.cleos.ui.common.TabScrollColumn
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -19,6 +17,8 @@ import com.cleo.cleos.glass.LocalGlassPalette
 import com.cleo.cleos.ui.common.appContainer
 import com.cleo.cleos.ui.common.GlassSearchField
 import com.cleo.cleos.ui.common.fadeUnderTopBar
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -36,9 +36,9 @@ internal fun WorldOrganize(ta: CompanionEntity, article: WorldArticleEntity) {
     TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "收起整理" else "整理读物") }
     if (!expanded) row?.let { Text(if (it.kind == "magazine") "${it.series} · ${it.issue.ifBlank { "期号未填" }}" else WorldShelfData.kinds.getValue(it.kind), color = p.contentSecondary, fontSize = 12.sp) }
     if (expanded) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WorldShelfData.kinds.forEach { (id, label) -> WorldFilterChip(label, selected = kind == id, enabled = !saving, onClick = { kind = id }) }
-        }
+        val kinds = WorldShelfData.kinds.entries.toList()
+        SlidingCapsuleTabs(kinds.map { it.value }, kinds.indexOfFirst { it.key == kind }, systemMotionEnabled(),
+            enabled = !saving) { kind = kinds[it].key }
         if (kind == "magazine") {
             OutlinedTextField(series, { if (it.length <= 80) series = it }, Modifier.fillMaxWidth(), label = { Text("刊名") }, singleLine = true, enabled = !saving)
             OutlinedTextField(issue, { if (it.length <= 80) issue = it }, Modifier.fillMaxWidth(), label = { Text("期号 / 日期（选填）") }, singleLine = true, enabled = !saving)

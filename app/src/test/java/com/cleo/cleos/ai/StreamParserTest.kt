@@ -48,6 +48,33 @@ class StreamParserTest {
     }
 
     @Test
+    fun aSignatureInItsOwnChunkStaysOnTheOriginalParallelCall() {
+        val (_, calls) = run(
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"first","function":{"name":"list_todos","arguments":"{}"}},{"index":1,"id":"second","function":{"name":"get_weather","arguments":"{}"}}]}}]}""",
+            """{"choices":[{"delta":{"tool_calls":[{"index":0,"extra_content":{"google":{"thought_signature":"test+/="}}}]}}]}""",
+        )
+        val messages = listOf(ApiMessage("user", "查一下"), ApiMessage("assistant", "", calls)) +
+            calls.map { ApiMessage("tool", "{}", toolCallId = it.id) }
+        val wire = requestBody("gemini-fixture", messages, emptyList())["messages"]!!.jsonArray
+        val toolCalls = wire[1].jsonObject["tool_calls"]!!.jsonArray
+        assertEquals(Json.parseToJsonElement("""{"google":{"thought_signature":"test+/="}}"""),
+            toolCalls[0].jsonObject["extra_content"])
+        assertFalse("extra_content" in toolCalls[1].jsonObject)
+        assertEquals(listOf("first", "second"), wire.drop(2).map { it.jsonObject["tool_call_id"]!!.jsonPrimitive.content })
+    }
+
+    @Test
+    fun aWholeReplyRetainsTheSignatureForTheLiveTurnButNotForSavedHistory() {
+        val parser = StreamParser()
+        parser.wholeReply("""{"choices":[{"message":{"tool_calls":[{"id":"coupon","function":{"name":"mcp_fixture_claim","arguments":"{}"},"extra_content":{"google":{"thought_signature":"test-opaque"}}}]}}]}""")
+        val calls = parser.toolCalls()
+        assertEquals("test-opaque", calls.single().googleThoughtSignature)
+        val stored = ToolCallCodec.encode(calls)
+        assertFalse(stored.contains("test-opaque"))
+        assertEquals(listOf(ToolCall("coupon", "mcp_fixture_claim", "{}")), ToolCallCodec.decode(stored))
+    }
+
+    @Test
     fun wholeCallsWithoutIndexAreTwoCallsWhenTheIdsDiffer() {
         val (_, calls) = run(
             """{"choices":[{"delta":{"tool_calls":[{"id":"x1","type":"function","function":{"name":"list_todos","arguments":"{}"}}]}}]}""",

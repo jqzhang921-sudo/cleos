@@ -1,5 +1,8 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
+
 import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
@@ -144,9 +147,9 @@ private fun WorldJourneyEditor(draft: WorldJourneyDraft, ta: CompanionEntity?, a
             Text(if (draft.expected == null) "新建图文专题" else "整理图文专题", color = p.content, fontSize = 18.sp)
             OutlinedTextField(draft.title, { if (it.length <= WorldJourneyTopics.MAX_TITLE) draft.title = it }, Modifier.fillMaxWidth(),
                 label = { Text("专题名称") }, enabled = !draft.saving, singleLine = true)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) { WorldJourneyTopics.kinds.forEach { (key, label) ->
-                FilterChip(selected = draft.kind == key, onClick = { draft.kind = key }, enabled = !draft.saving, label = { Text(label) })
-            } }
+            val kinds = WorldJourneyTopics.kinds.entries.toList()
+            SlidingCapsuleTabs(kinds.map { it.value }, kinds.indexOfFirst { it.key == draft.kind }, systemMotionEnabled(),
+                enabled = !draft.saving) { draft.kind = kinds[it].key }
             Text("从已有窗外见闻中选择，再调整顺序。保存不复制正文、不请求模型。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 GlassButton(onClick = onSave, backdrop = backdrop, enabled = !draft.saving && draft.title.isNotBlank() && draft.selected.isNotEmpty()) { Text(if (draft.saving) "正在保存…" else "保存专题") }

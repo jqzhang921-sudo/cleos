@@ -28,9 +28,11 @@ import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.requireGraphicsContext
 import androidx.compose.ui.node.requireLayoutCoordinates
@@ -90,7 +92,7 @@ private class LiquidGlassNode(
     private var style: GlassStyle,
     private var shape: GlassShape,
     private var motion: GlassMotion?,
-) : Modifier.Node(), DrawModifierNode, GlobalPositionAwareModifierNode {
+) : Modifier.Node(), DrawModifierNode, GlobalPositionAwareModifierNode, CompositionLocalConsumerModifierNode {
 
     private var layer: GraphicsLayer? = null
     private var shaderEffect: Any? = null
@@ -151,7 +153,7 @@ private class LiquidGlassNode(
         val l = layer
         if (source == null || sourceCoords == null || !sourceCoords.isAttached || l == null) {
             drawRoundRect(
-                color = style.tint.copy(alpha = max(style.tint.alpha, 0.55f)),
+                color = fallbackTint(0.55f),
                 topLeft = Offset(-swellX, -swellY),
                 size = Size(glassW, glassH),
                 cornerRadius = CornerRadius(radius),
@@ -285,7 +287,7 @@ private class LiquidGlassNode(
         val minTint = if (Build.VERSION.SDK_INT >= 31) 0.3f else 0.55f
         clipPath(outline) {
             drawLayer(l)
-            drawRect(style.tint.copy(alpha = max(style.tint.alpha, minTint)))
+            drawRect(fallbackTint(minTint))
         }
         drawRoundRect(
             brush = Brush.linearGradient(
@@ -299,6 +301,9 @@ private class LiquidGlassNode(
             style = Stroke(width = style.rimWidth.toPx()),
         )
     }
+    private fun fallbackTint(minTint: Float): Color =
+        if (currentValueOf(LocalGlassAutoTint)) style.tint.copy(alpha = max(style.tint.alpha, minTint))
+        else style.tint
 }
 
 private const val UNBOUNDED = 1e6f

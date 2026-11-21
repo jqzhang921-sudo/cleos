@@ -2,8 +2,6 @@ package com.cleo.cleos.ui.world
 
 import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -29,6 +27,8 @@ import com.cleo.cleos.data.db.*
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.appContainer
 import com.cleo.cleos.ui.common.fadeUnderTopBar
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -50,16 +50,14 @@ internal fun WorldStudy(
     onAdd: () -> Unit, onOpen: (Long, Int) -> Unit,
     navigation: WorldNavigationModel, ready: Boolean,
 ) {
-    val c = appContainer(); val p = LocalGlassPalette.current
+    val c = appContainer()
     val wishRows by remember(ta?.id) { ta?.let { c.db.world().observeWishes(it.id) } ?: flowOf(emptyList()) }.collectAsStateWithLifecycle<List<WorldWishEntity>?>(null)
     val wishes = wishRows.orEmpty()
     val now by produceState(System.currentTimeMillis(), ta?.id) { while (true) { delay(60_000); value = System.currentTimeMillis() } }
     Column(Modifier.fillMaxSize().padding(top = top)) {
-        PrimaryTabRow(selectedTabIndex = tab, containerColor = androidx.compose.ui.graphics.Color.Transparent, contentColor = p.content) {
-            Tab(selected = tab == 0, onClick = { onTab(0) }, text = { Text("书架") })
-            Tab(selected = tab == 1, onClick = { onTab(1) }, text = { Text("想读的" + wishes.count { it.status == "pending" }.takeIf { it > 0 }?.let { " · $it" }.orEmpty()) })
-            Tab(selected = tab == 2, onClick = { onTab(2) }, text = { Text("我的书签") })
-        }
+        val wishLabel = "想读的" + wishes.count { it.status == "pending" }.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
+        SlidingCapsuleTabs(listOf("书架", wishLabel, "我的书签"), tab, systemMotionEnabled(),
+            modifier = Modifier.padding(horizontal = 20.dp), onSelect = onTab)
         Box(Modifier.weight(1f)) {
             if (tab == 0) WorldShelf(ta, articles, state, busy, 0.dp, bottom, backdrop, onAdd, onOpen, WorldWishes.mayAsk(wishes, now), category, onCategory, showReadingOptions, onReadingOptions, navigation, ready)
             else if (tab == 1) WorldWishlist(ta, wishes, articles, bottom, onAdd, onOpen, navigation, ready && wishRows != null)
@@ -148,11 +146,11 @@ private fun WorldShelf(
             Text("书架", color = p.content, fontSize = 16.sp, fontWeight = FontWeight.Medium)
             Text("${shown.size} 份", color = p.contentSecondary, fontSize = 12.sp)
         } }
-        item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (linkedMapOf("all" to "全部") + WorldShelfData.kinds + mapOf("unfiled" to "未分类")).forEach { (id, text) ->
-                WorldFilterChip(text, selected = category == id, onClick = { onCategory(id) })
-            }
-        } }
+        item(key = "shelf-filters") {
+            val categories = (linkedMapOf("all" to "全部") + WorldShelfData.kinds + mapOf("unfiled" to "未分类")).entries.toList()
+            SlidingCapsuleTabs(categories.map { it.value }, categories.indexOfFirst { it.key == category }, systemMotionEnabled(),
+                minTabWidth = 64.dp) { onCategory(categories[it].key) }
+        }
         if (category == "magazine") item { Text("按你填写的刊名和期号排列；分类不会改写原文或 TA 的阅读位置。", color = p.contentSecondary, fontSize = 12.sp) }
         if (articles.isNotEmpty() && shown.isEmpty()) item { WorldPanel { Text("这里还没有读物", color = p.content); Text("打开原文后，在「整理读物」中选择分类；杂志可以填写刊名与期号。", color = p.contentSecondary) } }
         items(shown, key = { it.id }) { book ->
@@ -282,9 +280,8 @@ internal fun WorldArticlePage(article: WorldArticleEntity?, ta: CompanionEntity?
                         WorldOrganize(ta, a)
                     }
                     if (sections.isNotEmpty()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            WorldFilterChip("整理显示", selected = !raw, onClick = { displayOriginal(false) })
-                            WorldFilterChip("原始文字", selected = raw, onClick = { displayOriginal(true) })
+                        SlidingCapsuleTabs(listOf("整理显示", "原始文字"), if (raw) 1 else 0, systemMotionEnabled()) {
+                            displayOriginal(it == 1)
                         }
                         Text("收紧多余空白，保留书内目录；显示方式不会改写原文、阅读位置或笔记引用。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 19.sp)
                     }

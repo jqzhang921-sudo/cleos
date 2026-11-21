@@ -6,32 +6,38 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
-import androidx.compose.material.icons.outlined.AutoStories
-import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Forum
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -43,7 +49,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +64,8 @@ import com.cleo.cleos.glass.GlassPalettes
 import com.cleo.cleos.glass.GlassPart
 import com.cleo.cleos.glass.GlassShape
 import com.cleo.cleos.glass.GlassStyle
+import com.cleo.cleos.glass.GlassTabBar
+import com.cleo.cleos.glass.GlassTabBarLayoutHeight
 import com.cleo.cleos.glass.GlassTuning
 import com.cleo.cleos.glass.LocalGlassPalette
 import com.cleo.cleos.glass.LocalWallpaperBackdrop
@@ -67,7 +74,10 @@ import com.cleo.cleos.glass.backdropSource
 import com.cleo.cleos.glass.glassPress
 import com.cleo.cleos.glass.liquidGlass
 import com.cleo.cleos.glass.rememberBackdrop
+import com.cleo.cleos.ui.MainTabBarSideInset
+import com.cleo.cleos.ui.MainTabs
 import com.cleo.cleos.ui.common.appContainer
+import com.cleo.cleos.ui.settings.ExplainedSwitch
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -90,10 +100,9 @@ fun GlassLabScreen(onBack: () -> Unit) {
     var part by remember { mutableStateOf<GlassPart?>(null) }
     var editing by remember { mutableStateOf(palette.chrome) }
     var corner by remember { mutableFloatStateOf(100f) }
-    // Starts over the big title, above where the open panel reaches, so it is visible and
-    // has something detailed to bend.
-    var pieceOffset by remember { mutableStateOf(with(density) { Offset(24.dp.toPx(), 118.dp.toPx()) }) }
+    var pieceOffset by remember { mutableStateOf(with(density) { Offset(24.dp.toPx(), 0f) }) }
     var panelOpen by remember { mutableStateOf(true) }
+    var previewTab by remember { mutableStateOf(0) }
     val motion = remember { GlassMotion() }
 
     val saved = part?.let { settings?.glassTuning?.get(it) }
@@ -113,7 +122,13 @@ fun GlassLabScreen(onBack: () -> Unit) {
     val applied = tuning.sameAs(saved, palette.dark)
     val shown = if (current != null) palette.floored(current, editing) else editing
 
-    Box(Modifier.fillMaxSize()) {
+    val previewTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 72.dp
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val previewHeight = when (current) {
+            GlassPart.TabBar, GlassPart.Lens -> GlassTabBarLayoutHeight
+            else -> pieceGeometry(current, corner).second
+        }
+        val panelMaxHeight = (maxHeight - previewTop - previewHeight).coerceAtLeast(0.dp)
         Box(
             Modifier
                 .fillMaxSize()
@@ -125,22 +140,37 @@ fun GlassLabScreen(onBack: () -> Unit) {
             if (current == null) Specimen(Modifier.fillMaxSize().statusBarsPadding().padding(top = 64.dp))
         }
 
-        val (w, h, shape) = pieceGeometry(current, corner)
-        Box(
-            Modifier
-                .offset { IntOffset(pieceOffset.x.roundToInt(), pieceOffset.y.roundToInt()) }
-                .size(w, h)
-                .liquidGlass(page, shown, shape, motion)
-                .glassPress(motion, swell = 4.dp)
-                .pointerInput(Unit) {
-                    detectDragGestures { change, drag ->
-                        change.consume()
-                        pieceOffset += drag
-                    }
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            PieceContent(current, palette)
+        if (current == GlassPart.TabBar || current == GlassPart.Lens) {
+            CompositionLocalProvider(LocalGlassPalette provides palette.previewTabGlass(current, shown)) {
+                GlassTabBar(
+                    tabs = MainTabs,
+                    selectedIndex = previewTab,
+                    onSelect = { previewTab = it },
+                    backdrop = page,
+                    modifier = Modifier
+                        .padding(top = previewTop)
+                        .padding(horizontal = MainTabBarSideInset)
+                        .fillMaxWidth(),
+                )
+            }
+        } else {
+            val (w, h, shape) = pieceGeometry(current, corner)
+            Box(
+                Modifier
+                    .offset { IntOffset(pieceOffset.x.roundToInt(), (previewTop.toPx() + pieceOffset.y).roundToInt()) }
+                    .size(w, h)
+                    .liquidGlass(page, shown, shape, motion)
+                    .glassPress(motion, swell = 4.dp)
+                    .pointerInput(Unit) {
+                        detectDragGestures { change, drag ->
+                            change.consume()
+                            pieceOffset += drag
+                        }
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                PieceContent(current, palette)
+            }
         }
 
         Row(
@@ -157,10 +187,12 @@ fun GlassLabScreen(onBack: () -> Unit) {
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
+                .heightIn(max = panelMaxHeight)
                 .navigationBarsPadding()
                 .padding(12.dp)
                 .fillMaxWidth()
                 .liquidGlass(page, palette.surface, GlassShape.Rounded(28.dp))
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -168,6 +200,14 @@ fun GlassLabScreen(onBack: () -> Unit) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Pill("自由", selected = current == null) { select(null) }
                 GlassPart.entries.forEach { p -> Pill(p.label, selected = current == p) { select(p) } }
+            }
+            ExplainedSwitch(
+                title = "自动补着色",
+                line = "按壁纸提高玻璃上文字的对比度",
+                full = "此开关适用于全 App。关闭后，玻璃按默认或手动设置的着色显示，复杂壁纸上的文字可能变得难读。",
+                checked = palette.autoTint,
+            ) { enabled ->
+                c.appScope.launch { c.settings.update { it.copy(glassAutoTint = enabled) } }
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 fun preset(style: GlassStyle) {
@@ -194,10 +234,13 @@ fun GlassLabScreen(onBack: () -> Unit) {
                 val note = when {
                     shown.tint.alpha > editing.tint.alpha + 0.005f ->
                         "上面有字，在现在的壁纸上太透会看不清：着色会补到 %.2f。".format(shown.tint.alpha)
-                    current == GlassPart.TopBar -> "标题那个胶囊不会比默认更透，按钮照你调的。"
+                    current == GlassPart.TopBar -> "调整顶栏按钮和页面里的玻璃操作胶囊。标题可在「标题胶囊」单独调整。"
+                    current == GlassPart.Card -> "调整内容卡片和小提示胶囊。"
+                    current == GlassPart.TopBarTitle -> "适用于「待办」「说话方式」「世界」「主页」等页面标题。"
+                    current == GlassPart.ChatJump -> "只调整聊天里回到最新消息的圆按钮。"
                     current == GlassPart.Lens ->
-                        "调的是它停着的样子。按住、拖动时会更鼓更亮，按同样的比例跟着变：色散调成 0，按住也不会出彩边。"
-                    current == GlassPart.Bubble ->
+                        "滑块调整静止效果。可按住或拖动上方底栏，预览透镜移动时的样子。"
+                    current == GlassPart.Bubble && palette.autoTint ->
                         "你自己发的气泡也是这块玻璃，染强调色或你在设置里挑的颜色。着色同样会补到字看得清；挑了颜色的至少补到 %.2f，免得颜色透没了。"
                             .format(GlassPalettes.PICKED_TINT)
                     else -> null
@@ -229,9 +272,10 @@ private fun pieceGeometry(part: GlassPart?, corner: Float): Triple<Dp, Dp, Glass
     GlassPart.Bubble -> Triple(250.dp, 92.dp, GlassShape.Rounded(20.dp))
     GlassPart.Card -> Triple(300.dp, 104.dp, GlassShape.Rounded(24.dp))
     GlassPart.TopBar -> Triple(180.dp, 56.dp, GlassShape.Capsule)
-    GlassPart.TabBar -> Triple(310.dp, 64.dp, GlassShape.Capsule)
+    GlassPart.TopBarTitle -> Triple(138.dp, 56.dp, GlassShape.Capsule)
     GlassPart.Input -> Triple(290.dp, 50.dp, GlassShape.Capsule)
-    GlassPart.Lens -> Triple(96.dp, 58.dp, GlassShape.Capsule)
+    GlassPart.ChatJump -> Triple(44.dp, 44.dp, GlassShape.Capsule)
+    GlassPart.TabBar, GlassPart.Lens -> error("Tab glass uses the full tab bar preview")
     null -> Triple(240.dp, 110.dp, if (corner >= 100f) GlassShape.Capsule else GlassShape.Rounded(corner.dp))
 }
 
@@ -262,12 +306,12 @@ private fun BoxScope.PieceContent(part: GlassPart?, palette: GlassPalette) {
             Spacer(Modifier.width(10.dp))
             Text("聊天", color = palette.content, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
         }
-        GlassPart.TabBar -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TabPreview(Icons.Rounded.ChatBubble, "聊天", palette.accentContent)
-            TabPreview(Icons.Outlined.AutoStories, "日记", palette.content)
-            TabPreview(Icons.Outlined.TaskAlt, "待办", palette.content)
+        GlassPart.TopBarTitle -> Column {
+            Text("待办", color = palette.content, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("还有 10 件", color = palette.contentSecondary, fontSize = 12.sp)
         }
-        GlassPart.Lens -> TabPreview(Icons.Rounded.ChatBubble, "聊天", palette.accentContent)
+        GlassPart.TabBar, GlassPart.Lens -> Unit
+        GlassPart.ChatJump -> Icon(Icons.Rounded.ArrowDownward, "回到最新消息", tint = palette.content, modifier = Modifier.size(22.dp))
         GlassPart.Input -> Text(
             "说点什么…",
             color = palette.contentSecondary,
@@ -275,14 +319,6 @@ private fun BoxScope.PieceContent(part: GlassPart?, palette: GlassPalette) {
             modifier = Modifier.align(Alignment.CenterStart).padding(horizontal = 18.dp),
         )
         null -> Unit
-    }
-}
-
-@Composable
-private fun TabPreview(icon: ImageVector, label: String, color: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(22.dp))
-        Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.Medium)
     }
 }
 

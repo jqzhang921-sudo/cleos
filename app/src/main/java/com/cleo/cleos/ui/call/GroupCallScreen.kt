@@ -1,19 +1,17 @@
 package com.cleo.cleos.ui.call
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.CallEnd
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MicOff
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -35,40 +33,76 @@ internal fun GroupCallScreen(onMinimize: () -> Unit) {
     val st = state ?: return
     val palette = LocalGlassPalette.current
     val ended = st.phase == CallPhase.Ended
+    val captions = rememberCallCaptions(st.session, st.captions, ended) {
+        st.members.minByOrNull { it.position }?.companionId
+    }
+    val compact = st.typing || captions.visible
     val canCut = st.phase in setOf(CallPhase.Thinking, CallPhase.Speaking)
+    var draft by rememberSaveable(st.session) { mutableStateOf("") }
+    val keyboard = LocalSoftwareKeyboardController.current
+    fun closeTyping() {
+        keyboard?.hide()
+        c.groupCalls.setTyping(st.session, false)
+    }
     BackHandler(!ended, onBack = onMinimize)
     val view = LocalView.current
     DisposableEffect(Unit) { view.keepScreenOn = true; onDispose { view.keepScreenOn = false } }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(st.answeredAt, ended) { while (!ended) { now = System.currentTimeMillis(); delay(500) } }
-    val name = st.members.firstOrNull { it.companionId == st.speakerId }?.name ?: "TA"
-    val status = groupCallStatus(st)
-    GlassPage(overlay = { page ->
-        GlassIconButton(Icons.Rounded.KeyboardArrowDown, "收起群通话", onMinimize, page,
+    val status = groupCallStatus(st) + when {
+        !st.typing || st.held -> ""
+        st.phase == CallPhase.Speaking -> " · 说完可发"
+        st.phase == CallPhase.Thinking -> " · 稍后可发"
+        else -> ""
+    }
+    CallPage(captions = captions, overlay = { wallpaper ->
+        GlassIconButton(Icons.Rounded.KeyboardArrowDown, "收起群通话", onMinimize, wallpaper,
             modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(start = 14.dp, top = 8.dp),
-            enabled = !ended, size = 44.dp)
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            if (canCut) TextButton({ c.groupCalls.interrupt() }) { Text("打断这轮，我来说", color = palette.content) }
-            Row(horizontalArrangement = Arrangement.spacedBy(48.dp)) {
-                GlassIconButton(if (st.muted) Icons.Rounded.MicOff else Icons.Rounded.Mic,
-                    if (st.muted) "取消静音" else "静音", { c.groupCalls.mute(!st.muted) }, page, enabled = !ended, size = 60.dp)
-                GlassIconButton(Icons.Rounded.CallEnd, "挂断群通话", { c.groupCalls.hangUp() }, page,
-                    tint = palette.error, enabled = !ended, size = 68.dp)
-            }
-            Text("轮流发言 · 通话文字保留在本群", color = palette.contentSecondary, fontSize = 12.sp)
+            style = palette.topBar, enabled = !ended, size = 44.dp)
+        if (!ended && st.answeredAt != null) {
+            CallTranslationButton(captions, wallpaper,
+                Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(end = 14.dp, top = 8.dp))
+            CallTranslationDialog(captions, st.captions, group = true, backdrop = wallpaper,
+                modifier = Modifier.matchParentSize())
         }
+    }, actions = { wallpaper ->
+        CallInputActions(
+            backdrop = wallpaper,
+            typing = st.typing,
+            onToggleTyping = if (st.answeredAt != null && !ended) {
+                { if (st.typing) closeTyping() else c.groupCalls.setTyping(st.session, true) }
+            } else null,
+            interruptLabel = "打断这轮",
+            onInterrupt = if (canCut) c.groupCalls::interrupt else null,
+        )
+    }, composer = { wallpaper ->
+        if (st.typing && !ended) {
+            Box(Modifier.padding(bottom = 8.dp)) {
+                CallTextComposer(wallpaper, draft, { draft = it },
+                    canSend = st.phase == CallPhase.Listening && !st.held,
+                ) {
+                    if (c.groupCalls.sendText(st.session, draft)) draft = ""
+                }
+            }
+        }
+    }, controls = { wallpaper ->
+        CallControlButtons(wallpaper, st.muted, !ended, { c.groupCalls.mute(!st.muted) }, c.groupCalls::hangUp,
+            hangUpDescription = "挂断群通话")
     }) {
         Column(Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 24.dp)
-            .clickable(interactionSource = null, indication = null, enabled = canCut) { c.groupCalls.interrupt() }
-            .verticalScroll(rememberScrollState()).padding(bottom = 220.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(22.dp)) {
-            Spacer(Modifier.height(34.dp))
+            .then(if (!captions.visible) Modifier.verticalScroll(rememberScrollState()) else Modifier),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(if (compact) 9.dp else 22.dp)) {
+            Spacer(Modifier.height(if (compact) 8.dp else 34.dp))
             Text(st.title, color = palette.content, fontSize = 23.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.padding(horizontal = 40.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
             st.answeredAt?.let { Text(CallRecords.clock(((st.endedAt ?: now) - it).coerceAtLeast(0)),
                 color = palette.contentSecondary, fontSize = 13.sp) }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            if (compact && st.members.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                st.members.forEach { member ->
+                    Avatar(member.avatar, member.emoji ?: avatarLetter(member.name, "TA"), 38.dp)
+                }
+            }
+            if (!compact) Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 st.members.forEach { member ->
                     GlassSurface(Modifier.weight(1f), style = palette.card, contentPadding = PaddingValues(16.dp)) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -84,15 +118,15 @@ internal fun GroupCallScreen(onMinimize: () -> Unit) {
                     }
                 }
             }
-            Text(status, color = palette.contentSecondary, fontSize = 14.sp,
+            Text(status, color = palette.contentSecondary, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.semantics { contentDescription = "群通话状态：$status" })
-            if (st.heard != null || st.saying != null) GlassSurface(Modifier.fillMaxWidth(), style = palette.card, contentPadding = PaddingValues(20.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    st.heard?.let { Text("你：$it", color = palette.contentSecondary, fontSize = 14.sp) }
-                    st.saying?.let { Text("$name：$it", color = palette.content, fontSize = 17.sp, lineHeight = 26.sp) }
-                }
-            }
             st.problem?.let { Text(it, color = palette.error, fontSize = 13.sp) }
+            if (captions.visible) {
+                CallCaptionList(captions, st.captions, Modifier.weight(1f))
+            } else if (!ended && st.answeredAt != null) {
+                CallCaptionHint()
+            }
+            if (!compact) Text("轮流发言 · 通话文字保留在本群", color = palette.contentSecondary, fontSize = 12.sp)
         }
     }
 }

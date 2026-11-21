@@ -53,7 +53,7 @@ class FreeTopics(
         val revision = plans.invalidate(conversationId)
         active.values.filter { conversationId in it.conversations }.forEach {
             if (it.target != conversationId) plans.invalidate(it.target)
-            chat.cancelFollowUp(it.target)
+            chat.cancelFollowUp(it.target, WakeActivityText.USER_INPUT)
         }
         resets.remove(conversationId)?.cancel()
         resets[conversationId] = scope.launch {
@@ -109,7 +109,7 @@ class FreeTopics(
 
     suspend fun configure(id: Long) {
         db.conversations().idsFor(id).forEach { plans.invalidate(it); resets.remove(it)?.cancel() }
-        active[id]?.let { chat.cancelFollowUp(it.target) }
+        active[id]?.let { chat.cancelFollowUp(it.target, WakeActivityText.SETTINGS_CHANGED) }
         val at = db.withTransaction {
             val ta = db.companions().get(id) ?: return@withTransaction null
             if (!ta.freeTopicEnabled) return@withTransaction null

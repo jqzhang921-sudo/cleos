@@ -1,8 +1,11 @@
 package com.cleo.cleos.ui.chat
 
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.sp
+
+internal val LocalChatType = compositionLocalOf { ChatType(ChatType.DEFAULT) }
 
 /**
  * The chat's text: its size (设置 › 聊天), with lines 1.6 times as tall, so smaller text still has

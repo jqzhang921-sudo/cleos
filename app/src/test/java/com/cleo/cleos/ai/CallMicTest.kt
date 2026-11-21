@@ -1,5 +1,6 @@
 package com.cleo.cleos.ai
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
@@ -101,6 +102,33 @@ class CallMicTest {
 
     @Test fun muteInvalidatesAnAlreadyQueuedEnd() = queuedEnd { it.muted = true }
     @Test fun focusLossInvalidatesAnAlreadyQueuedEnd() = queuedEnd { it.held = true }
+    @Test fun typingInvalidatesAnAlreadyQueuedEnd() = queuedEnd { it.typing = true }
+
+    @Test fun typingWakesTheTurnWithoutTranscriptionAndVoiceResumesOnSwitchBack() = runBlocking {
+        val source = Source()
+        val input = CallInput(source, keepPauses = false)
+        try {
+            input.mic.typing = true
+            input.mic.listen()
+            assertTrue(input.mic.start())
+            source.frames(20); source.frames(60, 1500); source.frames(100); source.drained()
+            assertNull(input.receive(10))
+            assertTrue(input.send("我打字，你继续说"))
+            assertEquals(CallUtterance.Text("我打字，你继续说"), input.receive(1_000))
+            input.mic.pause()
+            input.mic.typing = false
+            source.frames(60, 1500); source.frames(100); source.drained()
+            assertNull(input.receive(10))
+            input.mic.listen()
+            source.frames(20); source.frames(60, 1500); source.frames(100); source.drained()
+            val speech = input.receive(1_000) as CallUtterance.Audio
+            assertTrue(input.mic.accepts(speech.event))
+            assertTrue(speech.event.heard is TurnDetector.Ended)
+        } finally {
+            input.mic.stop()
+            input.close()
+        }
+    }
     private fun queuedEnd(pause: (CallMic) -> Unit) {
         val source = Source()
         call(source) { mic, events ->

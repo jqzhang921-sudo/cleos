@@ -36,6 +36,7 @@ fun GlassSearchField(
     val palette = LocalGlassPalette.current
     GlassSurface(
         modifier = Modifier.fillMaxWidth(),
+        style = palette.input,
         shape = GlassShape.Capsule,
         contentPadding = PaddingValues(start = 16.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
     ) {

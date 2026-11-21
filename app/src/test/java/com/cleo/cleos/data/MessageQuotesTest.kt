@@ -1,6 +1,7 @@
 package com.cleo.cleos.data
 
 import com.cleo.cleos.data.db.MessageEntity
+import com.cleo.cleos.data.db.WorldAlbumLookEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -9,6 +10,17 @@ class MessageQuotesTest {
     private var id = 0L
     private fun msg(role: String, content: String) =
         MessageEntity(id = ++id, conversationId = 1, role = role, content = content, createdAt = id)
+
+    @Test
+    fun albumReplyKeepsTheWholeCommentAndQuestionWithoutAChatId() {
+        val comment = "这张照片".repeat(80)
+        val look = WorldAlbumLookEntity(id = 41, companionId = 2, photoId = 3, photoSha256 = "hash", runId = "look",
+            content = comment, question = "那天是几点？", createdAt = 100)
+        val quote = checkNotNull(MessageQuotes.fromAlbum(look))
+        assertEquals(MessageQuote(0L, "assistant", "$comment\n\n那天是几点？", fromAlbum = true), quote)
+        assertEquals(quote, MessageQuotes.decode(MessageQuotes.encode(quote)))
+        assertNull(MessageQuotes.fromAlbum(look.copy(content = "  ", question = "")))
+    }
 
     @Test
     fun whatAQuoteKeeps() {

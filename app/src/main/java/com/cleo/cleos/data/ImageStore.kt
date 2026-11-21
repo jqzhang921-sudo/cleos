@@ -19,6 +19,8 @@ import kotlin.math.roundToInt
 
 data class StoredImage(val file: String, val width: Int, val height: Int)
 
+internal class PickedImageTooLarge : IllegalArgumentException("图片尺寸过大，请先缩小再选择")
+
 /**
  * Pictures copied into the app's own storage.
  *
@@ -74,7 +76,8 @@ class ImageStore(context: Context) {
         ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
             val w = info.size.width
             val h = info.size.height
-            require(w > 0 && h > 0 && w <= 20_000 && h <= 20_000 && w.toLong() * h <= 40_000_000) { "图片尺寸过大，请先缩小再选择" }
+            require(w > 0 && h > 0) { "读不到图片尺寸，请重新选择" }
+            if (w > 20_000 || h > 20_000 || w.toLong() * h > 40_000_000) throw PickedImageTooLarge()
             val scale = min(1f, maxEdge / max(w, h).toFloat())
             if (scale < 1f) {
                 decoder.setTargetSize((w * scale).roundToInt().coerceAtLeast(1), (h * scale).roundToInt().coerceAtLeast(1))

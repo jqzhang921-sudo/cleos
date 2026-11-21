@@ -1,5 +1,8 @@
 package com.cleo.cleos.ui.memory
 
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -57,10 +60,8 @@ fun MemoryChangesScreen(onBack:()->Unit,onOpen:(Long)->Unit) {
                             TextButton(enabled=!busy,onClick={confirmModel=true}){Text(if(busy)"正在处理…" else "请 TA 协助整理")}
                         }
                         problem?.let {Text(it,fontSize=13.sp,color=palette.content)}
-                        Row {
-                            FilterChip(selected=pendingOnly,onClick={pendingOnly=true},label={Text("待查看")})
-                            Spacer(Modifier.width(8.dp))
-                            FilterChip(selected=!pendingOnly,onClick={pendingOnly=false},label={Text("改动记录")})
+                        SlidingCapsuleTabs(listOf("待查看", "改动记录"), if (pendingOnly) 0 else 1, systemMotionEnabled()) {
+                            pendingOnly = it == 0
                         }
                         Text("改动最多保留最近 100 条。撤销前会核对当前版本；明确删除记忆时会同时清除相关历史，不能从这里恢复。",fontSize=12.sp,color=palette.contentSecondary)
                     }

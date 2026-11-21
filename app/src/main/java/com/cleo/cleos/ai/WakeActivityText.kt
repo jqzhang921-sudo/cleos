@@ -4,6 +4,9 @@ import com.cleo.cleos.data.db.WakeActivityEntity as W
 
 /** Truthful labels: an application rule skipping is different from a model choosing silence. */
 object WakeActivityText {
+    internal const val USER_INPUT = "你开始准备或发送消息，本次主动唤醒让位"
+    internal const val SETTINGS_CHANGED = "主动唤醒设置已调整，本次执行已取消"
+    internal const val CONDITIONS_CHANGED = "执行条件已变化，本次未继续请求模型"
     const val FEED_BUSY = "朋友圈里已有创作或互动正在进行，本次先让路；未请求模型，也没有更新朋友圈。"
     private const val LEGACY_CANCELLED = "执行被取消，可能已发送部分内容；可在聊天里查看"
     private fun noWork(w: W) = w.requests == 0 && w.toolCalls == 0 && w.sent == 0
@@ -14,11 +17,14 @@ object WakeActivityText {
     /** Known legacy local contention may be labelled truthfully without rewriting old records. */
     fun failed(w: W) = w.status == W.FAILED && !feedContention(w)
 
-    fun cancelledDetail(w: W) = when {
-        noWork(w) && w.source == W.FEED -> "本次逛逛在模型请求前已取消，没有更新朋友圈。"
-        noWork(w) -> "执行在模型请求前已取消，没有发送内容。"
-        w.source == W.FEED -> "本次逛逛已取消，可能已有部分更新；可在朋友圈查看。"
-        else -> LEGACY_CANCELLED
+    fun cancelledDetail(w: W, reason: String? = null): String {
+        val detail = when {
+            noWork(w) && w.source == W.FEED -> "本次逛逛在模型请求前已取消，没有更新朋友圈。"
+            noWork(w) -> "执行在模型请求前已取消，没有发送内容。"
+            w.source == W.FEED -> "本次逛逛已取消，可能已有部分更新；可在朋友圈查看。"
+            else -> LEGACY_CANCELLED
+        }
+        return if (reason == null) detail else "$reason。$detail"
     }
 
     fun detail(w: W) = when {

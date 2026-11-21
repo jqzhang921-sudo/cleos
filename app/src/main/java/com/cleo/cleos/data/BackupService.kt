@@ -52,6 +52,7 @@ data class BackupSettings(
     val historySize: Int,
     val wallpaper: String?,
     val glassMode: String,
+    val glassAutoTint: Boolean = true,
     val wallpaperDark: Boolean?,
     val wallpaperHue: Float?,
     val wallpaperChroma: Float?,
@@ -153,11 +154,13 @@ data class BackupFile(
     val worldPictureLooks: List<com.cleo.cleos.data.db.WorldPictureLookEntity> = emptyList(),
     val worldAlbumPhotos: List<com.cleo.cleos.data.db.WorldAlbumPhotoEntity> = emptyList(),
     val worldAlbumLooks: List<com.cleo.cleos.data.db.WorldAlbumLookEntity> = emptyList(),
+    val chatVersions: List<com.cleo.cleos.data.db.ChatVersionEntity> = emptyList(),
+    val chatVersionMessages: List<com.cleo.cleos.data.db.ChatVersionMessageEntity> = emptyList(),
 ) {
     companion object {
         const val FORMAT = "cleos-backup"
         // Older readers must not re-activate former members or drop shared conversations.
-        const val VERSION = 35
+        const val VERSION = 36
     }
 }
 
@@ -275,7 +278,7 @@ class BackupService(
                     override fun write(bytes:ByteArray,offset:Int,length:Int){count(length);raw.write(bytes,offset,length)}
                     override fun flush(){raw.flush()}
                 }
-                write(bounded)
+                write(bounded, includeVersions = false)
             }
             task.ensureActive();action(file)
         } finally { file.delete() }
@@ -294,14 +297,16 @@ class BackupService(
         summary
     }
 
-    private suspend fun write(raw: OutputStream): BackupSummary {
+    private suspend fun write(raw: OutputStream, includeVersions: Boolean = true): BackupSummary {
         val s = settings.current()
         val companions = db.companions().all()
         MessageStyle.validateBackup(companions)
         val lead = companions.firstOrNull()
-        val data = db.withTransaction { BackupFile(
+        val data = db.withTransaction {
+            val versions = if (includeVersions) db.chatVersions().allVersions() else emptyList()
+            BackupFile(
             format = BackupFile.FORMAT,
-            version = BackupFile.VERSION,
+            version = if (versions.isEmpty()) 35 else BackupFile.VERSION,
             exportedAt = System.currentTimeMillis(),
             settings = BackupSettings(
                 apiBaseUrl = lead?.apiBaseUrl ?: ApiPresets.DeepSeek.baseUrl,
@@ -318,6 +323,7 @@ class BackupService(
                 historySize = s.historySize,
                 wallpaper = s.wallpaper,
                 glassMode = s.glassMode.name,
+                glassAutoTint = s.glassAutoTint,
                 wallpaperDark = s.wallpaperDark,
                 wallpaperHue = s.wallpaperHue,
                 wallpaperChroma = s.wallpaperChroma,
@@ -399,6 +405,8 @@ class BackupService(
             worldPictures = db.world().allPictures(),
             worldPictureLooks = db.world().allPictureLooks(),
             worldAlbumPhotos = db.worldAlbum().allPhotos(), worldAlbumLooks = db.worldAlbum().allLooks(),
+            chatVersions = versions,
+            chatVersionMessages = if (includeVersions) db.chatVersions().allMessages() else emptyList(),
         ) }
         val stickerFiles = data.stickers.map { it.file }.toSet()
         if (data.worldPictures.any { !images.validWorldPicture(images.file(it.file), it.width, it.height, it.sha256) }) throw BackupException("窗外配图文件缺失或损坏，请移除无法显示的配图后再备份")
@@ -411,6 +419,7 @@ class BackupService(
         val pictures = (data.worldAlbumPhotos.map { it.file } + data.worldPictures.map { it.file } + favoriteFiles + data.diary.flatMap { e -> DiaryBlocks.images(DiaryBlocks.decode(e.blocks)).map { it.file } } +
             data.feedPosts.flatMap { MessageImages.decode(it.images).map { picture -> picture.file } } +
             data.messages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
+            ChatVersions.media(data.chatVersionMessages.map { it.message }) +
             data.groupMessages.flatMap { m -> MessageImages.decode(m.images).map { it.file } } +
             data.groups.flatMap { g -> MessageImages.decode(g.draftImages).map { it.file } } +
             // Recordings live with the pictures and travel the same way.
@@ -490,6 +499,7 @@ class BackupService(
                 MemoryRules.validateBackup(d.memoryChanges,d.memoryBlocks,d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet())
                 GroupBackupRules.validate(d.groups, d.groupMembers, d.groupTurns, d.groupMessages, d.groupMemories)
                 WorldWritingData.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldWritings, d.worldNotes, d.worldPictureLooks, d.worldAlbumLooks)
+                ChatVersions.validateBackup(d.conversations.map { it.id }.toSet(), d.messages, d.chatVersions, d.chatVersionMessages)
                 WorldSerialData.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldSerials, d.worldSerialChapters, d.worldWritings)
                 WorldJourneyTopics.validate(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldJourneyTopics, d.worldJourneyItems, d.worldArticles)
                 WorldReading.validateBackup(d.companions.map { it.id }.ifEmpty { listOf(Companions.FIRST) }.toSet(), d.worldArticles, d.worldNotes)
@@ -594,6 +604,19 @@ class BackupService(
                         m.copy(content=CallRecords.encode(CallRecords.restored(r,d.exportedAt)))
                     } ?: m else m
                 })
+                db.chatVersions().addVersions(d.chatVersions)
+                db.chatVersions().archive(d.chatVersionMessages.map { row ->
+                    val m = row.message
+                    if (m.role == "call") CallRecords.decode(m.content)?.let { r ->
+                        row.copy(message = m.copy(content = CallRecords.encode(CallRecords.restored(r, d.exportedAt))))
+                    } ?: row else row
+                })
+                // IDs belonging to an inactive branch must remain reserved after restoring to a fresh database.
+                val newestArchived = d.chatVersionMessages.maxByOrNull { it.message.id }?.message
+                if (newestArchived != null && newestArchived.id > (d.messages.maxOfOrNull { it.id } ?: 0L)) {
+                    db.messages().insert(newestArchived)
+                    db.messages().delete(newestArchived.id)
+                }
                 db.diary().insertAll(diary)
                 db.todos().insertAll(d.todos)
                 db.focus().insertAll(d.focusSessions.map(com.cleo.cleos.focus.FocusTimer::restored))
@@ -639,6 +662,7 @@ class BackupService(
                     historySize = bs.historySize,
                     wallpaper = bs.wallpaper?.takeIf { name -> images.file(name).exists() },
                     glassMode = runCatching { GlassMode.valueOf(bs.glassMode) }.getOrDefault(GlassMode.Auto),
+                    glassAutoTint = bs.glassAutoTint,
                     wallpaperDark = bs.wallpaperDark,
                     wallpaperHue = bs.wallpaperHue,
                     wallpaperChroma = bs.wallpaperChroma,

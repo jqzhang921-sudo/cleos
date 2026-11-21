@@ -957,11 +957,51 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
         } finally { c.translations.resume(); c.incomingCalls.resume(); c.groupChat.resume(); c.freeTopics.restore(); c.feedVisits.restore(); c.worldWritingScheduler.restore(); c.worldReading.restore(); c.worldAlbumScheduler.restore(); c.worldPictureScheduler.restore(); c.worldOutside.resume(); c.worldPictures.resume(); c.worldAlbum.resume(); c.worldOutsideScheduler.restore(); c.worldTopicScheduler.restore() }
     }
 
-    /** A memory file being read in, and the word on how it went. */
+    /** Import progress and status, shared with the other foreign file picker. */
     var memoryBusy by mutableStateOf(false)
         private set
     var memoryMessage by mutableStateOf<String?>(null)
         private set
+    internal var deepSeekPreview by mutableStateOf<com.cleo.cleos.data.DeepSeekPreview?>(null)
+        private set
+
+    internal fun previewDeepSeek(uri: Uri) {
+        if (memoryBusy || backupBusy || desktopTransfer.busy || companionId <= 0L) return
+        val owner = companionId
+        val name = aiName.ifBlank { "当前 TA" }
+        memoryBusy = true
+        memoryMessage = "正在读取 DeepSeek 会话索引…"
+        viewModelScope.launch {
+            try {
+                deepSeekPreview = c.deepSeekImports.preview(uri, owner, name)
+                memoryMessage = null
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: ImportException) { memoryMessage = e.message }
+            catch (_: Exception) { memoryMessage = "无法打开这份 DeepSeek 导出包" }
+            finally { memoryBusy = false }
+        }
+    }
+
+    internal fun closeDeepSeekPreview() { deepSeekPreview = null }
+
+    internal fun importDeepSeek(selected: Set<String>, includeImages: Boolean) {
+        val preview = deepSeekPreview ?: return
+        if (memoryBusy || backupBusy || desktopTransfer.busy || selected.isEmpty()) return
+        deepSeekPreview = null
+        memoryBusy = true
+        memoryMessage = "正在打开 DeepSeek 导出包…"
+        viewModelScope.launch {
+            try {
+                val result = c.deepSeekImports.run(preview, selected, includeImages) { processed, total ->
+                    withContext(Dispatchers.Main.immediate) { memoryMessage = "正在导入 DeepSeek · $processed / $total 段" }
+                }
+                memoryMessage = result.summary()
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: ImportException) { memoryMessage = e.message }
+            catch (_: Exception) { memoryMessage = "导入中断。已经导入的会话会保留，再选这份文件可以接着导入" }
+            finally { memoryBusy = false }
+        }
+    }
 
     /**
      * Brings a file from another app in: a 角色卡 (one TA each, and everything else in the file
@@ -971,7 +1011,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
      * kind is full goes to 设定 rather than nowhere.
      */
     fun importMemoryFile(uri: Uri) {
-        if (memoryBusy) return
+        if (memoryBusy || backupBusy || desktopTransfer.busy) return
         val id = companionId
         if (id <= 0L) return
         memoryBusy = true
@@ -999,7 +1039,7 @@ class SettingsViewModel(private val c: AppContainer) : ViewModel() {
 
     // App scope: a restore half done because the screen was closed is the worst outcome.
     private fun runBackup(done: String, action: suspend () -> Any) {
-        if (backupBusy || desktopTransfer.busy) return
+        if (backupBusy || memoryBusy || desktopTransfer.busy) return
         backupBusy = true
         backupMessage = null
         c.appScope.launch {

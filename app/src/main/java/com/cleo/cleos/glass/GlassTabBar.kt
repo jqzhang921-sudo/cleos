@@ -6,6 +6,7 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,13 +42,16 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -53,13 +59,18 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 @Immutable
-data class GlassTab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector = icon)
+data class GlassTab(val label: String, val icon: ImageVector)
 
-private val BarHeight = 64.dp
+private val BarHeight = 60.dp
+private val TouchHeight = 64.dp
 private val Inset = 4.dp
+private val RestLensHeight = 52.dp
+private val HeldLensHeight = 78.dp
+private val RestLensRadius = 24.dp
 
 /** Space above and below the bar that the held lens may swell into. */
 private val Overhang = 14.dp
+internal val GlassTabBarLayoutHeight = TouchHeight + Overhang * 2
 
 /**
  * A floating glass tab bar whose selection is itself a piece of glass.
@@ -69,9 +80,8 @@ private val Overhang = 14.dp
  * magnifier; drag and it follows, stretching with its speed; let go and it springs onto
  * the nearest tab, which becomes the selection.
  *
- * The lens refracts the bar itself (glass, icons, labels) plus the page behind the bar,
- * so it needs its own source: [lensSource] records the page mirror, the bar and its labels,
- * and the lens, a sibling of that source, reads it.
+ * The lens refracts the bar glass and the page behind it. The tab icon and label are
+ * foreground content and stay above both glass layers.
  */
 @Composable
 fun GlassTabBar(
@@ -103,10 +113,14 @@ fun GlassTabBar(
 
     val count = tabs.size
     val insetPx = with(density) { Inset.toPx() }
+    val restLensHeight = with(density) { RestLensHeight.toPx() }
+    val heldLensHeight = with(density) { HeldLensHeight.toPx() }
     val currentSelected by rememberUpdatedState(selectedIndex)
     val currentOnSelect by rememberUpdatedState(onSelect)
 
     fun itemWidth(): Float = if (rowWidth > 0) (rowWidth - 2 * insetPx) / count else 0f
+    fun lensWidth(width: Float, press: Float): Float = width * (0.86f + 0.28f * press) + stretch
+    fun lensHeight(press: Float): Float = restLensHeight + (heldLensHeight - restLensHeight) * press - stretch * 0.3f
 
     // The only owner of settling, including releasing over the already-selected tab.
     LaunchedEffect(selectedIndex, rowWidth, dragging, motionEnabled) {
@@ -143,103 +157,111 @@ fun GlassTabBar(
         }
     }
 
-    Box(modifier.height(BarHeight + Overhang * 2)) {
+    Box(modifier.height(GlassTabBarLayoutHeight)) {
         // A held lens at either end reaches a little past the bar, hence the overscan.
         Box(Modifier.fillMaxSize().backdropSource(lensSource, behind = backdrop, overscan = 20.dp)) {
-            Row(
-                Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .height(BarHeight)
-                    .liquidGlass(backdrop, palette.tabBar, GlassShape.Capsule)
-                    .onSizeChanged { rowWidth = it.width }
-                    .pointerInput(count, rowWidth, insetPx) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown()
-                            val iw = itemWidth()
-                            if (iw <= 0f) return@awaitEachGesture
-                            var target = TabDragMotion.target(down.position.x, insetPx, iw, count)
-                            val targets = Channel<Float>(Channel.CONFLATED)
-                            dragging = true
-                            dragVelocity = 0f
-                            scope.launch { held.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f)) }
-                            // One follower for this gesture. Touch samples only replace the latest
-                            // target; they never start/cancel an Animatable job for each sample.
-                            val follower = scope.launch {
-                                var frame = TabDragFrame(lensX.value.takeIf { it.isFinite() } ?: currentSelected * iw, 0f)
-                                var goal = target
-                                var previous = 0L
-                                while (isActive) {
-                                    if (TabDragMotion.atRest(frame, goal)) {
-                                        lensX.snapTo(goal)
-                                        stretch = 0f
-                                        dragVelocity = 0f
-                                        goal = targets.receive()
-                                        previous = 0L
-                                    }
-                                    targets.tryReceive().getOrNull()?.let { goal = it }
-                                    val now = withFrameNanos { it }
-                                    // Read the newest sample after waiting for the display frame.
-                                    targets.tryReceive().getOrNull()?.let { goal = it }
-                                    val dt = if (previous == 0L) 1f / 60f else (now - previous) / 1_000_000_000f
-                                    previous = now
-                                    frame = if (currentMotion) TabDragMotion.follow(frame, goal, iw * (count - 1), dt) else TabDragFrame(goal, 0f)
-                                    lensX.snapTo(frame.position)
-                                    dragVelocity = frame.velocity
-                                    stretch = TabDragMotion.stretch(frame.velocity, iw)
+            Box(
+                Modifier.align(Alignment.Center).fillMaxWidth().height(BarHeight)
+                    .liquidGlass(backdrop, palette.tabBar, GlassShape.Capsule),
+            )
+        }
+        Row(
+            Modifier
+                .align(Alignment.Center)
+                .zIndex(1f)
+                .fillMaxWidth()
+                .height(TouchHeight)
+                .onSizeChanged { rowWidth = it.width }
+                .pointerInput(count, rowWidth, insetPx) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        val iw = itemWidth()
+                        if (iw <= 0f) return@awaitEachGesture
+                        var target = TabDragMotion.target(down.position.x, insetPx, iw, count)
+                        val targets = Channel<Float>(Channel.CONFLATED)
+                        dragging = true
+                        dragVelocity = 0f
+                        scope.launch { held.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f)) }
+                        // One follower for this gesture. Touch samples only replace the latest
+                        // target; they never start/cancel an Animatable job for each sample.
+                        val follower = scope.launch {
+                            var frame = TabDragFrame(lensX.value.takeIf { it.isFinite() } ?: currentSelected * iw, 0f)
+                            var goal = target
+                            var previous = 0L
+                            while (isActive) {
+                                if (TabDragMotion.atRest(frame, goal)) {
+                                    lensX.snapTo(goal)
+                                    stretch = 0f
+                                    dragVelocity = 0f
+                                    goal = targets.receive()
+                                    previous = 0L
                                 }
+                                targets.tryReceive().getOrNull()?.let { goal = it }
+                                val now = withFrameNanos { it }
+                                // Read the newest sample after waiting for the display frame.
+                                targets.tryReceive().getOrNull()?.let { goal = it }
+                                val dt = if (previous == 0L) 1f / 60f else (now - previous) / 1_000_000_000f
+                                previous = now
+                                frame = if (currentMotion) TabDragMotion.follow(frame, goal, iw * (count - 1), dt) else TabDragFrame(goal, 0f)
+                                lensX.snapTo(frame.position)
+                                dragVelocity = frame.velocity
+                                stretch = TabDragMotion.stretch(frame.velocity, iw)
                             }
-                            var released = false
-                            try {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                    if (change.isConsumed) break
-                                    if (!change.pressed) {
-                                        target = TabDragMotion.target(change.position.x, insetPx, iw, count)
-                                        released = true
-                                        break
-                                    }
-                                    val next = TabDragMotion.target(change.position.x, insetPx, iw, count)
-                                    if (next != target) {
-                                        target = next
-                                        targets.trySend(target)
-                                    }
-                                    change.consume()
+                        }
+                        var released = false
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (change.isConsumed) break
+                                if (!change.pressed) {
+                                    target = TabDragMotion.target(change.position.x, insetPx, iw, count)
+                                    released = true
+                                    break
                                 }
-                            } finally {
-                                follower.cancel()
-                                targets.close()
-                                dragging = false
-                                scope.launch { held.animateTo(0f, spring(dampingRatio = 0.5f, stiffness = 300f)) }
+                                val next = TabDragMotion.target(change.position.x, insetPx, iw, count)
+                                if (next != target) {
+                                    target = next
+                                    targets.trySend(target)
+                                }
+                                change.consume()
                             }
-                            if (released) {
-                                val index = TabDragMotion.index(target, iw, count)
-                                if (index != currentSelected) {
-                                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    currentOnSelect(index)
-                                }
+                        } finally {
+                            follower.cancel()
+                            targets.close()
+                            dragging = false
+                            scope.launch { held.animateTo(0f, spring(dampingRatio = 0.5f, stiffness = 300f)) }
+                        }
+                        if (released) {
+                            val index = TabDragMotion.index(target, iw, count)
+                            if (index != currentSelected) {
+                                haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                currentOnSelect(index)
                             }
                         }
                     }
-                    .padding(horizontal = Inset),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                tabs.forEachIndexed { i, tab ->
-                    TabLabel(
-                        tab = tab,
-                        active = i == hovered,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .semantics {
-                                role = Role.Tab
-                                selected = i == selectedIndex
-                                contentDescription = tab.label
-                            },
-                    )
                 }
+                .padding(horizontal = Inset),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            tabs.forEachIndexed { i, tab ->
+                TabLabel(
+                    tab = tab,
+                    active = i == hovered,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .semantics {
+                            role = Role.Tab
+                            selected = i == selectedIndex
+                            contentDescription = tab.label
+                            onClick {
+                                if (i != currentSelected) currentOnSelect(i)
+                                true
+                            }
+                        },
+                )
             }
         }
 
@@ -247,17 +269,18 @@ fun GlassTabBar(
         // re-lays-out and redraws this one node without recomposing the bar.
         @Composable
         fun Lens() {
-            val lensStyle = lerp(palette.lens, palette.lensPressed, held.value.coerceIn(0f, 1f))
+            val press = held.value.coerceIn(0f, 1f)
+            val lensStyle = lerp(palette.lens, palette.lensPressed, press)
+            val lensRadius = RestLensRadius + (HeldLensHeight / 2 - RestLensRadius) * press
             Box(
                 Modifier
                     .offset {
                         val iw = itemWidth()
                         val h = held.value
-                        val baseH = (BarHeight - Inset * 2).toPx()
-                        val w = iw * (1f + 0.14f * h) + stretch
-                        val lh = baseH + 22.dp.toPx() * h - stretch * 0.3f
+                        val w = lensWidth(iw, h)
+                        val lh = lensHeight(h)
                         val cx = insetPx + (if (lensX.value.isNaN()) currentSelected * iw else lensX.value) + iw / 2f
-                        val cy = (BarHeight + Overhang * 2).toPx() / 2f
+                        val cy = GlassTabBarLayoutHeight.toPx() / 2f
                         // Written here rather than from the gesture: this runs every frame the
                         // lens moves, in the layout pass, so the thread is never a frame behind
                         // the lens it hangs off. The glass reads it when it draws, just after.
@@ -267,20 +290,19 @@ fun GlassTabBar(
                             lensLeft = cx - w / 2f,
                             lensHeight = lh,
                             span = iw,
-                            restHeight = baseH,
+                            restHeight = restLensHeight,
                         )
                         IntOffset((cx - w / 2f).roundToInt(), (cy - lh / 2f).roundToInt())
                     }
                     .layout { measurable, _ ->
                         val iw = itemWidth()
                         val h = held.value
-                        val baseH = (BarHeight - Inset * 2).toPx()
-                        val w = (iw * (1f + 0.14f * h) + stretch).roundToInt().coerceAtLeast(0)
-                        val lh = (baseH + 22.dp.toPx() * h - stretch * 0.3f).roundToInt().coerceAtLeast(0)
+                        val w = lensWidth(iw, h).roundToInt().coerceAtLeast(0)
+                        val lh = lensHeight(h).roundToInt().coerceAtLeast(0)
                         val placeable = measurable.measure(Constraints.fixed(w, lh))
                         layout(placeable.width, placeable.height) { placeable.place(0, 0) }
                     }
-                    .liquidGlass(lensSource, lensStyle, GlassShape.Capsule, lensMotion),
+                    .liquidGlass(lensSource, lensStyle, GlassShape.Rounded(lensRadius), lensMotion),
             )
         }
         Lens()
@@ -330,17 +352,23 @@ internal fun trailingBlob(
 private fun TabLabel(tab: GlassTab, active: Boolean, modifier: Modifier = Modifier) {
     val palette = LocalGlassPalette.current
     val color = if (active) palette.accentContent else palette.content.copy(alpha = 0.86f)
-    // Selection changes only the tint/icon, never the content width or its centered position.
-    // Full tab names remain on the parent accessibility node.
-    Box(
+    Column(
         modifier,
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
     ) {
         Icon(
-            if (active) tab.selectedIcon else tab.icon,
+            tab.icon,
             contentDescription = null,
             tint = color,
-            modifier = Modifier.size(24.dp),
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = tab.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            maxLines = 1,
+            modifier = Modifier.clearAndSetSemantics {},
         )
     }
 }

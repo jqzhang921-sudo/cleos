@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 
+internal class WakeCancelled(val detail: String) : CancellationException(detail)
+
 /** A small retry budget for ONE background opportunity, shared by all its model rounds. */
 internal class BackgroundRequest(private val pause: suspend (Long) -> Unit = { delay(it) }) {
     private var retries = 0
@@ -24,7 +26,7 @@ internal class BackgroundRequest(private val pause: suspend (Long) -> Unit = { d
     ): Flow<ChatEvent> = flow {
         while (true) {
             currentCoroutineContext().ensureActive()
-            if (!allowed()) throw CancellationException("后台执行条件改变")
+            if (!allowed()) throw WakeCancelled(WakeActivityText.CONDITIONS_CHANGED)
             onRequest()
             var received = false
             try {

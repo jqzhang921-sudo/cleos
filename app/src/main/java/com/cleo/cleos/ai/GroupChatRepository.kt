@@ -128,7 +128,7 @@ class GroupChatRepository(private val db: AppDatabase, private val settings: Set
         }
     }
 
-    internal suspend fun callRound(lease: CallLease, text: String, order: List<Long>): List<GroupMessageEntity> {
+    internal suspend fun callRound(lease: CallLease, text: String, order: List<Long>, typed: Boolean = false): List<GroupMessageEntity> {
         requireCall(lease)
         GroupCallRules.selected(order, lease.members.map { it.companionId }.toSet())
         return db.withTransaction {
@@ -136,7 +136,7 @@ class GroupChatRepository(private val db: AppDatabase, private val settings: Set
             check(dao.group(lease.group.id)?.createdAt == lease.group.createdAt) { "群聊数据已变化" }
             val now = System.currentTimeMillis()
             val user = dao.insertMessage(GroupMessageEntity(groupId = lease.group.id, role = "user",
-                content = GroupCallRules.userWords(text), createdAt = now, speakerName = settings.current().userName.ifBlank { "我" },
+                content = GroupCallRules.userWords(text, typed), createdAt = now, speakerName = settings.current().userName.ifBlank { "我" },
                 mentions = GroupChatRules.encode(order)))
             val turn = dao.insertTurn(GroupTurnEntity(groupId = lease.group.id, userMessageId = user,
                 targets = GroupChatRules.encode(order), createdAt = now))

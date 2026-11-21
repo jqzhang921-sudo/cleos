@@ -329,6 +329,17 @@ class PromptTest {
     }
 
     @Test
+    fun anAlbumReplyQuotesTheCommentWithoutAttachingThePhoto() {
+        val quote = com.cleo.cleos.data.MessageQuote(0L, "assistant", "照片拍得很早。\n\n那天几点出门？", fromAlbum = true)
+        val row = msg("user", "七点就出门了").copy(quote = MessageQuotes.encode(quote))
+        val out = Prompt.messages(AppSettings(), ta(), listOf(row), now, images = true).last()
+        assertTrue(out.content.contains("共享相册里留下的留言"))
+        assertTrue(out.content.contains("那天几点出门？"))
+        assertTrue(out.content.endsWith("七点就出门了"))
+        assertTrue(out.images.isEmpty())
+    }
+
+    @Test
     fun theTasQuoteGoesBackAsTheSendMessageItWas() {
         val asked = msg("user", "今天吃什么")
         val history = listOf(

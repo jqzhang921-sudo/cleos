@@ -2,8 +2,6 @@ package com.cleo.cleos.ui.world
 
 import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyListState
@@ -12,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
@@ -28,6 +25,8 @@ import com.cleo.cleos.data.db.*
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.appContainer
 import com.cleo.cleos.ui.common.fadeUnderTopBar
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
@@ -103,10 +102,12 @@ internal fun WorldOutsidePage(ta: CompanionEntity?, articles: List<WorldArticleE
         return
     }
     TabScrollColumn(Modifier.fillMaxSize().fadeUnderTopBar(top, bottom), state = list, contentPadding = worldPadding(top, bottom), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item(key = "tabs") { PrimaryTabRow(selectedTabIndex = tab, containerColor = Color.Transparent, contentColor = p.content) {
-            listOf("见闻", "足迹", "笔记").forEachIndexed { index, label -> Tab(selected = tab == index, enabled = !managing,
-                onClick = { navigation.outsideTab.value = index; options = false }, text = { Text(label, fontSize = 15.sp) }) }
-        } }
+        item(key = "tabs") {
+            SlidingCapsuleTabs(listOf("见闻", "足迹", "笔记"), tab, systemMotionEnabled(), enabled = !managing) { index ->
+                navigation.outsideTab.value = index
+                options = false
+            }
+        }
         if (!managing) item(key = "actions") { WorldPanel {
             Text("${source.name} · 来源摘要", color = p.contentSecondary, fontSize = 12.sp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -141,10 +142,7 @@ internal fun WorldOutsidePage(ta: CompanionEntity?, articles: List<WorldArticleE
             0 -> {
                 item(key = "management") { WorldOutsideManagement(ta, outside, shown, navigation, busy || refresh?.busy == true) }
                 if (!managing && outside.isNotEmpty()) item(key = "source-filter") {
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (listOf("") + outside.map { it.source }.distinct().sorted()).forEach { sourceName -> FilterChip(selected = filter == sourceName,
-                            onClick = { filter = sourceName }, label = { Text(sourceName.ifEmpty { "全部来源" }) }) }
-                    }
+                    WorldOutsideSourceTabs(outside, filter) { filter = it }
                 }
                 if (outside.isEmpty()) item(key = "empty") { WorldPanel {
                     Text("窗外还没有见闻", color = p.content, fontSize = 18.sp)

@@ -15,11 +15,11 @@ internal class GroupCallRounds(participants: List<Long>, private val transcripti
 
     suspend fun <T> run(transcribe: suspend () -> String,
         begin: suspend (String, List<Long>) -> List<T>, respond: suspend (T) -> Unit,
-        finish: suspend (List<T>) -> Unit, onHeard: (String) -> Unit = {}) = gate.withLock {
+        finish: suspend (List<T>) -> Unit, onHeard: (String) -> Unit = {}, typedWords: String? = null) = gate.withLock {
         currentCoroutineContext().ensureActive()
-        val raw = withTimeoutOrNull(transcriptionTimeoutMs) { transcribe() }
+        val raw = typedWords ?: withTimeoutOrNull(transcriptionTimeoutMs) { transcribe() }
             ?: throw GroupCallTranscriptionTimeoutException()
-        val words = GroupCallRules.userWords(raw).substringAfter('\n')
+        val words = GroupCallRules.userWords(raw, typed = typedWords != null).substringAfter('\n')
         currentCoroutineContext().ensureActive()
         onHeard(words)
         var slots: List<T>? = null

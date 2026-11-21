@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.chat
 
+import android.graphics.ImageDecoder
 import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -19,9 +20,12 @@ import com.cleo.cleos.data.MessageQuote
 import com.cleo.cleos.data.MessageQuotes
 import com.cleo.cleos.data.Pats
 import com.cleo.cleos.data.PickedSticker
+import com.cleo.cleos.data.PickedImageTooLarge
 import com.cleo.cleos.data.StickerException
 import com.cleo.cleos.data.db.MessageEntity
 import com.cleo.cleos.data.db.StickerEntity
+import java.io.FileNotFoundException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +42,7 @@ import kotlinx.coroutines.launch
 data class ChatUiState(
     val conversationId: Long? = null,
     val messages: List<MessageEntity> = emptyList(),
+    val versions: List<com.cleo.cleos.data.db.ChatVersionEntity> = emptyList(),
     /** What to draw live below the stored messages; text already stored is blanked out. */
     val streaming: StreamingReply? = null,
     /** A reply is under way here (the stop button), including while its tools run. */
@@ -108,12 +113,14 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
             (list.firstOrNull { it.id == conversation?.companionId } ?: list.firstOrNull())?.let { conversation to it }
         }.filterNotNull()
         combine(
-            c.db.messages().observe(id),
-            combine(c.chat.streaming, c.chat.transcribing) { streaming, transcribing -> streaming to transcribing },
+            combine(c.db.messages().observe(id), c.db.chatVersions().observe(id)) { messages, versions -> messages to versions },
+            combine(c.chat.streaming, c.chat.transcribing, c.chat.revising) { streaming, transcribing, revising ->
+                Triple(streaming, transcribing, revising)
+            },
             here,
             here.map { it.second.apiBaseUrl }.distinctUntilChanged().flatMapLatest { c.secrets.hasKey(it) },
             c.settings.settings,
-        ) { messages, (streaming, transcribing), (conversation, ta), hasKey, s ->
+        ) { (messages, versions), (streaming, transcribing, revising), (conversation, ta), hasKey, s ->
             val live = streaming[id]
             // Once the stored copy of the live text is in the list, the live one steps
             // aside: all of it when the reply is over, only the text while tools still run.
@@ -121,13 +128,14 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
             ChatUiState(
                 conversationId = id,
                 messages = messages,
+                versions = versions,
                 streaming = when {
                     live == null -> null
                     stored && live.finished -> null
                     stored -> live.copy(text = "")
                     else -> live
                 },
-                replying = live != null && !live.finished,
+                replying = (live != null && !live.finished) || id in revising,
                 hasApiKey = hasKey,
                 companionId = ta.id,
                 aiName = ta.name,
@@ -156,18 +164,41 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
     val attachments = mutableStateListOf<MessageImage>()
     var attaching by mutableStateOf(false)
         private set
+    var attachmentProblem by mutableStateOf<String?>(null)
+        private set
 
     fun attach(uris: List<Uri>) {
-        if (uris.isEmpty()) return
+        if (uris.isEmpty() || attaching) return
+        attachmentProblem = null
+        attaching = true
         viewModelScope.launch {
-            attaching = true
-            for (uri in uris.take(Prompt.MAX_IMAGES - attachments.size)) {
-                runCatching { c.images.import(uri, maxEdge = 2048, prefix = "chat-") }
-                    .onSuccess { attachments += MessageImage(it.file, it.width, it.height) }
+            val remaining = (Prompt.MAX_IMAGES - attachments.size).coerceAtLeast(0)
+            val problems = linkedSetOf<String>()
+            if (uris.size > remaining) problems += "每条消息最多 ${Prompt.MAX_IMAGES} 张，超出的图片未添加"
+            try {
+                for (uri in uris.take(remaining)) {
+                    try {
+                        val image = c.images.import(uri, maxEdge = 2048, prefix = "chat-")
+                        attachments += MessageImage(image.file, image.width, image.height)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        problems += when (e) {
+                            is PickedImageTooLarge -> "图片尺寸过大，请先缩小再选择"
+                            is ImageDecoder.DecodeException -> "图片无法解码，可以另存为 JPG 或 PNG 再试"
+                            is FileNotFoundException, is SecurityException -> "读不到原图，请保存到手机后再选择"
+                            else -> "有图片没能添加，请重新选择"
+                        }
+                    }
+                }
+                attachmentProblem = problems.joinToString("。").ifEmpty { null }
+            } finally {
+                attaching = false
             }
-            attaching = false
         }
     }
+
+    fun dismissAttachmentProblem() { attachmentProblem = null }
 
     fun detach(image: MessageImage) {
         attachments.remove(image)
@@ -182,6 +213,12 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
         quoting = MessageQuotes.of(message)
     }
 
+    internal fun acceptAlbumQuote(draft: ChatRepository.AlbumReplyDraft): Boolean {
+        if (conversationId.value != draft.conversationId || !c.chat.albumReplyDraft.compareAndSet(draft, null)) return false
+        quoting = draft.quote
+        return true
+    }
+
     fun unquote() {
         quoting = null
     }
@@ -193,9 +230,11 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
 
     /** False when nothing went out: the text and pictures stay where they are. */
     fun send(text: String, diaryRequestId: Long? = null, feedShare: com.cleo.cleos.data.FeedShare? = null): Boolean {
+        if (attaching) return false
         val id = conversationId.value ?: return false
         if (!c.chat.send(id, text, attachments.toList(), quoting, diaryRequestId, feedShare)) return false
         attachments.clear()
+        attachmentProblem = null
         quoting = null
         return true
     }
@@ -294,15 +333,20 @@ class ChatViewModel(private val c: AppContainer) : ViewModel() {
         conversationId.value?.let { c.chat.stop(it) }
     }
 
-    fun retry(messageId: Long) {
-        conversationId.value?.let { c.chat.retry(it, messageId) }
+    fun retry(messageId: Long, done: (String?) -> Unit) {
+        conversationId.value?.let { id -> c.chat.retry(id, messageId) { problem ->
+            viewModelScope.launch { if (conversationId.value == id) done(problem) }
+        } }
     }
 
     fun editMessage(message: MessageEntity, text: String, done: (String?) -> Unit) {
         if (conversationId.value != message.conversationId) { done("已切换聊天，请重新打开编辑"); return }
-        c.chat.editMessage(message, text) { branch, problem -> viewModelScope.launch {
-            if (branch != null && conversationId.value == message.conversationId) c.settings.setCurrentConversation(branch)
-            done(problem)
+        c.chat.editMessage(message, text) { problem -> viewModelScope.launch { done(problem) } }
+    }
+
+    fun switchVersion(from: Long, to: Long, done: (String?) -> Unit) {
+        conversationId.value?.let { id -> c.chat.switchVersion(id, from, to) { problem ->
+            viewModelScope.launch { if (conversationId.value == id) done(problem) }
         } }
     }
 

@@ -277,7 +277,9 @@ data class FeedVisitStateEntity(
 )
 
 @Serializable
-@Entity(tableName = "conversations", indices = [Index("companionId")])
+@Entity(tableName = "conversations", indices = [
+    Index("companionId"), Index(value = ["companionId", "importSource"], unique = true),
+])
 data class ConversationEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
@@ -294,6 +296,7 @@ data class ConversationEntity(
     /** One pending follow-up; cleared atomically before the model is asked. */
     val followUpMessageId: Long? = null,
     val followUpAt: Long? = null,
+    val importSource: String? = null,
 )
 
 @Serializable

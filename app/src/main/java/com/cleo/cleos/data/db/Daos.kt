@@ -81,6 +81,12 @@ interface ConversationDao {
     @Query("SELECT * FROM conversations WHERE id = :id")
     suspend fun get(id: Long): ConversationEntity?
 
+    @Query("SELECT importSource FROM conversations WHERE companionId = :companionId AND importSource IS NOT NULL")
+    suspend fun importSources(companionId: Long): List<String>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM conversations WHERE companionId = :companionId AND importSource = :source)")
+    suspend fun hasImport(companionId: Long, source: String): Boolean
+
     @Insert
     suspend fun insert(conversation: ConversationEntity): Long
 
@@ -283,6 +289,12 @@ interface MessageDao {
             "AND (createdAt > :at OR (createdAt = :at AND id > :id)) ORDER BY createdAt, id",
     )
     suspend fun after(conversationId: Long, at: Long, id: Long): List<MessageEntity>
+
+    @Query("SELECT * FROM messages WHERE conversationId = :conversation AND (createdAt > :at OR (createdAt = :at AND id >= :id)) ORDER BY createdAt,id")
+    suspend fun tail(conversation: Long, at: Long, id: Long): List<MessageEntity>
+
+    @Query("DELETE FROM messages WHERE conversationId = :conversation AND (createdAt > :at OR (createdAt = :at AND id >= :id))")
+    suspend fun deleteTail(conversation: Long, at: Long, id: Long)
 
     @Query("SELECT COUNT(*) FROM messages WHERE conversationId = :conversationId")
     suspend fun count(conversationId: Long): Int

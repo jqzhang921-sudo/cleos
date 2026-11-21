@@ -14,22 +14,25 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.cleo.cleos.glass.LocalGlassPalette
 
 /** World filters use the same capsule proportions as the record-page writer filters. */
 @Composable
-internal fun WorldFilterChip(text: String, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun WorldFilterChip(text: String, selected: Boolean, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = LocalGlassPalette.current
     Box(
-        Modifier.alpha(if (enabled) 1f else .38f).clip(CircleShape)
+        modifier.alpha(if (enabled) 1f else .38f).clip(CircleShape)
             .background(p.content.copy(alpha = if (selected) .14f else .06f))
-            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, interactionSource = null,
+                indication = null, onClick = onClick)
             .heightIn(min = 44.dp).padding(horizontal = 16.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, color = if (selected) p.content else p.contentSecondary, fontSize = 14.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

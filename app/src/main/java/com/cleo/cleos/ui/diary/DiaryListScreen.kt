@@ -288,7 +288,7 @@ private fun toRows(entries: List<DiaryEntryEntity>, file: (String) -> File): Lis
 private fun MonthHeader(month: YearMonth) {
     val palette = LocalGlassPalette.current
     Box(Modifier.padding(start = 6.dp, top = 8.dp, bottom = 2.dp)) {
-        GlassSurface(style = palette.bar, shape = GlassShape.Capsule, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp)) {
+        GlassSurface(style = palette.notice, shape = GlassShape.Capsule, contentPadding = PaddingValues(horizontal = 14.dp, vertical = 5.dp)) {
             Text(Dates.yearMonth(month.atDay(1)), color = palette.content, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
         }
     }

@@ -305,6 +305,9 @@ internal fun DataPage(vm: SettingsViewModel) {
     val memoryPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importMemoryFile(uri)
     }
+    val deepSeekPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.previewDeepSeek(uri)
+    }
 
     Section("备份") {
         Text(
@@ -315,10 +318,10 @@ internal fun DataPage(vm: SettingsViewModel) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Chip(if (vm.backupBusy) "正在处理…" else "导出备份", selected = false) {
-                if (!vm.backupBusy && !vm.desktopTransfer.busy) exportPicker.launch("cleos-备份-${java.time.LocalDate.now()}.zip")
+                if (!vm.backupBusy && !vm.memoryBusy && !vm.desktopTransfer.busy) exportPicker.launch("cleos-备份-${java.time.LocalDate.now()}.zip")
             }
             Chip("从备份恢复", selected = false) {
-                if (!vm.backupBusy && !vm.desktopTransfer.busy) restorePicker.launch(arrayOf("application/zip", "application/octet-stream"))
+                if (!vm.backupBusy && !vm.memoryBusy && !vm.desktopTransfer.busy) restorePicker.launch(arrayOf("application/zip", "application/octet-stream"))
             }
         }
         if (vm.canUndoRestore) {
@@ -329,9 +332,12 @@ internal fun DataPage(vm: SettingsViewModel) {
     DesktopTransferSection(vm.desktopTransfer,vm.backupBusy || vm.memoryBusy)
 
     Section("从别的 app 搬过来") {
+        Chip("导入 DeepSeek 聊天", selected = false) {
+            if (!vm.memoryBusy && !vm.backupBusy && !vm.desktopTransfer.busy) deepSeekPicker.launch(arrayOf("*/*"))
+        }
         Text(
             "选一个文件，四样都认：角色卡（PNG 图片卡也认；一张新开一个 TA，文件里几张就开几个，别的东西都归第一个）、" +
-                "世界书（进「设定」，聊天时 TA 自己去查）、记忆库、历史聊天（Operit JSON 也认，多段对话分别保留，归当前 TA）。也可以只搬记忆：" +
+                "世界书（进「设定」，聊天时 TA 自己去查）、记忆库、历史聊天（支持 Operit JSON、Chatbox V3 ZIP 的文字内容，归当前 TA）。也可以只搬记忆：" +
                 "JSON、纯文本、Markdown、Word（.docx）都行，一段或一行一件，「名字: 内容」拆成两半。Word 只读取正文和表格文字，普通截图需要先提取文字。" +
                 "记忆同名的并进已有那件，缺的细节补上；一类最多记 10 件，多的放进「设定」；设定里已经有的条目不会重复进来。",
             color = palette.contentSecondary,
@@ -340,10 +346,11 @@ internal fun DataPage(vm: SettingsViewModel) {
         )
         // Any type: a file passed along through a chat app often comes back without a JSON type.
         Chip(if (vm.memoryBusy) "正在导入…" else "选个文件", selected = false) {
-            if (!vm.memoryBusy && !vm.desktopTransfer.busy) memoryPicker.launch(arrayOf("*/*"))
+            if (!vm.memoryBusy && !vm.backupBusy && !vm.desktopTransfer.busy) memoryPicker.launch(arrayOf("*/*"))
         }
         vm.memoryMessage?.let { Text(it, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }
     }
+    vm.deepSeekPreview?.let { DeepSeekImportDialog(it, vm::closeDeepSeekPreview, vm::importDeepSeek) }
 
     vm.backupMessage?.let { message ->
         Section(null) { Text(message, color = palette.content, fontSize = 13.sp, lineHeight = 19.sp) }

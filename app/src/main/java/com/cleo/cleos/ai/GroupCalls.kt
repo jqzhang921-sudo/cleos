@@ -5,7 +5,6 @@ import com.cleo.cleos.CallService
 import com.cleo.cleos.data.*
 import com.cleo.cleos.data.db.*
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.*
 import java.io.File
 import java.nio.ByteBuffer
@@ -14,10 +13,10 @@ import java.nio.ByteOrder
 data class GroupCallState(val session: Long, val groupId: Long, val title: String = "一起通话",
     val members: List<GroupMemberEntity> = emptyList(), val phase: CallPhase = CallPhase.Ringing,
     val answeredAt: Long? = null, val endedAt: Long? = null, val speakerId: Long? = null,
-    val muted: Boolean = false, val held: Boolean = false, val heard: String? = null,
-    val saying: String? = null, val problem: String? = null, val preparingVoice: Boolean = false,
+    val muted: Boolean = false, val held: Boolean = false, val captions: List<CallCaption> = emptyList(),
+    val problem: String? = null, val preparingVoice: Boolean = false,
     /** The person hung up: leave the call page even while durable writes are finishing. */
-    val hangUpRequested: Boolean = false)
+    val hangUpRequested: Boolean = false, val typing: Boolean = false)
 
 private class GroupCallSetupException(message: String) : Exception(message)
 
@@ -35,6 +34,7 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
     private var job: Job? = null
     @Volatile private var turn: Job? = null
     @Volatile private var mic: CallMic? = null
+    @Volatile private var callInput: CallInput? = null
     @Volatile private var player: CallPlayer? = null
 
     fun start(groupId: Long, participants: List<Long>, expectedCreatedAt: Long): Boolean = synchronized(this) {
@@ -43,7 +43,7 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
         _state.value = GroupCallState(session, groupId)
         val next = ownedCallJob(scope, CallAudioOwnership.slot, this, finished = {
                 _state.update { if (it?.session != session) it else if (it.hangUpRequested) null else it.copy(phase = CallPhase.Ended,
-                    endedAt = it.endedAt ?: System.currentTimeMillis(), speakerId = null, saying = null) }
+                    endedAt = it.endedAt ?: System.currentTimeMillis(), speakerId = null) }
                 if (_state.value?.session == session) scope.launch {
                     delay(if (_state.value?.problem == null) 1800 else 5000)
                     _state.update { if (it?.session == session && it.phase == CallPhase.Ended) null else it }
@@ -62,7 +62,7 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
     fun hangUp() = end(requested = true)
 
     private fun end(requested: Boolean = false) {
-        _state.update { it?.copy(phase = CallPhase.Ended, endedAt = it.endedAt ?: System.currentTimeMillis(), saying = null,
+        _state.update { it?.copy(phase = CallPhase.Ended, endedAt = it.endedAt ?: System.currentTimeMillis(),
             hangUpRequested = requested || it.hangUpRequested) }
         mic?.muted = true
         turn?.cancel()
@@ -72,10 +72,39 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
     }
     fun interrupt() { turn?.cancel(); player?.stop() }
     fun mute(value: Boolean) { mic?.muted = value; _state.update { it?.copy(muted = value) } }
+
+    @Synchronized
+    fun setTyping(session: Long, typing: Boolean) {
+        val st = _state.value ?: return
+        val input = callInput ?: return
+        if (st.session != session || st.answeredAt == null || st.phase == CallPhase.Ended) return
+        input.mic.typing = typing
+        _state.update { if (it?.session == session) it.copy(typing = typing) else it }
+    }
+
+    @Synchronized
+    fun sendText(session: Long, text: String): Boolean {
+        val words = text.trim()
+        val input = callInput ?: return false
+        if (words.isEmpty() || words.length > CallInput.MAX_TEXT) return false
+        while (true) {
+            val st = _state.value ?: return false
+            if (st.session != session || !st.typing || st.held || st.phase != CallPhase.Listening) return false
+            val thinking = st.copy(phase = CallPhase.Thinking, problem = null)
+            if (!_state.compareAndSet(st, thinking)) continue
+            if (input.send(words)) return true
+            _state.compareAndSet(thinking, st)
+            return false
+        }
+    }
     private fun problem(text: String) { _state.update { it?.copy(problem = text) } }
     private fun setup(ok: Boolean, message: String) { if (!ok) throw GroupCallSetupException(message) }
     private fun phase(value: CallPhase, target: Long? = null, words: String? = null) {
-        _state.update { if (it?.phase == CallPhase.Ended) it else it?.copy(phase = value, speakerId = target, saying = words, preparingVoice = false) }
+        _state.update { state ->
+            if (state == null || state.phase == CallPhase.Ended) state
+            else state.copy(phase = value, speakerId = target, preparingVoice = false,
+                captions = if (words == null) state.captions else state.captions.withCaption(words, fromUser = false))
+        }
     }
 
     private suspend fun run(id: Long, participants: List<Long>, expectedCreatedAt: Long) {
@@ -84,7 +113,7 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
         var audio: CallPlayer? = null
         var microphone: CallMic? = null
         var focus: Focus? = null
-        val heard = Channel<MicHeard>(1)
+        val inputs = CallInput(PhoneMic(), keepPauses = false)
         try {
             val held = groups.reserveCall(id, participants, currentCoroutineContext().job, expectedCreatedAt).also { lease = it }
             val conversations = held.tas.flatMap { db.conversations().idsFor(it.id) }.toSet()
@@ -105,9 +134,10 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
             currentCoroutineContext().ensureActive()
             _state.update { it?.copy(title = held.group.title, members = held.members) }
             val sound = CallPlayer().also { audio = it; player = it }
-            val input = CallMic(PhoneMic()) { if (it.heard is TurnDetector.Ended) heard.trySend(it) }.also {
+            val input = inputs.mic.also {
                 microphone = it; mic = it; it.muted = _state.value?.muted == true
             }
+            callInput = inputs
             focus = Focus(context) { focus ->
                 val paused = focus != CallFocusState.Ready
                 input.held = paused
@@ -136,8 +166,13 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
                         }
                         val state = _state.value
                         _level.value = if (state?.phase == CallPhase.Speaking) sound.level else input.level
-                        if (state?.phase in setOf(CallPhase.Listening, CallPhase.Hearing))
-                            phase(if (input.hearing) CallPhase.Hearing else CallPhase.Listening)
+                        _state.update {
+                            when {
+                                it?.phase == CallPhase.Listening && !it.typing && input.hearing -> it.copy(phase = CallPhase.Hearing)
+                                it?.phase == CallPhase.Hearing && !input.hearing -> it.copy(phase = CallPhase.Listening)
+                                else -> it
+                            }
+                        }
                         delay(50)
                     }
                 }
@@ -145,38 +180,45 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
                     val rounds = GroupCallRounds(participants)
                     var quiet = 0
                     while (isActive) {
-                        while (heard.tryReceive().isSuccess) { /* Discard stale detection before reopening input. */ }
                         phase(CallPhase.Listening)
                         input.listen()
-                        var speech: MicHeard? = null
-                        while (speech == null) {
-                            speech = withTimeoutOrNull(15_000) { heard.receive() }
-                            if (speech != null && !input.accepts(speech)) {
-                                speech = null
+                        var utterance: CallUtterance? = null
+                        while (utterance == null) {
+                            utterance = inputs.receive(15_000)
+                            if (utterance is CallUtterance.Audio && !input.accepts(utterance.event)) {
+                                utterance = null
                                 input.listen()
                                 continue
                             }
-                            if (speech == null) {
-                                if (input.muted || input.held || input.hearing) quiet = 0 else quiet += 15
+                            if (utterance == null) {
+                                if (input.muted || input.held || input.hearing || input.typing) quiet = 0 else quiet += 15
                                 if (quiet >= 180) { problem("好一会儿没有说话，通话先结束了"); return@coroutineScope }
                             }
                         }
-                        val clip = speech
+                        val spoken = (utterance as? CallUtterance.Audio)?.event
+                        val typed = (utterance as? CallUtterance.Text)?.words
                         quiet = 0
-                        // This child owns ASR, generation and playback; tapping cancels the entire round.
+                        if (typed != null) input.pause()
+                        // This child owns ASR, generation and playback; the interrupt button cancels the round.
                         val current = launch {
                             val trace = GroupCallTrace(diagnostic)
                             try {
-                                if (!input.accepts(clip)) return@launch
+                                if (spoken != null && !input.accepts(spoken)) return@launch
                                 phase(CallPhase.Thinking)
-                                val samples = (clip.heard as TurnDetector.Ended).pcm
-                                trace.audio(samples.size * 1000L / Voice.RATE)
                                 var position = 0
-                                rounds.run({ trace.measure(GroupCallStep.TRANSCRIBE) { transcribe(samples, common) } },
-                                    { words, order -> trace.measure(GroupCallStep.STORE) { groups.callRound(held, words, order) } },
+                                rounds.run({
+                                    val samples = (requireNotNull(spoken).heard as TurnDetector.Ended).pcm
+                                    trace.audio(samples.size * 1000L / Voice.RATE)
+                                    trace.measure(GroupCallStep.TRANSCRIBE) { transcribe(samples, common) }
+                                },
+                                    { words, order -> trace.measure(GroupCallStep.STORE) { groups.callRound(held, words, order, typed = typed != null) } },
                                     { slot -> speak(held, slot, voices.getValue(requireNotNull(slot.speakerId)), sound, trace.member(++position)) },
                                     { slots -> trace.measure(GroupCallStep.STORE) { groups.finishCallRound(held, slots) } },
-                                    { words -> _state.update { it?.copy(heard = words, problem = null) } })
+                                    { words -> _state.update { state ->
+                                        if (state == null || state.phase == CallPhase.Ended) state
+                                        else state.copy(captions = state.captions.withCaption(words, fromUser = true), problem = null)
+                                    } },
+                                    typedWords = typed)
                                 trace.complete()
                             } catch (e: GroupCallTranscriptionTimeoutException) {
                                 trace.failure(GroupCallStep.TRANSCRIBE, e); problem(e.message!!)
@@ -197,8 +239,8 @@ class GroupCalls(context: Context, private val db: AppDatabase, private val grou
             }
         } finally {
             withContext(NonCancellable + Dispatchers.IO) {
-                mic = null; player = null
-                runCatching { microphone?.stop() }; runCatching { audio?.release() }; runCatching { focus?.give() }; heard.close()
+                mic = null; player = null; callInput = null
+                runCatching { microphone?.stop() }; runCatching { audio?.release() }; runCatching { focus?.give() }; inputs.close()
                 CallService.stop(context)
                 _level.value = 0f
                 lease?.let { groups.releaseCall(it) }

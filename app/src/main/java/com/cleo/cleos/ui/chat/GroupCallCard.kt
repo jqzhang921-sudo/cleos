@@ -17,11 +17,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.cleo.cleos.ai.GroupCallRules
 import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.*
 import com.cleo.cleos.data.db.GroupMessageEntity
@@ -32,6 +32,7 @@ import com.cleo.cleos.data.db.GroupMessageEntity
 internal fun GroupCallCard(round: GroupChatItem.CallRound, epoch: Long, userAvatar: String?,
     onExpanded: () -> Unit, messageMenu: @Composable (GroupMessageEntity, Boolean, () -> Unit) -> Unit) {
     val palette = LocalGlassPalette.current
+    val transcriptStyle = LocalChatType.current.small
     var open by rememberSaveable(round.anchor.groupId, epoch, round.anchor.id) { mutableStateOf(false) }
     var reveal by remember { mutableStateOf(false) }
     var headerMenu by remember(round.anchor.id) { mutableStateOf(false) }
@@ -77,7 +78,7 @@ internal fun GroupCallCard(round: GroupChatItem.CallRound, epoch: Long, userAvat
                         round.messages.forEach { row -> key(row.id) {
                             var rowMenu by remember { mutableStateOf(false) }
                             val name = row.speakerName.ifBlank { if (row.role == "user") "我" else "TA" }
-                            val words = if (row.role == "user") GroupCallWords(row.content.removePrefix(GROUP_CALL_USER))
+                            val words = if (row.role == "user") GroupCallWords(GroupCallRules.userText(row.content) ?: row.content)
                                 else groupCallWords(row.content) ?: GroupCallWords(row.content)
                             Box {
                             Row(Modifier.fillMaxWidth().combinedClickable(onClick = {}, onLongClickLabel = "操作${name}的消息",
@@ -86,11 +87,10 @@ internal fun GroupCallCard(round: GroupChatItem.CallRound, epoch: Long, userAvat
                                     row.speakerEmoji ?: avatarLetter(name, "TA"), 24.dp)
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(name + if (row.role == "user") " · 转写" else "", color = palette.contentSecondary, fontSize = 11.sp)
-                                    if (words.spoken.isNotBlank()) MessageText(words.spoken, palette.content,
-                                        TextStyle(fontSize = 14.sp, lineHeight = 21.sp))
+                                    if (words.spoken.isNotBlank()) MessageText(words.spoken, palette.content, transcriptStyle)
                                     if (words.unfinished.isNotBlank()) {
                                         Text("这句未完整播完", color = palette.contentSecondary, fontSize = 11.sp)
-                                        MessageText(words.unfinished, palette.contentSecondary, TextStyle(fontSize = 14.sp, lineHeight = 21.sp))
+                                        MessageText(words.unfinished, palette.contentSecondary, transcriptStyle)
                                     }
                                     if (words.spoken.isBlank() && words.unfinished.isBlank()) Text(when (row.status) {
                                         "pending" -> "等会儿接话…"

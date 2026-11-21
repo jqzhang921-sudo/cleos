@@ -658,6 +658,11 @@ internal fun requestBody(
                                     put("name", c.name)
                                     put("arguments", sendableArguments(c.arguments))
                                 }
+                                c.googleThoughtSignature?.let { signature ->
+                                    putJsonObject("extra_content") {
+                                        putJsonObject("google") { put("thought_signature", signature) }
+                                    }
+                                }
                             }
                         }
                     }

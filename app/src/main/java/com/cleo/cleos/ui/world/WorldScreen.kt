@@ -2,7 +2,6 @@ package com.cleo.cleos.ui.world
 
 import com.cleo.cleos.ui.common.TabScrollColumn
 import com.cleo.cleos.ui.common.systemMotionEnabled
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.BackHandler
@@ -26,7 +25,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -84,6 +82,7 @@ import com.cleo.cleos.data.db.WorldPictureEntity
 import com.cleo.cleos.glass.GlassIconButton
 import com.cleo.cleos.glass.GlassShape
 import com.cleo.cleos.glass.GlassSurface
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
 import com.cleo.cleos.glass.LocalGlassPalette
 import com.cleo.cleos.glass.LocalWallpaperBackdrop
 import com.cleo.cleos.ui.LocalPageShown
@@ -348,7 +347,7 @@ private fun SpaceDeck(depth: Boolean, articles: Int, notes: Int, outside: Int, o
             Text("四个小空间", color = palette.content, fontSize = 15.sp, fontWeight = FontWeight.Medium)
             Text("${pager.currentPage + 1} / ${WorldSpace.entries.size}", color = palette.contentSecondary, fontSize = 12.sp)
         }
-        SpaceTabs(pager, depth)
+        SlidingCapsuleTabs(WorldSpace.entries.map { it.short }, pager, depth)
         HorizontalPager(
             state = pager,
             modifier = Modifier.fillMaxWidth().height(cardHeight + 24.dp),
@@ -396,42 +395,6 @@ private fun SpaceDeck(depth: Boolean, articles: Int, notes: Int, outside: Int, o
             }
         }
     }
-}
-
-/** The highlight follows the pager itself; it never waits for settledPage or starts a second animation. */
-@Composable
-private fun SpaceTabs(pager: PagerState, motion: Boolean) {
-    val palette = LocalGlassPalette.current
-    val scope = rememberCoroutineScope()
-    var navigation by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-        val itemWidth = maxWidth / WorldSpace.entries.size
-        Box(Modifier.align(Alignment.CenterStart).width(itemWidth - 4.dp).height(36.dp)
-            .graphicsLayer {
-                translationX = 2.dp.toPx() +
-                    (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, (WorldSpace.entries.size - 1).toFloat()) * itemWidth.toPx()
-            }
-            .background(palette.content.copy(alpha = .08f), RoundedCornerShape(50)))
-        Row(Modifier.fillMaxWidth().selectableGroup()) {
-            WorldSpace.entries.forEachIndexed { index, space ->
-                val selected = pager.currentPage == index
-                val ink by animateColorAsState(if (selected) palette.accentContent else palette.contentSecondary,
-                    animationSpec = tween(if (motion) 140 else 0), label = "space-tab-ink")
-                Box(Modifier.weight(1f).heightIn(min = 44.dp)
-                    .selectable(selected, interactionSource = null, indication = null, role = Role.Tab, onClick = {
-                        navigation?.cancel()
-                        navigation = scope.launch {
-                            if (motion) pager.animateScrollToPage(index, animationSpec = tween(320, easing = FastOutSlowInEasing))
-                            else pager.scrollToPage(index)
-                        }
-                    }).padding(horizontal = 4.dp, vertical = 10.dp), contentAlignment = Alignment.Center) {
-                    Text(space.short, color = ink, fontSize = 13.sp, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                }
-            }
-        }
-    }
-
 }
 
 /** Palette silhouettes, not actual photos or covers. */

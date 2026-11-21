@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.cleo.cleos.ai.GroupCallRules
 import com.cleo.cleos.ai.GroupMemoryRules
 import com.cleo.cleos.data.StickerText
 import com.cleo.cleos.data.db.*
@@ -103,7 +104,7 @@ internal fun GroupMessageActionsMenu(row: GroupMessageEntity, expanded: Boolean,
     onTranslate: (() -> Unit)? = null, voiceTextAction: MessageMenuAction? = null) {
     val clipboard = LocalClipboard.current
     val scope = rememberCoroutineScope()
-    val transcript = if (row.role == "user") row.content.removePrefix(GROUP_CALL_USER)
+    val transcript = if (row.role == "user") GroupCallRules.userText(row.content) ?: row.content
         else groupCallWords(row.content)?.let { listOf(it.spoken, it.unfinished).filter(String::isNotBlank).joinToString("\n") } ?: row.content
     val words = StickerText.plain(transcript)
     val actions = buildList {

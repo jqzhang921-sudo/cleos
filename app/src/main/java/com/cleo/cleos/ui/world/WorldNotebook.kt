@@ -1,10 +1,11 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
+
 import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -163,11 +164,10 @@ internal fun WorldNotebook(writings: List<WorldWritingEntity>, writingOptions: B
         item(key = "search") { GlassSearchField(query, { onQuery(it.take(100)) },
             placeholder = "翻找标题或内容", description = "搜索随手本", clearDescription = "清除笔记搜索") }
         item(key = "filters") { Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                WorldNotebookEntries.filters.forEach { (id, label) ->
-                    WorldFilterChip(label, selected = filter == id || id == "all" && filter !in WorldNotebookEntries.filters,
-                        onClick = { onFilter(id) })
-                }
+            val options = WorldNotebookEntries.filters.entries.toList()
+            SlidingCapsuleTabs(options.map { it.value }, options.indexOfFirst { it.key == filter }.coerceAtLeast(0),
+                systemMotionEnabled(), minTabWidth = 78.dp) {
+                onFilter(options[it].key)
             }
             val found = filtered.size + if (bookId == 0L) matchingBooks.sumOf { it.matches.size } else 0
             Text(if (query.isBlank() && filter == "all") (if (bookId > 0) "章节目录 · ${scopeEntries.size} 章" else "${books.size} 本连载 · ${scopeEntries.size} 篇散页") else "找到 $found 篇",

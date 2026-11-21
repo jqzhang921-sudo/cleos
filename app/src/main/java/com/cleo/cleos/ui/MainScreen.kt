@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,10 +61,16 @@ import com.cleo.cleos.ui.settings.SettingsPage
 import com.cleo.cleos.ui.world.WorldTab
 
 /**
- * Space the floating tab bar takes above the navigation bar (its 14dp overhang, the 64dp
- * bar, and a gap), which each tab reserves at the bottom of its content.
+ * Space reserved below each page for the floating bar, its touch area and its overhang.
  */
 private val TabBarReserve = 88.dp
+internal val MainTabBarSideInset = 18.dp
+internal val MainTabs = listOf(
+    GlassTab("聊天", LucideTabIcons.MessageCircle),
+    GlassTab("记录", LucideTabIcons.Notebook),
+    GlassTab("世界", LucideTabIcons.Globe),
+    GlassTab("主页", LucideTabIcons.House),
+)
 
 /**
  * Whether the tab page reading it is the one on screen. The pages stay composed while another
@@ -155,14 +162,6 @@ fun MainScreen(
     val shadowClearance = with(density) { 16.dp.toPx() }
     // Always reserve the same space: hiding the bar must not reflow content or move its scroll.
     val bottomInset = navBottom + TabBarReserve
-    val tabs = remember {
-        listOf(
-            GlassTab("聊天", LucideTabIcons.MessageCircle, LucideTabIcons.MessageCircleFilled),
-            GlassTab("记录", LucideTabIcons.Notebook, LucideTabIcons.NotebookFilled),
-            GlassTab("世界", LucideTabIcons.Globe, LucideTabIcons.GlobeFilled),
-            GlassTab("主页", LucideTabIcons.House, LucideTabIcons.HouseFilled),
-        )
-    }
 
     Box(Modifier.fillMaxSize()) {
         Box(
@@ -251,13 +250,14 @@ fun MainScreen(
                 },
         ) {
             GlassTabBar(
-                tabs = tabs,
+                tabs = MainTabs,
                 selectedIndex = tab,
                 onSelect = { tab = it },
                 backdrop = page,
                 modifier = Modifier
                     .navigationBarsPadding()
-                    .padding(horizontal = 28.dp)
+                    .offset(y = 4.dp)
+                    .padding(horizontal = MainTabBarSideInset)
                     .fillMaxWidth(),
             )
         }

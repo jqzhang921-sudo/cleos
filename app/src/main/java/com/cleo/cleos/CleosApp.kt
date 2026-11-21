@@ -196,6 +196,7 @@ class AppContainer(context: Context) {
     val favorites = com.cleo.cleos.data.Favorites(db, settings, images)
     val backup = BackupService(context, db, settings, images, beforeReplace = { worldAlbumGallery.clear() })
     val imports = ForeignImport(context, db, companions)
+    internal val deepSeekImports = com.cleo.cleos.data.DeepSeekImport(context, db, images)
     val notifier = Notifier(context, images)
 
     /** Phone calls with a TA. */

@@ -73,6 +73,14 @@ class WakeActivityTextTest {
         assertEquals(specific.detail, WakeActivityText.detail(specific))
     }
 
+    @Test fun aKnownCancellationTriggerSurvivesInTheActivityDetail() {
+        val inProgress = cancelled.copy(requests = 2, toolCalls = 1)
+        val detail = WakeActivityText.cancelledDetail(inProgress, WakeActivityText.USER_INPUT)
+        assertTrue(detail.startsWith(WakeActivityText.USER_INPUT))
+        assertTrue(detail.contains("可能已发送部分"))
+        assertEquals(detail, WakeActivityText.detail(inProgress.copy(detail = detail)))
+    }
+
     @Test fun requestAndToolCountersRemainVisibleRatherThanBeingResetByPresentation() {
         val row = cancelled.copy(requests = 3, toolCalls = 2, toolSummary = "记东西、发消息")
         assertEquals("模型请求尝试 3 轮 · 工具尝试 2 项", WakeActivityText.requests(row))

@@ -38,6 +38,20 @@ class StickerTextTest {
         assertEquals(listOf(Piece.Words("[[抱抱]]")), StickerText.split("[[抱抱]]", book))
     }
 
+    @Test fun aModelCanSendAnInstalledStickerWithSingleBrackets() {
+        val clapping = sticker(3, "拍手称赞")
+        val collection = StickerBook(listOf(clapping, dizzy))
+        val output = "好呀\n[sticker:拍手称赞]\n[STICKER：晕倒兔]"
+        val canonical = StickerText.normalizeModelTokens(output, collection)
+        assertEquals(
+            listOf(Piece.Words("好呀"), Piece.Sticker(clapping), Piece.Sticker(dizzy)),
+            StickerText.split(canonical, collection),
+        )
+        val prose = "你可以写 [sticker:拍手称赞] 试试"
+        assertEquals(prose, StickerText.normalizeModelTokens(prose, collection))
+        assertEquals(listOf(Piece.Words("[sticker:拍手称赞]")), StickerText.split("[sticker:拍手称赞]", collection))
+    }
+
     @Test
     fun wordsAndStickersComeApartInOrder() {
         assertEquals(

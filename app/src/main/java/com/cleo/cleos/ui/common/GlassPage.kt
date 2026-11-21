@@ -74,9 +74,9 @@ fun GlassTopBar(
     subtitle: String? = null,
     leading: @Composable RowScope.() -> Unit = {},
     trailing: @Composable RowScope.() -> Unit = {},
-    /** Makes the title a button; [titleMenu] is drawn next to it, e.g. a menu it opens. */
+    /** Makes the title a button, for example to open a menu anchored to [titleModifier]. */
     onTitleClick: (() -> Unit)? = null,
-    titleMenu: @Composable () -> Unit = {},
+    titleModifier: Modifier = Modifier,
     barHeight: Dp = TopBarHeight,
 ) {
     val palette = LocalGlassPalette.current
@@ -93,7 +93,7 @@ fun GlassTopBar(
         Spacer(Modifier.width(10.dp))
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
             Box(
-                Modifier
+                titleModifier
                     .liquidGlass(backdrop, palette.topBarTitle, GlassShape.Capsule)
                     .then(
                         if (onTitleClick == null) Modifier else Modifier.clickable(interactionSource = null, indication = null, onClick = onTitleClick),
@@ -113,7 +113,6 @@ fun GlassTopBar(
                         Text(subtitle, color = palette.contentSecondary, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                titleMenu()
             }
         }
         Spacer(Modifier.width(10.dp))

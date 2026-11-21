@@ -29,13 +29,13 @@ class FeedVisits(context: Context, private val db: AppDatabase, private val ai: 
 
     fun interrupt(conversationId: Long) {
         active.entries.filter { conversationId in it.value.conversations }.forEach { (id, task) ->
-            task.job.cancel()
+            task.job.cancel(WakeCancelled(WakeActivityText.USER_INPUT))
             scope.launch { if (!paused) configure(id) }
         }
     }
 
     suspend fun configure(id: Long) = schedules.withLock {
-        active[id]?.job?.cancel()
+        active[id]?.job?.cancel(WakeCancelled(WakeActivityText.SETTINGS_CHANGED))
         val at = db.withTransaction {
             val ta = db.companions().get(id)?.takeIf { it.feedVisitEnabled } ?: return@withTransaction null
             val state = db.feedVisits().get(id)
@@ -131,7 +131,7 @@ class FeedVisits(context: Context, private val db: AppDatabase, private val ai: 
                 else -> W.HELD
             }, result.detail)
         } catch (e: CancellationException) {
-            activities.cancelled(activity)
+            activities.cancelled(activity, (e as? WakeCancelled)?.detail)
             throw e
         } catch (_: FeedWritingBusy) {
             activities.finish(activity, W.HELD, WakeActivityText.FEED_BUSY)

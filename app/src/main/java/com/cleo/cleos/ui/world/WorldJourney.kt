@@ -73,10 +73,12 @@ internal fun WorldJourney(ta: CompanionEntity?, articles: List<WorldArticleEntit
                 }
                 if (chapters.isNotEmpty()) LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     itemsIndexed(chapters, key = { _, chapter -> chapter.article.id }) { index, chapter ->
-                        FilterChip(selected = index == current, onClick = { scope.launch {
-                            if (depth) list.animateScrollToItem(index + 1, -anchorInset) else list.scrollToItem(index + 1, -anchorInset)
-                        } }, label = { Text("${index + 1} · ${chapter.article.title}", maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.widthIn(max = 160.dp), fontSize = 12.sp) })
+                        WorldFilterChip("${index + 1} · ${chapter.article.title}", selected = index == current,
+                            modifier = Modifier.widthIn(max = 180.dp)) {
+                            scope.launch {
+                                if (depth) list.animateScrollToItem(index + 1, -anchorInset) else list.scrollToItem(index + 1, -anchorInset)
+                            }
+                        }
                     }
                 }
             }

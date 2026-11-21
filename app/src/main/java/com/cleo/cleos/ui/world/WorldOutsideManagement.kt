@@ -1,8 +1,6 @@
 package com.cleo.cleos.ui.world
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -43,12 +41,11 @@ internal fun WorldOutsideManagement(ta: CompanionEntity?, outside: List<WorldArt
             else "每位 TA 最多保存 ${WorldOutside.MAX_ITEMS} 条；移除旧见闻可腾出位置。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
         if (managing) {
             Text("仅整理这位 TA 的窗外。切换来源会清空选择；书房与私人相册不受影响。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                (listOf("") + outside.map { it.source }.distinct().sorted()).forEach { source ->
-                    FilterChip(selected = filter == source, enabled = !removing && !preparing,
-                        onClick = { filter = source; selected = arrayListOf(); plan = null; notice = null },
-                        label = { Text(source.ifEmpty { "全部来源" }) })
-                }
+            WorldOutsideSourceTabs(outside, filter, enabled = !removing && !preparing) { source ->
+                filter = source
+                selected = arrayListOf()
+                plan = null
+                notice = null
             }
             Text("当前列表 ${shown.size} 条 · 已选 ${checked.size} 条", color = p.contentSecondary, fontSize = 13.sp)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

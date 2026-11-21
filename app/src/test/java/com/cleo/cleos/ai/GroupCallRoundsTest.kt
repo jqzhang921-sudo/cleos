@@ -6,6 +6,18 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class GroupCallRoundsTest {
+    @Test fun typedReplySkipsTranscriptionAndUsesTheSameMemberRotation() = runBlocking {
+        val rounds = GroupCallRounds(listOf(11, 22))
+        val speaking = mutableListOf<Long>()
+        val drafts = mutableListOf<String>()
+        rounds.run({ error("A typed reply should not call the transcriber") },
+            { words, ids -> drafts += words; ids }, { speaking += it }, {},
+            typedWords = "  🙂\n接着说吧  ")
+        rounds.run({ "我切回语音了" }, { words, ids -> drafts += words; ids }, { speaking += it }, {})
+        assertEquals(listOf("🙂\n接着说吧", "我切回语音了"), drafts)
+        assertEquals(listOf(11L, 22L, 22L, 11L), speaking)
+    }
+
     @Test fun threeFullRoundsUseAlternatingActorsAndOnlyFinishAfterBothSpeak() = runBlocking {
         val rounds = GroupCallRounds(listOf(11,22))
         val trace = mutableListOf<String>()

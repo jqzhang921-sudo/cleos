@@ -14,6 +14,20 @@ import com.cleo.cleos.data.WorldOutside
 import com.cleo.cleos.data.WorldReading
 import com.cleo.cleos.data.db.*
 import com.cleo.cleos.glass.LocalGlassPalette
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
+
+@Composable
+internal fun WorldOutsideSourceTabs(
+    articles: List<WorldArticleEntity>,
+    selected: String,
+    enabled: Boolean = true,
+    onSelect: (String) -> Unit,
+) {
+    val sources = listOf("") + articles.map { it.source }.filter(String::isNotEmpty).distinct().sorted()
+    SlidingCapsuleTabs(sources.map { it.ifEmpty { "全部来源" } }, sources.indexOf(selected), systemMotionEnabled(),
+        enabled = enabled, minTabWidth = 84.dp) { onSelect(sources[it]) }
+}
 
 @Composable
 internal fun WorldOutsideSourceSettings(sourceId: String, enabled: Boolean, used: Int, onSource: (String) -> Unit) {
@@ -21,9 +35,9 @@ internal fun WorldOutsideSourceSettings(sourceId: String, enabled: Boolean, used
     val source = WorldOutside.sources.firstOrNull { it.id == sourceId } ?: WorldOutside.sources.first()
     WorldPanel {
         Text("订阅来源与阅读说明", color = p.content, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            WorldOutside.sources.forEach { entry -> FilterChip(selected = sourceId == entry.id, enabled = enabled,
-                onClick = { onSource(entry.id) }, label = { Text(entry.name) }) }
+        SlidingCapsuleTabs(WorldOutside.sources.map { it.name }, WorldOutside.sources.indexOf(source), systemMotionEnabled(),
+            enabled = enabled, minTabWidth = 84.dp) {
+            onSource(WorldOutside.sources[it].id)
         }
         Text(source.description, color = p.contentSecondary, fontSize = 13.sp)
         Text("刷新只从所选来源获取文字摘要，不调用模型。阅读时，标题、来源和本次摘要会发到这位 TA 配置的模型接口；这里不读取网页全文。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)

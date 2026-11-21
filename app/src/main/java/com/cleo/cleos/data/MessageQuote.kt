@@ -1,6 +1,7 @@
 package com.cleo.cleos.data
 
 import com.cleo.cleos.data.db.MessageEntity
+import com.cleo.cleos.data.db.WorldAlbumLookEntity
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -10,7 +11,7 @@ import kotlinx.serialization.json.Json
  * be long out of what the model is sent, and the quote should still say what it said.
  */
 @Serializable
-data class MessageQuote(val id: Long, val role: String, val text: String)
+data class MessageQuote(val id: Long, val role: String, val text: String, val fromAlbum: Boolean = false)
 
 object MessageQuotes {
     private val json = Json { ignoreUnknownKeys = true }
@@ -22,6 +23,13 @@ object MessageQuotes {
 
     fun decode(raw: String?): MessageQuote? =
         if (raw.isNullOrBlank()) null else runCatching { json.decodeFromString<MessageQuote>(raw) }.getOrNull()
+
+    /** The snapshot has no chat message id or attachment. It can be read after the photo is removed. */
+    internal fun fromAlbum(look: WorldAlbumLookEntity): MessageQuote? {
+        val text = listOf(look.content.trim(), look.question.trim()).filter(String::isNotEmpty)
+            .distinct().joinToString("\n\n")
+        return text.takeIf(String::isNotEmpty)?.let { MessageQuote(0, "assistant", it, fromAlbum = true) }
+    }
 
     /** A quote of [m], or null when there is nothing in it to quote (a line, a card). */
     fun of(m: MessageEntity): MessageQuote? {

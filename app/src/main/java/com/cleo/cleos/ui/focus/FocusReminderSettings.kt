@@ -52,7 +52,7 @@ internal fun FocusReminderSettings() {
         else -> "高优先级"
     } }
     fun open(intent: Intent) { problem = runCatching { context.startActivity(intent); true }.getOrDefault(false).not() }
-    GlassSurface(Modifier.fillMaxWidth(), style = palette.bar, shape = GlassShape.Rounded(24.dp), contentPadding = PaddingValues(20.dp)) {
+    GlassSurface(Modifier.fillMaxWidth(), shape = GlassShape.Rounded(24.dp), contentPadding = PaddingValues(20.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("到时提醒检查", color = palette.content, fontSize = 15.sp)
             Text("结束通知：${if (allowed) "已允许" else "未允许"} · 准时提醒：${if (exact) "已允许" else "未允许"}", color = palette.contentSecondary, fontSize = 13.sp)

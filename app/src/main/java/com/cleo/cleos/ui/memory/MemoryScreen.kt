@@ -105,10 +105,10 @@ fun MemoryScreen(onBack: () -> Unit, onOpen: (Long) -> Unit, onSearch: () -> Uni
                 subtitle = if (memories.isEmpty()) null else "${memories.size} 件 · 点开能改",
                 backdrop = page,
                 leading = { GlassIconButton(Icons.AutoMirrored.Rounded.ArrowBack, "返回", onBack, page) },
-                trailing = { Row {
+                trailing = {
                     GlassIconButton(Icons.Rounded.Search, "找旧聊天", onSearch, page)
                     GlassIconButton(Icons.Rounded.Add, "自己加一条", { onOpen(0) }, page)
-                } },
+                },
             )
         },
     ) {

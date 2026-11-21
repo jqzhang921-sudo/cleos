@@ -9,6 +9,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
@@ -92,12 +94,20 @@ fun GlassSurface(
     )
 }
 
+internal val ComposerHeight = 50.dp
+
+@Composable
+internal fun Modifier.composerGlass(backdrop: Backdrop): Modifier = fillMaxWidth()
+    .padding(horizontal = 12.dp)
+    .heightIn(min = ComposerHeight)
+    .liquidGlass(backdrop, LocalGlassPalette.current.input, GlassShape.Rounded(ComposerHeight / 2))
+
 @Composable
 fun GlassButton(
     onClick: () -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
-    style: GlassStyle = LocalGlassChrome.current ?: LocalGlassPalette.current.chrome,
+    style: GlassStyle = LocalGlassChrome.current ?: LocalGlassPalette.current.topBar,
     shape: GlassShape = GlassShape.Capsule,
     enabled: Boolean = true,
     contentColor: Color = LocalGlassPalette.current.content,
@@ -131,7 +141,7 @@ fun GlassIconButton(
     onClick: () -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
-    style: GlassStyle = LocalGlassChrome.current ?: LocalGlassPalette.current.chrome,
+    style: GlassStyle = LocalGlassChrome.current ?: LocalGlassPalette.current.topBar,
     enabled: Boolean = true,
     tint: Color = LocalGlassPalette.current.content,
     size: Dp = 44.dp,

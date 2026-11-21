@@ -31,7 +31,7 @@ class RecordCalendarStateTest {
         s.step(-1);assertEquals(LocalDate.of(2026,12,31),s.day)
     }
     @Test fun monthPagingClampsShortMonthsAndUndatedMonthHasMatchingWeekAnchor() {
-        val s=RecordCalendarState(LocalDate.of(2024,1,31));s.pick(LocalDate.of(2024,1,31));s.step(1)
+        val s=RecordCalendarState(LocalDate.of(2024,1,31));s.collapsed=false;s.pick(LocalDate.of(2024,1,31));s.step(1)
         assertEquals(LocalDate.of(2024,2,29),s.day)
         s.filterEpoch=TodoCalendarModel.ALL;s.step(1)
         assertTrue(LocalDate.of(2024,3,1) in s.week())

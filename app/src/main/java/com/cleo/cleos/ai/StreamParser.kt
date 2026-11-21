@@ -24,7 +24,12 @@ import kotlinx.serialization.json.jsonPrimitive
 internal class StreamParser {
     private val json = Json { ignoreUnknownKeys = true }
 
-    private class Pending(var id: String = "", var name: String = "", val arguments: StringBuilder = StringBuilder())
+    private class Pending {
+        var id: String = ""
+        var name: String = ""
+        val arguments = StringBuilder()
+        var googleThoughtSignature: String? = null
+    }
 
     private val calls = sortedMapOf<Int, Pending>()
     private val think = ThinkSplitter()
@@ -93,7 +98,7 @@ internal class StreamParser {
     /** The calls, in order, once the stream is over. Pieces that never got a name are dropped. */
     fun toolCalls(): List<ToolCall> = calls.values
         .filter { it.name.isNotEmpty() }
-        .mapIndexed { i, p -> ToolCall(p.id.ifEmpty { "call_$i" }, p.name, p.arguments.toString()) }
+        .mapIndexed { i, p -> ToolCall(p.id.ifEmpty { "call_$i" }, p.name, p.arguments.toString(), p.googleThoughtSignature) }
 
     private fun addPiece(piece: JsonObject) {
         val id = (piece["id"] as? JsonPrimitive)?.contentOrNull.orEmpty()
@@ -105,6 +110,12 @@ internal class StreamParser {
             else -> calls.values.lastOrNull() ?: Pending().also { calls[0] = it }
         }
         if (pending.id.isEmpty() && id.isNotEmpty()) pending.id = id
+        val extra = piece["extra_content"] as? JsonObject
+        val google = extra?.get("google") as? JsonObject
+        val signature = google?.get("thought_signature") as? JsonPrimitive
+        if (signature?.isString == true && signature.content.isNotEmpty()) {
+            pending.googleThoughtSignature = signature.content
+        }
         val function = piece["function"] as? JsonObject ?: return
         val name = (function["name"] as? JsonPrimitive)?.contentOrNull.orEmpty()
         if (pending.name.isEmpty() && name.isNotEmpty()) pending.name = name

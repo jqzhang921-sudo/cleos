@@ -49,10 +49,10 @@ class WakeActivities(private val db: AppDatabase, private val previousExits: () 
     suspend fun finish(id: Long?, status: String, detail: String, sent: Int = 0) = withContext(NonCancellable) {
         if (id != null) db.wakeActivities().finish(id, status, detail.take(200), sent, System.currentTimeMillis())
     }
-    suspend fun cancelled(id: Long?) = withContext(NonCancellable) {
+    suspend fun cancelled(id: Long?, reason: String? = null) = withContext(NonCancellable) {
         val open = id?.let { db.wakeActivities().get(it) } ?: return@withContext
         if (open.finishedAt == null) finish(open.id, WakeActivityEntity.CANCELLED,
-            WakeActivityText.cancelledDetail(open), open.sent)
+            WakeActivityText.cancelledDetail(open, reason), open.sent)
     }
     suspend fun result(id: Long?, result: ChatRepository.WakeResult) {
         when (result) {

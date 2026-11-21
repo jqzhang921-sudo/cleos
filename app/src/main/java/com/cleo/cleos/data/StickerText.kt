@@ -73,11 +73,18 @@ object StickerText {
     private val LOOSE = Regex("""^[ \t]*[\[【]\s*表情包?\s*[:：]\s*([^\[\]【】\n]{1,40}?)\s*[\]】][ \t]*$""", RegexOption.MULTILINE)
 
     private val SHORT_MODEL_TOKEN = Regex("""^[ \t]*\[\[([^\[\]\n:：]{1,40})]][ \t]*$""", RegexOption.MULTILINE)
+    private val SINGLE_MODEL_TOKEN = Regex(
+        """^[ \t]*\[[ \t]*sticker[ \t]*[:：][ \t]*([^\[\]\r\n]{1,40}?)[ \t]*][ \t]*$""",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.MULTILINE),
+    )
 
-    /** Only assistant output: repair a standalone short marker; user wiki links and [动作] stay text. */
-    fun normalizeModelTokens(text: String, book: StickerBook): String = SHORT_MODEL_TOKEN.replace(text) {
-        val name = it.groupValues[1].trim()
-        token(book.find(name)?.name ?: name)
+    /** Only assistant output: repair standalone markers without turning mentions in prose into images. */
+    fun normalizeModelTokens(text: String, book: StickerBook): String {
+        fun canonical(match: MatchResult): String {
+            val name = match.groupValues[1].trim()
+            return if (name.isEmpty()) match.value else token(book.find(name)?.name ?: name)
+        }
+        return SINGLE_MODEL_TOKEN.replace(SHORT_MODEL_TOKEN.replace(text, ::canonical), ::canonical)
     }
 
     /** How many of the collection the TA is told about: past this the list costs more than it gives. */

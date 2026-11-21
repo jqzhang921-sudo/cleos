@@ -38,7 +38,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -46,7 +45,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -146,7 +145,7 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
     var voiceEdited by rememberSaveable(groupId, generation, draftVoice?.file) { mutableStateOf(false) }
     var composerHeight by remember { mutableIntStateOf(120) }
     val density = LocalDensity.current
-    val bubbleWidth = (LocalConfiguration.current.screenWidthDp * 0.7f).dp
+    val bubbleWidth = bubbleMaxWidth()
     val top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + TopBarHeight
     val bottom = with(density) { composerHeight.toDp() }
     val active = tas.map { it.id }.toSet()
@@ -358,7 +357,7 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
             Text("正在读取群聊，或这个群已被删除", color = palette.contentSecondary)
         } else CompositionLocalProvider(LocalBubblePadding provides (settings.bubblePaddingX to settings.bubblePaddingY),
             LocalBubbleDecoration provides settings.bubbleDecoration, LocalMessageSpacing provides settings.messageSpacing,
-            LocalStickers provides stickerBook) {
+            LocalStickers provides stickerBook, LocalChatType provides chatType) {
             LazyColumn(Modifier.fillMaxSize().imePadding(), state = list, reverseLayout = true,
                 // composerHeight excludes its outer padding; keep expanded voice text above the glass.
                 contentPadding = PaddingValues(start = 14.dp, end = 14.dp, top = top + 12.dp, bottom = bottom + 36.dp),
@@ -392,21 +391,36 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                     val written = speech?.let { GroupSpeechRules.remaining(text, it.text) } ?: text
                     val waiting = GroupWaiting.stageText(progress[row.id]?.stage)
                     val ahead = rows.firstOrNull { it.status == "running" && it.turnId == row.turnId }?.speakerName
-                    // The author is a header above the avatar/bubble row, not an extra line inside it.
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-                        Column(Modifier.padding(start = if (!mine) 42.dp else 0.dp, end = if (mine && settings.chatAvatars) 42.dp else 0.dp,
-                            bottom = 4.dp), horizontalAlignment = if (mine) Alignment.End else Alignment.Start) {
-                            Text(row.speakerName.ifBlank { if (mine) "我" else "TA" }, color = palette.contentSecondary,
-                                style = TextStyle(fontSize = 11.sp, lineHeight = 14.sp, platformStyle = PlatformTextStyle(includeFontPadding = false)))
-                            if (mine && GroupChatRules.ids(row.mentions).isNotEmpty()) Text(GroupChatRules.ids(row.mentions)
-                                .joinToString(" ") { "@${members.firstOrNull { m -> m.companionId == it }?.name ?: "TA"}" }, color = palette.contentSecondary, fontSize = 11.sp)
+                    val alignment = if (mine) Alignment.End else Alignment.Start
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        if (!mine) {
+                            Avatar(row.speakerAvatar, row.speakerEmoji ?: avatarLetter(row.speakerName, "TA"), AvatarSize)
+                            Spacer(Modifier.width(AvatarGap))
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
-                            verticalAlignment = Alignment.Top) {
-                            if (!mine) { Avatar(row.speakerAvatar, row.speakerEmoji ?: avatarLetter(row.speakerName, "TA"), 34.dp); Spacer(Modifier.width(8.dp)) }
-                            Box(Modifier.widthIn(max = bubbleWidth)) {
-                            Column(horizontalAlignment = if (mine) Alignment.End else Alignment.Start,
-                                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Box(Modifier.weight(1f, fill = false).widthIn(max = bubbleWidth)) {
+                            Column(horizontalAlignment = alignment, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Column(horizontalAlignment = alignment) {
+                                    Text(
+                                        row.speakerName.ifBlank { if (mine) "我" else "TA" },
+                                        color = palette.contentSecondary,
+                                        style = TextStyle(fontSize = 12.sp, lineHeight = 16.sp,
+                                            platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    if (mine) {
+                                        val mentioned = GroupChatRules.ids(row.mentions)
+                                        if (mentioned.isNotEmpty()) Text(
+                                            mentioned.joinToString(" ") { id ->
+                                                "@${members.firstOrNull { it.companionId == id }?.name ?: "TA"}"
+                                            }, color = palette.contentSecondary, fontSize = 11.sp,
+                                        )
+                                    }
+                                }
                                 val photos = remember(row.images) { MessageImages.decode(row.images) }
                                 if (audio != null) VoiceBubble(audio, mine, playback.file == audio.file, speech?.text ?: row.content, false, voiceExpanded,
                                     onClick = { playback.play(audio.file) }, onLongClick = { menuOpen = true })
@@ -426,8 +440,8 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                                         is StickerText.Piece.Words -> ChatBubbleSurface(mine = mine,
                                             theme = if (mine) settings.myBubbleTheme else settings.taBubbleThemes[row.speakerId.toString()] ?: "glass",
                                             background = settings.bubbleBackgrounds[if (mine) settings.myBubbleTheme else settings.taBubbleThemes[row.speakerId.toString()] ?: "glass"],
-                                            modifier = Modifier.widthIn(max = bubbleWidth).combinedClickable(onClick = {}, onLongClick = { menuOpen = true })) { ink ->
-                                            MessageText(piece.text, ink, TextStyle(fontSize = 16.sp, lineHeight = 23.sp), narration = !mine, render = row.status != "running")
+                                            modifier = Modifier.combinedClickable(onClick = {}, onLongClick = { menuOpen = true })) { ink ->
+                                            MessageText(piece.text, ink, chatType.body, narration = !mine, render = row.status != "running")
                                         }
                                     } }
                                 }
@@ -446,8 +460,10 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                             }
                             messageMenu(row, menuOpen, translation,
                                 if (audio == null) null else MessageMenuAction(if (voiceExpanded) "收起文字" else "语音转文字") { voiceExpanded = !voiceExpanded }) { menuOpen = false }
-                            }
-                            if (mine && settings.chatAvatars) { Spacer(Modifier.width(8.dp)); Avatar(settings.userAvatar, avatarLetter(settings.userName, "我"), 34.dp) }
+                        }
+                        if (mine && settings.chatAvatars) {
+                            Spacer(Modifier.width(AvatarGap))
+                            Avatar(settings.userAvatar, avatarLetter(settings.userName, "我"), AvatarSize)
                         }
                     }
                 }
@@ -531,7 +547,7 @@ fun GroupChatScreen(groupId: Long, onBack: () -> Unit, onOpenImage: (String) -> 
                 finally { savingMemory = false }
             } })
     } }
-    selectedText?.let { SelectMessageTextDialog(it, TextStyle(fontSize = 16.sp, lineHeight = 23.sp)) { selectedText = null } }
+    selectedText?.let { SelectMessageTextDialog(it, chatType.body) { selectedText = null } }
     if (callPicker) GroupCallDialog(participating.filter { it.companionId in availableMembers },
         onDismiss = { callPicker = false }, onStart = { ids ->
             callPicker = false

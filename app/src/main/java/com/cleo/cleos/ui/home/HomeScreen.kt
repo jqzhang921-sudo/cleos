@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,6 +79,7 @@ import com.cleo.cleos.ui.common.GlassTopBar
 import com.cleo.cleos.ui.common.TopBarHeight
 import com.cleo.cleos.ui.common.appContainer
 import com.cleo.cleos.ui.common.avatarLetter
+import com.cleo.cleos.ui.common.circularPressFeedback
 import com.cleo.cleos.ui.common.fadeUnderTopBar
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
@@ -407,15 +409,18 @@ private fun TaRow(tas: List<CompanionEntity>, currentId: Long, onSelect: (Long) 
         ) {
             tas.forEach { t ->
                 val here = t.id == currentId
+                val interaction = remember(t.id) { MutableInteractionSource() }
                 Column(
                     Modifier
                         .width(58.dp)
-                        .clickable(onClickLabel = "和${t.name.ifBlank { "TA" }}聊", onClick = { onSelect(t.id) }),
+                        .clickable(interactionSource = interaction, indication = null,
+                            onClickLabel = "和${t.name.ifBlank { "TA" }}聊", onClick = { onSelect(t.id) }),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box(
                         Modifier
                             .size(54.dp)
+                            .circularPressFeedback(interaction)
                             .then(if (here) Modifier.border(2.dp, palette.accent, CircleShape) else Modifier)
                             .padding(4.dp),
                     ) {
@@ -432,15 +437,17 @@ private fun TaRow(tas: List<CompanionEntity>, currentId: Long, onSelect: (Long) 
                     )
                 }
             }
+            val addInteraction = remember { MutableInteractionSource() }
             Column(
                 Modifier
                     .width(58.dp)
-                    .clickable(onClick = onAdd),
+                    .clickable(interactionSource = addInteraction, indication = null, onClick = onAdd),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
                     Modifier
                         .size(54.dp)
+                        .circularPressFeedback(addInteraction)
                         .padding(4.dp)
                         .background(palette.content.copy(alpha = 0.08f), CircleShape),
                     contentAlignment = Alignment.Center,

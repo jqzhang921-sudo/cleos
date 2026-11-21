@@ -61,8 +61,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         WorldWritingScheduleEntity::class,
         WorldJourneyTopicEntity::class,
         WorldJourneyItemEntity::class,
+        ChatVersionEntity::class,
+        ChatVersionMessageEntity::class,
     ],
-    version = 71,
+    version = 73,
     exportSchema = true,
     autoMigrations = [
         // 1 -> 2: tool calls on messages (four nullable columns, nothing rewritten).
@@ -161,6 +163,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         AutoMigration(from = 68, to = 69),
         AutoMigration(from = 69, to = 70),
         AutoMigration(from = 70, to = 71),
+        AutoMigration(from = 71, to = 72),
+        AutoMigration(from = 72, to = 73),
     ],
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -187,6 +191,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun companions(): CompanionDao
     abstract fun conversations(): ConversationDao
     abstract fun messages(): MessageDao
+    abstract fun chatVersions(): ChatVersionDao
     abstract fun diary(): DiaryDao
     abstract fun focus(): com.cleo.cleos.focus.FocusDao
     abstract fun todos(): TodoDao

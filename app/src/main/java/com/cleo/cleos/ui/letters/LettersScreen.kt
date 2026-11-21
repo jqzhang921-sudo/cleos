@@ -3,9 +3,8 @@ package com.cleo.cleos.ui.letters
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.FilterChip
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -98,10 +97,9 @@ fun LettersScreen(onBack: () -> Unit, onOpen: (Long) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item(key = "sources") {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(null to "全部", LetterEntity.RETROSPECTIVE to "回忆信件", LetterEntity.INSTANT to "即时信件").forEach { (value,label) ->
-                        FilterChip(selected = source == value, onClick = { source = value }, label = { Text(label) })
-                    }
+                val sources = listOf(null, LetterEntity.RETROSPECTIVE, LetterEntity.INSTANT)
+                SlidingCapsuleTabs(listOf("全部", "回忆信件", "即时信件"), sources.indexOf(source), systemMotionEnabled()) {
+                    source = sources[it]
                 }
             }
             if (Mailbox.replyOnTheWay(letters, now)) {

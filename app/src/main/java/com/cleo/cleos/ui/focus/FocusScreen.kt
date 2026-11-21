@@ -292,7 +292,7 @@ fun FocusScreen(taskId: Long?, onBack: () -> Unit) {
 
 @Composable
 private fun FocusCard(content: @Composable ColumnScope.() -> Unit) {
-    GlassSurface(Modifier.fillMaxWidth(), style = LocalGlassPalette.current.bar, shape = GlassShape.Rounded(24.dp),
+    GlassSurface(Modifier.fillMaxWidth(), shape = GlassShape.Rounded(24.dp),
         contentPadding = PaddingValues(20.dp)) { Column(verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
 }
 

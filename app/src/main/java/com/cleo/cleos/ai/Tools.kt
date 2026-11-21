@@ -14,6 +14,7 @@ import com.cleo.cleos.data.db.TodoDao
 import com.cleo.cleos.data.db.TodoEntity
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -63,7 +64,13 @@ data class ToolSpec(
 
 /** A call as the model wrote it. [arguments] is raw JSON text and may not parse. */
 @Serializable
-data class ToolCall(val id: String, val name: String, val arguments: String)
+data class ToolCall(
+    val id: String,
+    val name: String,
+    val arguments: String,
+    /** Opaque Gemini metadata echoed on this call during the live turn, never in saved history. */
+    @Transient val googleThoughtSignature: String? = null,
+)
 
 /**
  * [result] goes back to the model; [note] is the one line the chat shows (none when

@@ -29,6 +29,13 @@ class GroupChatItemsTest {
         assertFalse(card.incomplete)
     }
 
+    @Test fun typedReplyAndSpokenAnswersAppearInTheSameCallCard() {
+        val typed = user().copy(content = GroupCallRules.userWords("🙂", typed = true))
+        val card = groupChatItems(listOf(typed) + source.drop(1), listOf(turn())).single() as GroupChatItem.CallRound
+        assertEquals("🙂", GroupCallRules.userText(card.anchor.content))
+        assertEquals(listOf(11L, 12L), card.replies.map { it.speakerId })
+    }
+
     @Test fun adjacentRoundsWithIdenticalTimesRemainSeparateCardsBetweenOrdinaryMessages() {
         val normal = user(4).copy(content = "普通文字")
         val second = listOf(user(5), reply(6, turn = 10, speaker = 12), reply(7, turn = 10))

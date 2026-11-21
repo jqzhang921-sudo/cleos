@@ -21,6 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.cleo.cleos.Opening
+import com.cleo.cleos.ai.ChatRepository
+import com.cleo.cleos.data.MessageQuotes
 import com.cleo.cleos.data.WorldAlbumData
 import com.cleo.cleos.data.WorldAlbumConsent
 import com.cleo.cleos.data.WorldReading
@@ -29,6 +32,7 @@ import com.cleo.cleos.glass.*
 import com.cleo.cleos.ui.common.appContainer
 import com.cleo.cleos.ui.common.fadeUnderTopBar
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.*
 import java.time.format.DateTimeFormatter
@@ -59,7 +63,37 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
     var editing by remember { mutableStateOf<WorldAlbumPhotoEntity?>(null) }
     var removing by remember { mutableStateOf<WorldAlbumPhotoEntity?>(null) }
     var sending by remember { mutableStateOf<WorldAlbumPhotoEntity?>(null) }
+    var preparingReply by remember { mutableStateOf(false) }
+    var replyProblem by remember { mutableStateOf<Long?>(null) }
     var caption by rememberSaveable { mutableStateOf("") }
+    fun replyTo(photo: WorldAlbumPhotoEntity, record: WorldAlbumLookEntity) {
+        if (preparingReply) return
+        preparingReply = true
+        replyProblem = null
+        scope.launch {
+            try {
+                c.worldAlbum.permit(ta.id, ta.createdAt, revision) {
+                    val album = c.db.worldAlbum()
+                    val currentPhoto = checkNotNull(album.photo(photo.id))
+                    val currentLook = album.look(record.id)
+                    check(currentPhoto.companionId == ta.id && currentPhoto.sha256 == photo.sha256 && currentLook == record)
+                    check(WorldAlbumConsent.history(currentPhoto, listOf(record)).isNotEmpty())
+                    val quote = checkNotNull(MessageQuotes.fromAlbum(record))
+                    val conversation = c.chat.resolveConversation(c.settings.currentConversation.first(), ta.id)
+                    if (c.companions.current.first().id != ta.id) c.companions.select(ta.id)
+                    c.settings.setCurrentConversation(conversation)
+                    c.chat.albumReplyDraft.value = ChatRepository.AlbumReplyDraft(conversation, quote)
+                    c.opening.value = Opening.Chat(conversation)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                replyProblem = photo.id
+            } finally {
+                preparingReply = false
+            }
+        }
+    }
     // Capture the owner and restore generation before opening the picker, not when it returns.
     var pickerTa by rememberSaveable { mutableStateOf(0L) }
     var pickerCreated by rememberSaveable { mutableStateOf(0L) }
@@ -108,7 +142,7 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
                         .aspectRatio((photo.width.toFloat() / photo.height).coerceIn(.7f, 1.8f)).clip(RoundedCornerShape(20.dp)), onError = { failed = true })
                 else Text("本地照片暂时无法显示，说明和操作仍可使用。", color = p.contentSecondary, fontSize = 14.sp, lineHeight = 23.sp)
                 if (photo.caption.isNotBlank()) SelectionContainer { Text(photo.caption, color = p.content, fontSize = 16.sp, lineHeight = 25.sp) }
-                Text(if (records.isEmpty()) "TA 尚未确认看过" else "看过 ${records.size} 次 · 感想仅留在这位 TA 的相册", color = p.contentSecondary, fontSize = 12.sp)
+                Text(if (records.isEmpty()) "TA 尚未确认看过" else "看过 ${records.size} 次", color = p.contentSecondary, fontSize = 12.sp)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TextButton(onClick = { if (looking) c.world.cancel(ta.id) else sending = photo },
                         enabled = looking || ta.id !in busy && used < WorldReading.DAILY) { Text(if (looking) "停止看图" else "让 TA 看") }
@@ -123,7 +157,15 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
                         Text("最近的感想", color = p.contentSecondary, fontSize = 11.sp)
                         Text(recent.content.ifBlank { recent.question.ifBlank { "看过了，没有留下感想。" } }, color = p.content, fontSize = 15.sp, lineHeight = 24.sp, maxLines = 4, overflow = TextOverflow.Ellipsis)
                     }
-                    TextButton(onClick = { onExpanded(if (expanded == photo.id) 0 else photo.id) }) { Text(if (expanded == photo.id) "收起感想" else "展开感想 · ${records.size}") }
+                    Row {
+                        TextButton(onClick = { onExpanded(if (expanded == photo.id) 0 else photo.id) }) {
+                            Text(if (expanded == photo.id) "收起感想" else "展开感想 · ${records.size}")
+                        }
+                        val recent = records.first()
+                        if (expanded != photo.id && (recent.content.isNotBlank() || recent.question.isNotBlank())) {
+                            TextButton(onClick = { replyTo(photo, recent) }, enabled = !preparingReply) { Text("回复") }
+                        }
+                    }
                     if (expanded == photo.id) records.forEach { record ->
                         HorizontalDivider(color = p.contentSecondary.copy(alpha = .18f))
                         Text(Instant.ofEpochMilli(record.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("M月d日 HH:mm")), color = p.contentSecondary, fontSize = 12.sp)
@@ -131,8 +173,12 @@ private fun AlbumContents(ta: CompanionEntity, top: Dp, bottom: Dp, options: Boo
                             Text(record.content.ifBlank { if (record.question.isBlank()) "看过了，没有留下感想。" else "" }, color = p.content, fontSize = 15.sp, lineHeight = 24.sp)
                             if (record.question.isNotBlank()) Text(record.question, color = p.contentSecondary, fontSize = 15.sp, lineHeight = 24.sp)
                         } }
+                        if (record.content.isNotBlank() || record.question.isNotBlank()) {
+                            TextButton(onClick = { replyTo(photo, record) }, enabled = !preparingReply) { Text("回复") }
+                        }
                     }
                 }
+                if (replyProblem == photo.id) Text("没能打开聊天，请重新打开相册再试。", color = p.error, fontSize = 12.sp)
             }
         }
     }

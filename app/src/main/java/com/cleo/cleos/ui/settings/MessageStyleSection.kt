@@ -1,17 +1,15 @@
 package com.cleo.cleos.ui.settings
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.cleo.cleos.ai.ToolGroup
 import com.cleo.cleos.data.MessageStyle
 import com.cleo.cleos.glass.LocalGlassPalette
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
 
 @Composable
 internal fun MessageStyleSection(vm: SettingsViewModel) {
@@ -19,11 +17,13 @@ internal fun MessageStyleSection(vm: SettingsViewModel) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val style = MessageStyle.of(vm.messageStyle)
     Section("消息发送偏好") {
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            MessageStyle.entries.forEach { option ->
-                FilterChip(selected = style == option, enabled = !vm.messageStyleSaving,
-                    onClick = { vm.chooseMessageStyle(option.id) }, label = { Text(option.title) })
-            }
+        SlidingCapsuleTabs(
+            labels = MessageStyle.entries.map { it.title },
+            selectedIndex = style.ordinal,
+            motion = systemMotionEnabled(),
+            enabled = !vm.messageStyleSaving,
+        ) { index ->
+            vm.chooseMessageStyle(MessageStyle.entries[index].id)
         }
         Text(style.description, color = p.content, fontSize = 14.sp, lineHeight = 21.sp)
         Text("仅对这位 TA 的私聊文字生效，选择后自动保存。你当轮明确说「完整说」「别分条」或「分开发」，TA 会优先按这次要求表达。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 19.sp)

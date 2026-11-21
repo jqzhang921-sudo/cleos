@@ -65,7 +65,7 @@ data class ImportedCard(
 )
 
 /** A chat log: what was said with one character. */
-data class ImportedChat(val title: String, val messages: List<ImportedMessage>)
+data class ImportedChat(val title: String, val messages: List<ImportedMessage>, val sourceKey: String? = null)
 
 /** One line of a chat log. [at]: when it was said, 0 when the file doesn't say. */
 data class ImportedMessage(val fromMe: Boolean, val content: String, val at: Long)
@@ -651,11 +651,14 @@ class ForeignImport(
     private val companions: Companions,
 ) {
     private val resolver = context.contentResolver
+    private val cache = context.cacheDir
 
     /** What one import made, for the line the page shows. */
     suspend fun import(uri: Uri, companionId: Long): ForeignImportResult = withContext(Dispatchers.IO) {
         val bytes = resolver.openInputStream(uri)?.use { readAtMost(it, MAX_BYTES) } ?: throw ImportException("打不开这个文件")
-        val file = ForeignFile.read(bytes, runCatching { resolver.getType(uri) }.getOrNull())
+        val chatbox = if (DocxText.isZip(bytes)) ChatboxArchive.readIfPresent(bytes, cache) else null
+        val file = chatbox?.let { ForeignExport(chats = it) }
+            ?: ForeignFile.read(bytes, runCatching { resolver.getType(uri) }.getOrNull())
         val now = System.currentTimeMillis()
         var target = companionId
         val made = mutableListOf<Pair<Long, String>>()
@@ -679,17 +682,21 @@ class ForeignImport(
         }
         var title: String? = null
         var written = 0
+        var importedChats = 0
         var cut = false
         db.withTransaction {
+            val existing = if (chatbox == null) null else db.conversations().importSources(target).toMutableSet()
             for (log in logs) {
                 if (log.messages.isEmpty()) continue
+                if (log.sourceKey != null && existing?.add(log.sourceKey) == false) continue
                 cut = cut || log.messages.size > MAX_MESSAGES
                 val kept = log.messages.takeLast(MAX_MESSAGES)
                 val logTitle = log.title.trim().ifEmpty {
                     file.card?.name?.takeIf { it.isNotBlank() } ?: ChatRepository.DEFAULT_TITLE
                 }
                 if (title == null) title = logTitle
-                written += writeChat(target, logTitle, kept, now)
+                written += writeChat(target, logTitle, kept, now, log.sourceKey)
+                importedChats++
             }
         }
         ForeignImportResult(
@@ -700,8 +707,9 @@ class ForeignImport(
             books = file.books,
             chatTitle = title,
             chatMessages = written,
-            chatConversations = logs.count { it.messages.isNotEmpty() },
+            chatConversations = importedChats,
             chatTruncated = cut,
+            chatbox = chatbox != null,
         )
     }
 
@@ -801,7 +809,7 @@ class ForeignImport(
     }
 
     /** One conversation holding what the log said, in order; returns how many lines went in. */
-    private suspend fun writeChat(companionId: Long, title: String, lines: List<ImportedMessage>, now: Long): Int =
+    private suspend fun writeChat(companionId: Long, title: String, lines: List<ImportedMessage>, now: Long, sourceKey: String?): Int =
         db.withTransaction {
             val known = lines.mapNotNull { it.at.takeIf { at -> at > 0 } }
             val first = (known.firstOrNull() ?: now).coerceAtMost(now)
@@ -812,6 +820,7 @@ class ForeignImport(
                     createdAt = minOf(first, last),
                     updatedAt = maxOf(first, last),
                     companionId = companionId,
+                    importSource = sourceKey,
                 ),
             )
             // A line the file gives no time for goes just after the one before it, so the order holds.
@@ -896,6 +905,7 @@ data class ForeignImportResult(
     val chatConversations: Int = 0,
     /** The log was longer than one conversation takes, and its beginning was left out. */
     val chatTruncated: Boolean = false,
+    val chatbox: Boolean = false,
 ) {
     /** What the person is told afterwards, whichever of the four modules the file had. */
     fun said(): String {
@@ -937,13 +947,15 @@ data class ForeignImportResult(
         } else "接上 ${chatMessages} 句聊天"
         // Nothing to say means everything the file held was already here: it read fine, there was
         // just nothing new in it. (A file that could not be read at all throws instead.)
-        if (parts.isEmpty()) return "这个文件读下来了，里面的东西这边都已经有了，没有新的。"
+        if (parts.isEmpty()) return if (chatbox) "这份 Chatbox 备份里的聊天已导入当前 TA。"
+            else "这个文件读下来了，里面的东西这边都已经有了，没有新的。"
         val tail = buildString {
             when (newTas.size) {
                 1 -> append("，都归他")
                 in 2..Int.MAX_VALUE -> append("，别的东西都归第一个")
             }
             if (chatTruncated) append("。聊天太长，只接上了最近的一部分")
+            if (chatbox) append("。Chatbox 聊天以文字导入，图片、附件和设置留在原备份里")
         }
         return parts.joinToString("，") + tail + "。"
     }

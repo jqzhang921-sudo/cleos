@@ -82,10 +82,88 @@ class GlassTuningTest {
     }
 
     @Test
+    fun noticesFollowCardTuningAndKeepTheirOwnUntunedAppearance() {
+        val base = GlassPalettes.build(dark = false, autoTint = false)
+        val tuning = clear.copy(tintAlpha = .35f, shadow = .03f)
+        val withCard = GlassPalettes.build(dark = false, autoTint = false, tuning = mapOf(GlassPart.Card to tuning))
+        val withButtons = GlassPalettes.build(dark = false, autoTint = false, tuning = mapOf(GlassPart.TopBar to tuning))
+        assertEquals(tuning.applyTo(base.notice, dark = false), withCard.notice)
+        assertEquals(base.notice, withButtons.notice)
+        assertEquals(base.topBar, withCard.topBar)
+    }
+
+    @Test
+    fun theChatJumpButtonHasItsOwnClearGlass() {
+        val base = GlassPalettes.build(dark = false, trough = 0f)
+        assertEquals(0.dp, base.chatJump.blur)
+        assertEquals((-40).dp, base.chatJump.refraction)
+        assertEquals(13.dp, base.chatJump.bevel)
+        assertEquals(0.06f, base.chatJump.dispersion, 0f)
+        assertEquals(0.95f, base.chatJump.zoom, 0f)
+        assertEquals(0f, base.chatJump.tint.alpha, 0f)
+        assertEquals(1.43f, base.chatJump.saturation, 0f)
+        assertEquals(0.32f, base.chatJump.highlight, 0f)
+        assertEquals(0.07f, base.chatJump.shadowAlpha, 0f)
+        val topBarChange = GlassPalettes.build(dark = false, trough = 0f, tuning = mapOf(GlassPart.TopBar to clear))
+        assertEquals(base.chatJump, topBarChange.chatJump)
+        val jumpChange = GlassPalettes.build(dark = false, trough = 0f, tuning = mapOf(GlassPart.ChatJump to clear))
+        assertEquals(base.topBar, jumpChange.topBar)
+        assertEquals(30.dp, jumpChange.chatJump.refraction)
+    }
+
+    @Test
     fun theTopBarTitleNeverGetsClearerThanTheDefaultBar() {
         val p = GlassPalettes.build(dark = false, trough = 0.4f, peak = 0.9f, tuning = mapOf(GlassPart.TopBar to clear))
         assertTrue(p.topBarTitle.tint.alpha >= p.bar.tint.alpha)
         assertEquals(30.dp, p.topBarTitle.refraction)
+    }
+
+    @Test
+    fun explicitTitleTuningCanLowerTheTintWithoutChangingTheButtons() {
+        val base = GlassPalettes.build(dark = false, trough = 0.4f, peak = 0.9f)
+        val tuning = clear.copy(tintAlpha = 0.25f, dispersion = 0f)
+        val tuned = GlassPalettes.build(dark = false, trough = 0.4f, peak = 0.9f,
+            tuning = mapOf(GlassPart.TopBarTitle to tuning))
+        assertEquals(base.topBar, tuned.topBar)
+        assertTrue(tuned.topBarTitle.tint.alpha < base.topBarTitle.tint.alpha)
+        assertEquals(0f, tuned.topBarTitle.dispersion, 0f)
+    }
+
+    @Test
+    fun disablingAutoTintKeepsTheRequestedTintInTheAppAndPreview() {
+        val transparent = clear.copy(tintAlpha = 0f)
+        val tuning = GlassPart.entries.associateWith { transparent }
+        val chosenColor = Color(0xFFF4C14C)
+        for (dark in listOf(false, true)) {
+            val automatic = GlassPalettes.build(dark, trough = 0f, peak = 1f, tuning = tuning, mine = chosenColor)
+            val manual = GlassPalettes.build(dark, trough = 0f, peak = 1f, tuning = tuning, mine = chosenColor, autoTint = false)
+            assertTrue(automatic.topBarTitle.tint.alpha > 0f)
+            assertTrue(automatic.bubbleMine.tint.alpha > 0f)
+            assertEquals(0f, manual.bubbleMine.tint.alpha, 0f)
+            assertEquals(manual.bubbleMine, GlassPalettes.mine(manual, chosenColor).first)
+            for (part in GlassPart.entries) {
+                val draft = transparent.applyTo(manual.partDefaults.getValue(part), dark)
+                assertEquals(0f, manual.parts.getValue(part).tint.alpha, 0f)
+                assertEquals(draft, manual.floored(part, draft))
+            }
+        }
+    }
+
+    @Test
+    fun draftLensAndSavedLensUseTheSameGlassInBothStates() {
+        for (dark in listOf(false, true)) {
+            val base = GlassPalettes.build(dark)
+            val tuning = clear.copy(refraction = -6f, dispersion = 0f, zoom = 1.3f)
+            val style = tuning.applyTo(base.partDefaults.getValue(GlassPart.Lens), dark)
+            val preview = base.previewTabGlass(GlassPart.Lens, style)
+            val saved = GlassPalettes.build(dark, tuning = mapOf(GlassPart.Lens to tuning))
+            assertEquals(style, saved.lens)
+            assertEquals(preview.lens, saved.lens)
+            assertEquals(preview.lensPressed, saved.lensPressed)
+            assertTrue(saved.lensPressed.refraction.value < 0f)
+            assertEquals(0f, saved.lensPressed.dispersion, 0f)
+            assertEquals(base.tabBar, saved.tabBar)
+        }
     }
 
     @Test

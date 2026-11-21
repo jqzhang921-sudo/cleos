@@ -1,5 +1,8 @@
 package com.cleo.cleos.ui.world
 
+import com.cleo.cleos.ui.common.SlidingCapsuleTabs
+import com.cleo.cleos.ui.common.systemMotionEnabled
+
 import com.cleo.cleos.ui.common.TabScrollColumn
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
@@ -68,10 +71,11 @@ internal fun WorldOnlineBooks(ta: CompanionEntity, top: Dp, bottom: Dp, backdrop
             Text("中文维基文库", color = p.content, fontSize = 18.sp)
             Text("先按书名或篇章标题查找，核对后再放进${ta.name.ifBlank { "TA" }}的书架。这里只搜索中文维基文库，不是全网书库，不自动拼接整本书或下载图片。", color = p.contentSecondary, fontSize = 14.sp, lineHeight = 23.sp)
             Text("点击查找，只把检索词发到 zh.wikisource.org；取回与预览不调用模型，也不扣阅读机会。加入书架后，TA 开始阅读时才会把标题、来源和本次片段发到其模型接口。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                for ((value, label) in listOf(false to "按标题", true to "全文线索")) FilterChip(selected = fullText == value,
-                    onClick = { onFullText(value); results = null; preview = null; message = null },
-                    enabled = !loading && !saving, label = { Text(label) })
+            SlidingCapsuleTabs(listOf("按标题", "全文线索"), if (fullText) 1 else 0, systemMotionEnabled(), enabled = !loading && !saving) {
+                onFullText(it == 1)
+                results = null
+                preview = null
+                message = null
             }
             Text(if (fullText) "全文线索会匹配正文中的提及，不代表找到了同名作品。可用作者或关键词继续找线索。" else "先查完整标题，支持简繁标题转换；没有同名页面时，再查标题中含这些字的篇章。", color = p.contentSecondary, fontSize = 12.sp, lineHeight = 20.sp)
             OutlinedTextField(query, { if (it.length <= 100) { onQuery(it); results = null; preview = null; message = null } }, Modifier.fillMaxWidth(),

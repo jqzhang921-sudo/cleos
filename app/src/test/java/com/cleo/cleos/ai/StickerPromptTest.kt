@@ -28,12 +28,25 @@ class StickerPromptTest {
         val history = listOf(msg(1, "user", "在吗"))
         val on = Prompt.messages(AppSettings(), ta, history, now, stickers = book, sendStickers = true).first().content
         assertTrue(on.contains("[[sticker:名字]]"))
+        assertTrue(on.contains("例如 [[sticker:兔子晕倒]]"))
+        assertTrue(on.contains("只返回文字"))
+        assertTrue(on.contains("不沿用历史回复里关于能否发送的判断"))
+        assertFalse(on.contains("send_message"))
         assertTrue(on.contains("兔子晕倒：转圈圈倒下"))
         val off = Prompt.messages(AppSettings(), ta, history, now, stickers = book, sendStickers = false).first().content
         assertFalse(off.contains("sticker"))
         assertFalse(off.contains("兔子晕倒"))
         val none = Prompt.messages(AppSettings(), ta, history, now, stickers = StickerBook.EMPTY, sendStickers = true).first().content
         assertFalse("no collection, nothing to offer", none.contains("sticker"))
+    }
+
+    @Test
+    fun stickerInstructionsCoverBothReplyPathsWhenSendMessageIsAvailable() {
+        val tools = setOf(ToolGroup.Messages)
+        val withStickers = Prompt.system(AppSettings(), ta, tools = tools, stickers = listOf(dizzy))
+        assertTrue(withStickers.contains("普通回复里，也可以放在 send_message 的 text 里"))
+        val withoutStickers = Prompt.system(AppSettings(), ta, tools = tools)
+        assertFalse(withoutStickers.contains("send_message 的 text"))
     }
 
     @Test

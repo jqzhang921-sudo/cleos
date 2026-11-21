@@ -166,7 +166,10 @@ class Companions(
         val conversations = db.conversations().idsFor(id)
         val favorites = db.favorites().forCompanion(id)
         val keptFiles = favorites.flatMap { FavoriteContent.files(FavoriteContent.decode(it.parts)) } + db.world().pictures(id).map { it.file } + db.worldAlbum().photos(id).map { it.file }
-        val pictures = conversations.flatMap { db.messages().imagesIn(it) }.flatMap { MessageImages.decode(it) }.map { it.file }
+        val pictures = conversations.flatMap { conversation ->
+            db.messages().imagesIn(conversation).flatMap(MessageImages::decode).map { it.file } +
+                ChatVersions.media(db.chatVersions().archivedIn(conversation).map { it.message })
+        }
         db.withTransaction {
             conversations.forEach { db.conversations().delete(it) }
             db.diary().deleteWrittenBy(id)

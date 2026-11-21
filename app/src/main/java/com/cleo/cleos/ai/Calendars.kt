@@ -2,6 +2,7 @@ package com.cleo.cleos.ai
 
 import android.Manifest
 import android.content.ContentUris
+import android.content.ContentProviderOperation
 import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
@@ -12,9 +13,11 @@ import android.provider.CalendarContract.Events
 import android.provider.CalendarContract.Instances
 import android.provider.CalendarContract.Reminders
 import androidx.core.content.ContextCompat
+import com.cleo.cleos.data.CourseEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
+import java.security.MessageDigest
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -23,6 +26,8 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** One event on the phone's calendar as the tools show it. [ours]: in Cleos's own calendar, so a TA may change it. */
 data class CalEvent(
@@ -170,6 +175,16 @@ class PhoneCalendar(private val context: Context) : CalendarSource {
 
     override suspend fun events(from: Long, to: Long): List<CalEvent> = withContext(Dispatchers.IO) {
         check()
+        readEvents(from, to)
+    }
+
+    /** Opening the agenda only requires reading the Android calendar. */
+    internal suspend fun agenda(from: Long, to: Long): List<CalEvent> = withContext(Dispatchers.IO) {
+        check(canRead(context)) { "请允许读取手机日历" }
+        readEvents(from, to)
+    }
+
+    private fun readEvents(from: Long, to: Long): List<CalEvent> {
         val ours = ourCalendar(create = false)
         val uri = Instances.CONTENT_URI.buildUpon().also {
             ContentUris.appendId(it, from)
@@ -191,7 +206,53 @@ class PhoneCalendar(private val context: Context) : CalendarSource {
                 )
             }
         }
-        out
+        return out
+    }
+
+    internal data class ImportedCourses(val added: Int, val skipped: Int)
+
+    internal suspend fun importCourses(events: List<CourseEvent>): ImportedCourses = withContext(Dispatchers.IO) {
+        check()
+        courseImport.withLock {
+            val calendar = localCalendar(create = true, name = COURSE_CALENDAR, displayName = "Cleos 课表")
+                ?: error("手机日历没有创建课表，请检查日历权限")
+            val keys = mutableSetOf<String>()
+            resolver.query(asOwner(Events.CONTENT_URI), arrayOf(Events.SYNC_DATA1),
+                "${Events.CALENDAR_ID} = ? AND ${Events.DELETED} = 0", arrayOf(calendar.toString()), null)
+                ?.use { cursor -> while (cursor.moveToNext()) cursor.getString(0)?.let(keys::add) }
+            val pending = events.mapNotNull { event ->
+                val key = courseKey(event)
+                if (!keys.add(key)) return@mapNotNull null
+                val values = ContentValues().apply {
+                    put(Events.CALENDAR_ID, calendar)
+                    put(Events.TITLE, event.title)
+                    put(Events.DTSTART, event.begin)
+                    put(Events.EVENT_TIMEZONE, event.zone)
+                    put(Events.ALL_DAY, if (event.allDay) 1 else 0)
+                    put(Events.EVENT_LOCATION, event.location)
+                    put(Events.DESCRIPTION, event.notes)
+                    put(Events.SYNC_DATA1, key)
+                    if (event.recurrence == null) {
+                        put(Events.DTEND, event.end)
+                    } else {
+                        val seconds = (event.end - event.begin) / 1000
+                        put(Events.DURATION, if (event.allDay) "P${seconds / 86_400}D" else "PT${seconds}S")
+                        put(Events.RRULE, event.recurrence)
+                        event.excluded?.let { put(Events.EXDATE, it) }
+                    }
+                }
+                ContentProviderOperation.newInsert(asOwner(Events.CONTENT_URI)).withValues(values).build()
+            }
+            if (pending.isNotEmpty()) resolver.applyBatch(CalendarContract.AUTHORITY, ArrayList(pending))
+            ImportedCourses(pending.size, events.size - pending.size)
+        }
+    }
+
+    private fun courseKey(event: CourseEvent): String {
+        val values = listOf(event.uid, event.title, event.begin.toString(), event.end.toString(),
+            event.zone, event.allDay.toString(), event.location, event.notes, event.recurrence.orEmpty(), event.excluded.orEmpty())
+        val bytes = values.joinToString("") { "${it.length}:$it" }.toByteArray()
+        return MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     }
 
     override suspend fun event(id: Long): CalEvent? = withContext(Dispatchers.IO) {
@@ -291,20 +352,22 @@ class PhoneCalendar(private val context: Context) : CalendarSource {
     }
 
     /** Cleos's calendar: a local one, on the phone only, made the first time something goes in. */
-    private fun ourCalendar(create: Boolean): Long? {
+    private fun ourCalendar(create: Boolean): Long? = localCalendar(create, "cleos", "Cleos")
+
+    private fun localCalendar(create: Boolean, name: String, displayName: String): Long? {
         resolver.query(
             Calendars.CONTENT_URI,
             arrayOf(Calendars._ID),
-            "${Calendars.ACCOUNT_NAME} = ? AND ${Calendars.ACCOUNT_TYPE} = ?",
-            arrayOf(ACCOUNT, CalendarContract.ACCOUNT_TYPE_LOCAL),
+            "${Calendars.ACCOUNT_NAME} = ? AND ${Calendars.ACCOUNT_TYPE} = ? AND ${Calendars.NAME} = ?",
+            arrayOf(ACCOUNT, CalendarContract.ACCOUNT_TYPE_LOCAL, name),
             null,
         )?.use { if (it.moveToFirst()) return it.getLong(0) }
         if (!create) return null
         val values = ContentValues().apply {
             put(Calendars.ACCOUNT_NAME, ACCOUNT)
             put(Calendars.ACCOUNT_TYPE, CalendarContract.ACCOUNT_TYPE_LOCAL)
-            put(Calendars.NAME, "cleos")
-            put(Calendars.CALENDAR_DISPLAY_NAME, "Cleos")
+            put(Calendars.NAME, name)
+            put(Calendars.CALENDAR_DISPLAY_NAME, displayName)
             put(Calendars.CALENDAR_COLOR, COLOR)
             put(Calendars.CALENDAR_ACCESS_LEVEL, Calendars.CAL_ACCESS_OWNER)
             put(Calendars.OWNER_ACCOUNT, ACCOUNT)
@@ -323,6 +386,8 @@ class PhoneCalendar(private val context: Context) : CalendarSource {
 
     companion object {
         private const val ACCOUNT = "Cleos"
+        private const val COURSE_CALENDAR = "cleos-courses"
+        private val courseImport = Mutex()
 
         /** The app's violet. */
         private const val COLOR = 0xFF6D5BD0.toInt()
@@ -331,6 +396,9 @@ class PhoneCalendar(private val context: Context) : CalendarSource {
 
         fun allowed(context: Context) =
             PERMISSIONS.all { ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED }
+
+        internal fun canRead(context: Context) =
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALENDAR) == PackageManager.PERMISSION_GRANTED
 
         private val INSTANCE_COLUMNS = arrayOf(
             Instances.EVENT_ID, Instances.TITLE, Instances.BEGIN, Instances.END, Instances.ALL_DAY,

@@ -35,8 +35,6 @@ import com.cleo.cleos.glass.*
 
 internal enum class ChatComposerAction { Mic, Send, Stop }
 
-private val ComposerHeight = 50.dp
-
 /** The same pane, typography and control sizes in private and group chats. */
 @Composable
 internal fun ChatComposer(
@@ -75,8 +73,7 @@ internal fun ChatComposer(
     header: @Composable ColumnScope.() -> Unit = {},
 ) {
     val palette = LocalGlassPalette.current
-    Column(modifier.fillMaxWidth().padding(horizontal = 12.dp).heightIn(min = ComposerHeight)
-        .liquidGlass(backdrop, palette.input, GlassShape.Rounded(ComposerHeight / 2))) {
+    Column(modifier.composerGlass(backdrop)) {
         header()
         // Button squares remain centred in a one-line capsule, and stay at the bottom as text grows.
         Row(verticalAlignment = Alignment.Bottom) {

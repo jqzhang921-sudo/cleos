@@ -1,5 +1,6 @@
 package com.cleo.cleos.ui.chat
 
+import com.cleo.cleos.ai.GroupCallRules
 import com.cleo.cleos.ai.GroupChatRules
 import com.cleo.cleos.data.db.GroupMessageEntity
 import com.cleo.cleos.data.db.GroupTurnEntity
@@ -16,7 +17,6 @@ internal sealed interface GroupChatItem {
     }
 }
 
-internal const val GROUP_CALL_USER = "[群通话转写]\n"
 private const val GROUP_CALL_SPOKEN = "[群通话]\n"
 private const val GROUP_CALL_UNFINISHED = "[群通话，这句未完整播完]\n"
 internal data class GroupCallWords(val spoken: String, val unfinished: String = "")
@@ -44,7 +44,7 @@ internal fun groupChatItems(messages: List<GroupMessageEntity>, turns: List<Grou
             val linked = byAnchor[anchor.groupId to anchor.id].orEmpty()
             val replies = linked.flatMap { byTurn[it.id].orEmpty() }.sortedBy { it.id }
             val plain = { m: GroupMessageEntity -> m.audio == null && m.images == null && m.toolTrace in setOf("{}", "") }
-            val valid = anchor.role == "user" && anchor.turnId == null && anchor.content.startsWith(GROUP_CALL_USER) && plain(anchor) &&
+            val valid = anchor.role == "user" && anchor.turnId == null && GroupCallRules.userText(anchor.content) != null && plain(anchor) &&
                 linked.distinctBy { it.id }.size == linked.size && linked.all { turn ->
                     val targets = GroupChatRules.ids(turn.targets)
                     targets.isNotEmpty() && targets.distinct().size == targets.size &&
